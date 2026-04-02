@@ -617,14 +617,6 @@ function pct(used: number, total: number): number {
   return total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
 }
 
-function quotaColor(used: number, total: number): string {
-  if (total <= 0) return 'var(--accent)';
-  const ratio = used / total;
-  if (ratio >= 0.9) return 'var(--danger)';
-  if (ratio >= 0.7) return 'var(--warning)';
-  return 'var(--accent)';
-}
-
 function formatResetTime(ms: number): string {
   const h = Math.floor(ms / 3600000);
   if (h >= 48) return `${Math.floor(h / 24)}d`;
