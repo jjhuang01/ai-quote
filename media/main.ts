@@ -139,6 +139,45 @@ declare global {
   }
 }
 
+// ---- Inline SVG Icons (零依赖方案) ----
+
+const SVG_ICONS: Record<string, string> = {
+  // Tab 导航
+  status:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
+  account:   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  history:   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+  tools:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',
+  settings:  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 010 4h-.09c-.658.003-1.25.396-1.51 1z"/></svg>',
+  // 操作图标
+  refresh:   '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>',
+  trash:     '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
+  plus:      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  upload:    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
+  switchIcon:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>',
+  edit:      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+  // 维护区图标
+  broom:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h4l10-10-4-4L3 17v4z"/><path d="M14.5 5.5l4 4"/></svg>',
+  reset:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 2v6h6"/><path d="M2.5 8A10 10 0 0112 2a10 10 0 110 20 10 10 0 01-7.35-3.22"/></svg>',
+  fileText:  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
+  database:  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>',
+  wrench:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',
+  // Toast / 状态图标
+  check:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  alertCircle:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+  info:      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  search:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  inbox:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>',
+  // Plan 图标
+  crown:     '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M2 20h20l-2-12-5 5-3-7-3 7-5-5-2 12z"/></svg>',
+  star:      '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>',
+  zap:       '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>',
+};
+
+function icon(name: string, cls = ''): string {
+  const svg = SVG_ICONS[name] ?? '';
+  return cls ? `<span class="svg-icon ${cls}">${svg}</span>` : `<span class="svg-icon">${svg}</span>`;
+}
+
 // ---- State ----
 
 type TabId = 'status' | 'account' | 'history' | 'tools' | 'settings';
@@ -195,7 +234,7 @@ function render(): void {
       ${renderHeader(bs)}
       ${renderTabNav()}
       ${renderActiveTab(bs)}
-      ${state.notification ? `<div class="toast toast-${state.notificationType}">${escapeHtml(state.notification)}</div>` : ''}
+      ${state.notification ? `<div class="toast toast-${state.notificationType}">${state.notificationType === 'success' ? icon('check') : state.notificationType === 'error' ? icon('alertCircle') : icon('info')} ${escapeHtml(state.notification)}</div>` : ''}
     </main>`;
   bindEvents();
   // JS 程序化设置进度条宽度（绕过 CSP 对 inline style 的限制）
@@ -223,18 +262,18 @@ function renderHeader(bs: Bootstrap): string {
 // ---- Tab Nav ----
 
 function renderTabNav(): string {
-  const tabs: { id: TabId; label: string }[] = [
-    { id: 'status', label: '状态' },
-    { id: 'account', label: '账号' },
-    { id: 'history', label: '历史' },
-    { id: 'tools', label: '工具' },
-    { id: 'settings', label: '设置' },
+  const tabs: { id: TabId; label: string; icon: string }[] = [
+    { id: 'status', label: '状态', icon: 'status' },
+    { id: 'account', label: '账号', icon: 'account' },
+    { id: 'history', label: '历史', icon: 'history' },
+    { id: 'tools', label: '工具', icon: 'tools' },
+    { id: 'settings', label: '设置', icon: 'settings' },
   ];
   return `
     <nav class="tab-nav">
       ${tabs.map(t => `
         <button class="tab-btn ${state.activeTab === t.id ? 'active' : ''}" data-tab="${t.id}">
-          ${t.label}
+          ${icon(t.icon)} ${t.label}
         </button>`).join('')}
     </nav>`;
 }
@@ -335,7 +374,7 @@ function renderStatusTab(bs: Bootstrap): string {
         <ul class="paths">
           ${status.autoConfiguredPaths.length > 0
             ? status.autoConfiguredPaths.map(p => `<li class="config-item">${escapeHtml(p)}</li>`).join('')
-            : '<li class="empty-state">暂无自动配置路径</li>'}
+            : `<li class="empty-state">${icon('inbox', 'empty-icon')} 暂无自动配置路径</li>`}
         </ul>
       </section>
     </div>`;
@@ -354,9 +393,9 @@ function renderAccountTab(bs: Bootstrap): string {
         <div class="section-header">
           <h2>账号 (${accounts.length})</h2>
           <div class="btn-group">
-            <button class="btn-xs ${isFetching ? 'disabled' : ''}" data-action="fetchAllQuotas" ${isFetching ? 'disabled' : ''} title="刷新全部配额">${isFetching ? '↻…' : '↻ 配额'}</button>
-            <button class="btn-xs" data-action="toggleAddAccount">+ 添加</button>
-            <button class="btn-xs" data-action="toggleImportAccount">批量</button>
+            <button class="btn-xs btn-icon ${isFetching ? 'disabled' : ''}" data-action="fetchAllQuotas" ${isFetching ? 'disabled' : ''} title="刷新全部配额">${isFetching ? `${icon('refresh')} …` : `${icon('refresh')} 配额`}</button>
+            <button class="btn-xs btn-icon" data-action="toggleAddAccount">${icon('plus')} 添加</button>
+            <button class="btn-xs btn-icon" data-action="toggleImportAccount">${icon('upload')} 批量</button>
             ${accounts.length > 0 ? `<button class="btn-xs btn-danger-xs" data-action="accountClear">清空</button>` : ''}
           </div>
         </div>
@@ -373,7 +412,7 @@ function renderAccountTab(bs: Bootstrap): string {
 
         ${state.showImportAccount ? `
           <div class="inline-form">
-            <p class="hint">📬 批量导入 (每行: 邮箱 密码)</p>
+            <p class="hint">${icon('upload')} 批量导入 (每行: 邮箱 密码)</p>
             <textarea class="text-area" id="importText" rows="5" placeholder="user1@mail.com pass123\nuser2@mail.com pass456">${escapeHtml(state.importText)}</textarea>
             <div class="btn-group">
               <button class="btn-grad btn-sm" data-action="accountImport">导入</button>
@@ -384,7 +423,7 @@ function renderAccountTab(bs: Bootstrap): string {
         <div class="account-list">
           ${accounts.length > 0
             ? accounts.map(a => renderAccountItem(a, bs.currentAccountId, snapshotMap.get(a.id))).join('')
-            : '<p class="empty-state">暂无账号，点击"+ 添加"或"批量导入"</p>'}
+            : `<div class="empty-state">${icon('inbox', 'empty-icon')} <p>暂无账号，点击“添加”或“批量导入”</p></div>`}
         </div>
       </section>
 
@@ -496,13 +535,13 @@ function renderAccountItem(a: WindsurfAccount, currentId?: string, snapshot?: Qu
         <div class="account-info">
           <p class="account-name">${escapeHtml(a.email)}</p>
           <p class="account-meta">
-            <span class="plan-badge" style="color:${planColor}">${a.plan}</span>
+            <span class="plan-badge plan-${a.plan.toLowerCase()}">${planIcon(a.plan)} ${a.plan}</span>
             ${isCurrent ? ' · <span class="badge-active">当前</span>' : ''}
           </p>
         </div>
         <div class="account-actions">
-          ${!isCurrent ? `<button class="btn-xs ${state.switchLoadingId === a.id ? 'btn-loading' : ''}" data-action="accountSwitch" data-id="${a.id}" ${state.switchLoadingId === a.id ? 'disabled' : ''}>${state.switchLoadingId === a.id ? '<span class="btn-spinner"></span>' : '切换'}</button>` : ''}
-          <button class="btn-xs btn-danger-xs" data-action="accountDelete" data-id="${a.id}">删除</button>
+          ${!isCurrent ? `<button class="btn-xs btn-icon ${state.switchLoadingId === a.id ? 'btn-loading' : ''}" data-action="accountSwitch" data-id="${a.id}" ${state.switchLoadingId === a.id ? 'disabled' : ''}>${state.switchLoadingId === a.id ? '<span class="btn-spinner"></span>' : `${icon('switchIcon')} 切换`}</button>` : ''}
+          <button class="btn-xs btn-danger-xs btn-icon" data-action="accountDelete" data-id="${a.id}">${icon('trash')} 删除</button>
         </div>
       </div>
       <div class="quota-section">
@@ -549,6 +588,16 @@ function renderQuotaEditor(bs: Bootstrap): string {
     </section>`;
 }
 
+function planIcon(plan: string): string {
+  switch (plan) {
+    case 'Pro': return icon('crown', 'plan-icon-pro');
+    case 'Max': return icon('zap', 'plan-icon-max');
+    case 'Enterprise': case 'Teams': return icon('star', 'plan-icon-teams');
+    case 'Trial': return icon('zap', 'plan-icon-trial');
+    default: return '';
+  }
+}
+
 function pct(used: number, total: number): number {
   return total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
 }
@@ -572,7 +621,7 @@ function renderHistoryTab(bs: Bootstrap): string {
   return `
     <div class="tab-content">
       <div class="search-bar">
-        <span>🔍</span>
+        ${icon('search')}
         <input class="search-hi" type="text" placeholder="搜索历史记录..." value="${escapeHtml(state.historySearch)}" data-action="historySearch">
       </div>
       <section class="card">
@@ -583,21 +632,21 @@ function renderHistoryTab(bs: Bootstrap): string {
         <div class="history-section">
           ${items.length > 0
             ? items.map(h => renderHistoryItem(h)).join('')
-            : '<p class="empty-state">暂无历史记录</p>'}
+            : `<div class="empty-state">${icon('inbox', 'empty-icon')} <p>暂无历史记录</p></div>`}
         </div>
       </section>
     </div>`;
 }
 
 function renderHistoryItem(item: HistoryItem): string {
-  const icon = item.type === 'conversation' ? '💬' : item.type === 'feedback' ? '⭐' : '📡';
+  const hIcon = item.type === 'conversation' ? '💬' : item.type === 'feedback' ? '⭐' : '📡';
   const time = new Date(item.createdAt).toLocaleString('zh-CN');
   const isExpanded = state.expandedHistoryId === item.id;
   const showMenu = state.historyMenuId === item.id;
 
   return `
     <div class="history-item" data-history-id="${item.id}">
-      <div class="history-icon">${icon}</div>
+      <div class="history-icon">${hIcon}</div>
       <div class="history-content">
         <p class="history-title">${escapeHtml(item.title)}</p>
         <p class="history-meta">${item.type} · ${time}</p>
@@ -627,7 +676,7 @@ function renderShortcutTab(bs: Bootstrap): string {
         <div class="shortcut-list" style="margin-top:12px">
           ${bs.shortcuts.length > 0
             ? bs.shortcuts.map(s => renderShortcutItem(s)).join('')
-            : '<p class="empty-state">暂无快捷短语</p>'}
+            : `<div class="empty-state">${icon('inbox', 'empty-icon')} <p>暂无快捷短语</p></div>`}
         </div>
       </section>`;
 }
@@ -664,7 +713,7 @@ function renderTemplateTab(bs: Bootstrap): string {
         <div class="template-list" style="margin-top:12px">
           ${bs.templates.length > 0
             ? bs.templates.map(t => renderTemplateItem(t)).join('')
-            : '<p class="empty-state">暂无模板</p>'}
+            : `<div class="empty-state">${icon('inbox', 'empty-icon')} <p>暂无模板</p></div>`}
         </div>
       </section>`;
 }
@@ -820,15 +869,15 @@ function renderSettingsTab(bs: Bootstrap): string {
       <section class="card">
         <div class="section-header"><h2>维护</h2></div>
         <div class="maintenance-grid">
-          ${renderMaintenanceBtn('maintenanceCleanMcp', '🧹 清理旧MCP配置', 'cleanMcp')}
+          ${renderMaintenanceBtn('maintenanceCleanMcp', `${icon('broom')} 清理旧MCP配置`, 'cleanMcp')}
           <p class="hint">清理MCP配置文件中的旧端口记录</p>
-          ${renderMaintenanceBtn('maintenanceResetSettings', '🔄 重置所有设置', 'resetSettings')}
+          ${renderMaintenanceBtn('maintenanceResetSettings', `${icon('reset')} 重置所有设置`, 'resetSettings')}
           <p class="hint">恢复默认设置（清空快捷回复、模板等）</p>
-          ${renderMaintenanceBtn('maintenanceRewriteRules', '📝 重写规则文件', 'rewriteRules')}
+          ${renderMaintenanceBtn('maintenanceRewriteRules', `${icon('fileText')} 重写规则文件`, 'rewriteRules')}
           <p class="hint">重新写入AI反馈规则到工作区</p>
-          ${renderMaintenanceBtn('maintenanceClearCache', '🗑️ 清理插件缓存', 'clearCache')}
+          ${renderMaintenanceBtn('maintenanceClearCache', `${icon('database')} 清理插件缓存`, 'clearCache')}
           <p class="hint">清理历史记录、日志等缓存数据</p>
-          ${renderMaintenanceBtn('maintenanceDiagnose', '🔧 诊断并修复', 'diagnose', true)}
+          ${renderMaintenanceBtn('maintenanceDiagnose', `${icon('wrench')} 诊断并修复`, 'diagnose', true)}
           <p class="hint">检测服务器状态、MCP配置并自动修复</p>
           ${state.diagnoseResult ? renderDiagnoseCard(state.diagnoseResult) : ''}
         </div>
