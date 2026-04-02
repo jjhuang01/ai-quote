@@ -116,23 +116,3 @@ export class AccountManager {
     return `acc_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
   }
 }
-
-// Windsurf 账户管理器 - 从原始插件推断
-export class WindsurfAccountManager {
-  private readonly logger: LoggerLike;
-
-  public constructor(logger: LoggerLike) {
-    this.logger = logger;
-  }
-
-  public async getAccount(): Promise<AccountInfo | undefined> {
-    // TODO: 实现 Windsurf 账户获取逻辑
-    this.logger.debug('WindsurfAccountManager.getAccount called');
-    return undefined;
-  }
-
-  public async refreshAccount(): Promise<void> {
-    // TODO: 实现 Windsurf 账户刷新逻辑
-    this.logger.debug('WindsurfAccountManager.refreshAccount called');
-  }
-}

@@ -118,14 +118,187 @@ export interface FeedbackItem {
   metadata?: Record<string, unknown>;
 }
 
-// Webview state
-export interface WebviewState {
+// Windsurf Account (支持 2026.3 日/周配额模型)
+export interface WindsurfAccount {
+  id: string;
+  email: string;
+  password: string;
+  plan: 'Trial' | 'Pro' | 'Enterprise' | 'Free' | 'Max' | 'Teams';
+  // 旧字段 (向后兼容)
+  creditsUsed: number;
+  creditsTotal: number;
+  // 新配额字段 (2026.3+)
+  quota: AccountQuota;
+  expiresAt: string;
+  isActive: boolean;
+  lastCheckedAt?: string;
+  addedAt: string;
+  realQuota?: RealQuotaInfo;
+}
+
+export interface AccountQuota {
+  dailyUsed: number;
+  dailyLimit: number;
+  dailyResetAt: string;   // ISO 时间
+  weeklyUsed: number;
+  weeklyLimit: number;
+  weeklyResetAt: string;  // ISO 时间
+}
+
+export const DEFAULT_QUOTA: AccountQuota = {
+  dailyUsed: 0,
+  dailyLimit: 0,
+  dailyResetAt: '',
+  weeklyUsed: 0,
+  weeklyLimit: 0,
+  weeklyResetAt: ''
+};
+
+// Settings (对齐原始插件设置Tab)
+export interface PluginSettings {
+  // 外观设置
+  theme: 'dark' | 'light' | 'auto';
+  panelPosition: 'right' | 'left' | 'bottom';
+  // 弹窗尺寸
+  feedbackHeight: number;
+  inputHeight: number;
+  fontSize: number;
+  cardOpacity: number;
+  breathingLightColor: string;
+  // 快捷键设置
+  enterToSend: boolean;
+  showUserPrompt: boolean;
+  // 历史记录设置
+  historyLimit: number;
+  // 提示音设置
+  soundAlert: 'none' | 'tada' | 'ding' | 'pop' | 'chime';
+  // 配额获取
+  firebaseApiKey: string;          // Codeium Firebase Web API Key (用于通道B)
+}
+
+export const DEFAULT_SETTINGS: PluginSettings = {
+  theme: 'dark',
+  panelPosition: 'right',
+  feedbackHeight: 400,
+  inputHeight: 100,
+  fontSize: 14,
+  cardOpacity: 80,
+  breathingLightColor: '#00ff88',
+  enterToSend: false,
+  showUserPrompt: false,
+  historyLimit: 30,
+  soundAlert: 'tada',
+  firebaseApiKey: ''
+};
+
+// Shortcut (快捷短语)
+export interface ShortcutItem {
+  id: string;
+  content: string;
+  createdAt: string;
+}
+
+// Template (系统提示词模板)
+export interface TemplateItem {
+  id: string;
+  name: string;
+  content: string;
+  createdAt: string;
+}
+
+// Usage Stats (使用统计)
+export interface UsageStats {
+  totalConversations: number;
+  continueCount: number;
+  pauseCount: number;
+  endCount: number;
+  dailyAverage: number;
+  continueRate: number;
+  lastResetAt: string;
+}
+
+// Auto-switch settings (自动切换设置 - 日/周配额感知)
+export interface AutoSwitchConfig {
+  enabled: boolean;
+  threshold: number;           // 剩余配额低于此值时触发切换
+  checkInterval: number;       // 检查间隔(秒)
+  creditWarning: number;       // 配额预警值
+  switchOnDaily: boolean;      // 日配额触顶时切换
+  switchOnWeekly: boolean;     // 周配额触顶时切换
+}
+
+export const DEFAULT_AUTO_SWITCH: AutoSwitchConfig = {
+  enabled: false,
+  threshold: 5,
+  checkInterval: 60,
+  creditWarning: 3,
+  switchOnDaily: true,
+  switchOnWeekly: true
+};
+
+// 配额快照 (传给 Webview 显示)
+export interface QuotaSnapshot {
+  accountId: string;
+  email: string;
+  plan: string;
+  dailyUsed: number;
+  dailyLimit: number;
+  dailyRemaining: number;
+  dailyResetIn: string;    // 人类可读倒计时
+  weeklyUsed: number;
+  weeklyLimit: number;
+  weeklyRemaining: number;
+  weeklyResetIn: string;
+  warningLevel: 'ok' | 'warn' | 'critical';
+  // 真实配额 (来自 API/本地读取)
+  real?: RealQuotaInfo;
+}
+
+// Webview bootstrap data
+export interface WebviewBootstrap {
   status: EchoBridgeStatus;
   history: HistoryItem[];
-  queue: QueueItem[];
-  accounts: AccountInfo[];
-  feedback: FeedbackItem[];
+  accounts: WindsurfAccount[];
+  shortcuts: ShortcutItem[];
+  templates: TemplateItem[];
+  settings: PluginSettings;
+  usageStats: UsageStats;
+  autoSwitch: AutoSwitchConfig;
+  currentAccountId?: string;
+  licenseInfo?: LicenseInfo;
+  quotaSnapshots: QuotaSnapshot[];
+  quotaFetching?: boolean;
+}
+
+export interface LicenseInfo {
+  key: string;
+  type: 'permanent' | 'trial' | 'subscription';
+  expiresAt: string;
+  isActive: boolean;
+}
+
+// 真实 Windsurf Plan 配额 (从 cachedPlanInfo 逆向)
+export interface RealQuotaInfo {
+  planName: string;
+  billingStrategy: string;         // 'quota' | 'credits'
+  dailyRemainingPercent: number;   // 0-100
+  weeklyRemainingPercent: number;  // 0-100
+  dailyResetAtUnix: number;        // unix seconds
+  weeklyResetAtUnix: number;       // unix seconds
+  messages: number;
+  usedMessages: number;
+  remainingMessages: number;
+  flowActions: number;
+  usedFlowActions: number;
+  remainingFlowActions: number;
+  overageBalanceMicros: number;
+  fetchedAt: string;               // ISO
+  source: 'local' | 'api' | 'apikey' | 'cache' | 'proto';
+}
+
+// Webview state (前端状态)
+export interface WebviewState {
+  activeTab: 'status' | 'account' | 'history' | 'shortcut' | 'template' | 'settings' | 'update';
   searchQuery: string;
   isWaiting: boolean;
-  activeTab: 'status' | 'history' | 'queue' | 'feedback' | 'settings';
 }

@@ -1,12 +1,8 @@
-import * as path from 'node:path';
 import * as vscode from "vscode";
 import { EchoBridgeServer } from "./core/bridge";
 import { getExtensionConfig } from "./core/config";
 import { EchoLogger } from "./core/logger";
-import { HistoryManager } from "./core/history";
-import { QueueManager } from "./core/queue";
-import { AccountManager } from "./core/account";
-import { FeedbackManager } from "./core/feedback";
+import { DataManager } from "./core/data-manager";
 import { detectCurrentIde, writeMcpConfig } from "./adapters/mcp-config";
 import { configureGlobalRules } from "./adapters/rules";
 import { EchoSidebarProvider } from "./webview/provider";
@@ -15,10 +11,7 @@ import { generateToolName } from "./utils/tool-name";
 let statusBarItem: vscode.StatusBarItem | undefined;
 let logger: EchoLogger | undefined;
 let bridge: EchoBridgeServer | undefined;
-let historyManager: HistoryManager | undefined;
-let queueManager: QueueManager | undefined;
-let accountManager: AccountManager | undefined;
-let feedbackManager: FeedbackManager | undefined;
+let dataManager: DataManager | undefined;
 
 async function updateStatusBar(): Promise<void> {
   if (!statusBarItem || !bridge) {
@@ -37,17 +30,8 @@ export async function activate(
   const currentIde = detectCurrentIde();
   const toolName = generateToolName();
 
-  // Initialize managers
-  historyManager = new HistoryManager(context);
-  await historyManager.initialize();
-  
-  queueManager = new QueueManager(logger);
-  
-  accountManager = new AccountManager(context, logger);
-  await accountManager.initialize();
-  
-  feedbackManager = new FeedbackManager(context, logger);
-  await feedbackManager.initialize();
+  dataManager = DataManager.getInstance(context, logger);
+  await dataManager.initialize();
 
   bridge = new EchoBridgeServer(
     logger,
@@ -61,10 +45,7 @@ export async function activate(
     context.extensionUri,
     bridge,
     logger,
-    historyManager,
-    queueManager,
-    accountManager,
-    feedbackManager,
+    dataManager,
   );
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
@@ -111,7 +92,7 @@ export async function activate(
       sidebarProvider.postState();
       await updateStatusBar();
       vscode.window.showInformationMessage(
-        "AI Echo rebuilt sidebar refreshed.",
+        "AI Echo sidebar refreshed.",
       );
     }),
     vscode.commands.registerCommand("infiniteDialog.testFeedback", async () => {
@@ -130,18 +111,6 @@ export async function activate(
       await updateStatusBar();
       void vscode.window.showInformationMessage(
         `Echo bridge ${status.running ? "running" : "stopped"} · port ${status.port} · IDE ${status.currentIde}`,
-      );
-    }),
-    vscode.commands.registerCommand("infiniteDialog.openLogs", async () => {
-      const logPath = logger?.getLogFilePath();
-      if (!logPath) {
-        return;
-      }
-      // 打开日志目录
-      const logDir = path.dirname(logPath);
-      await vscode.commands.executeCommand(
-        "revealFileInOS",
-        vscode.Uri.file(logDir),
       );
     }),
   );
@@ -163,6 +132,8 @@ export async function activate(
 }
 
 export async function deactivate(): Promise<void> {
+  dataManager?.endSession();
+  DataManager.resetInstance();
   await bridge?.stop();
   logger?.dispose();
 }

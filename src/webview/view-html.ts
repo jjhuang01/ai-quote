@@ -1,15 +1,11 @@
 import * as vscode from 'vscode';
-import type { EchoBridgeStatus, HistoryItem, QueueItem, AccountInfo, FeedbackItem } from '../core/contracts';
+import type { WebviewBootstrap } from '../core/contracts';
 
 export function buildWebviewHtml(
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
-  status: EchoBridgeStatus,
-  logPath: string,
-  history: HistoryItem[] = [],
-  queue: QueueItem[] = [],
-  accounts: AccountInfo[] = [],
-  feedback: FeedbackItem[] = []
+  bootstrap: WebviewBootstrap,
+  logPath: string
 ): string {
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'main.js'));
   const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'main.css'));
@@ -24,10 +20,10 @@ export function buildWebviewHtml(
     <link rel="stylesheet" href="${styleUri}" />
     <title>AI Echo</title>
   </head>
-  <body data-port="${status.port}" data-ide="${status.currentIde}" data-tool-name="${status.toolName}" data-log-path="${escapeHtml(logPath)}">
+  <body>
     <div id="app"></div>
     <script nonce="${nonce}">
-      window.__AI_ECHO_BOOTSTRAP__ = ${JSON.stringify({ status, logPath, history, queue, accounts, feedback })};
+      window.__AI_ECHO_BOOTSTRAP__ = ${safeJsonForScript({ ...bootstrap, logPath })};
     </script>
     <script type="module" nonce="${nonce}" src="${scriptUri}"></script>
   </body>
@@ -43,11 +39,11 @@ function createNonce(): string {
   return nonce;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+function safeJsonForScript(data: unknown): string {
+  return JSON.stringify(data)
+    .replaceAll('<', '\\u003c')
+    .replaceAll('>', '\\u003e')
+    .replaceAll('&', '\\u0026')
+    .replaceAll('\u2028', '\\u2028')
+    .replaceAll('\u2029', '\\u2029');
 }

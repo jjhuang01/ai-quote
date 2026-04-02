@@ -133,6 +133,17 @@ export class EchoBridgeServer {
   }
 
   private async handleRequest(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+    try {
+      await this.routeRequest(request, response);
+    } catch (err) {
+      this.logger.error('Unhandled request error.', { error: String(err), url: request.url });
+      if (!response.headersSent) {
+        writeJson(response, 500, { success: false, message: 'Internal server error' });
+      }
+    }
+  }
+
+  private async routeRequest(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
     if (request.method === 'OPTIONS') {
       response.writeHead(204, {
         'Access-Control-Allow-Origin': '*',

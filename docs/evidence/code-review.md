@@ -25,18 +25,37 @@
 | 状态栏 | StatusBarItem | ✅ 相同 | 完成 |
 | 日志系统 | OutputChannel | ✅ 相同 | 完成 |
 
-### ❌ 缺失功能
+### ✅ 后续补齐功能 (已全部实现)
 
-| 功能 | 证据来源 | 优先级 | 说明 |
-|------|----------|--------|------|
-| **History 历史记录** | `'history'`, `'getHistory'`, `'historyLimit'` | 🔴 高 | 对话历史管理 |
-| **Queue 队列系统** | `'queue'`, `'_queue'`, `'drainQueue'` | 🔴 高 | 消息队列管理 |
-| **Feedback 反馈面板** | `'feedback'`, `'feedbackHeight'`, `.feedback` | 🔴 高 | 反馈界面 |
-| **Account 账户管理** | `WindsurfAccountManager`, `'accounts'`, `'getAccount'` | 🔴 高 | Windsurf 账户 |
-| **Search 搜索功能** | `'search'`, `.search-bar`, `'searchHist'` | 🟡 中 | 搜索历史 |
-| **Waiting 等待状态** | `'waiting-ca'`, `.waiting-gl`, `'topWaiting'` | 🟡 中 | 等待动画 |
-| **Settings 设置面板** | `'settings'`, `.settings-` | 🟡 中 | 设置界面 |
-| **Stats 统计面板** | `'stats'`, `.stats-grid` | 🟢 低 | 统计信息 |
+| 功能 | 证据来源 | 当前状态 | 说明 |
+|------|----------|----------|------|
+| **History 历史记录** | `'history'`, `'getHistory'`, `'historyLimit'` | ✅ 完成 | HistoryManager + 搜索/展开/删除/清空 |
+| **Queue 队列系统** | `'queue'`, `'_queue'`, `'drainQueue'` | ✅ 完成 | QueueManager 消息队列管理 |
+| **Feedback 反馈面板** | `'feedback'`, `'feedbackHeight'` | ✅ 完成 | testFeedback 命令 + bridge 注入 |
+| **Account 账户管理** | `WindsurfAccountManager` | ✅ 完成 | 多账号 CRUD/切换/导入/清空 |
+| **Search 搜索功能** | `'search'`, `.search-bar` | ✅ 完成 | 历史搜索 + 实时过滤 |
+| **Waiting 等待状态** | `'waiting-ca'`, `.waiting-gl` | ✅ 完成 | 等待动画卡片 |
+| **Settings 设置面板** | `'settings'`, `.settings-` | ✅ 完成 | 7大类设置 + 保存/重置 |
+| **Stats 统计面板** | `'stats'`, `.stats-grid` | ✅ 完成 | 使用统计 + 圆环图 |
+| **Shortcuts 快捷短语** | `.shortcut-*` | ✅ 完成 | 增删改查 |
+| **Templates 提示词模板** | `.template-*` | ✅ 完成 | 增删改查 |
+
+### 🆕 超越原始插件的新增功能
+
+| 功能 | 说明 |
+|------|------|
+| **日/周配额系统** | 支持 Windsurf 2026.3 配额模型，日/周双进度条 |
+| **多通道配额获取** | Channel E(proto) / D(apikey) / A(local) / B(Firebase) 四通道降级 |
+| **Firebase Auth 适配器** | 完整的 Firebase signIn + refreshToken + 缓存 |
+| **GetPlanStatus API** | web-backend.windsurf.com 实时配额查询 |
+| **Protobuf 解码** | 本地 userStatusProtoBinaryBase64 零网络解码 |
+| **配额 Mini Card** | 环形图可视化，日/周双环 + 消息/Flow 统计 |
+| **自动切换 (日/周)** | 日/周配额感知的智能账号切换 |
+| **配额编辑器** | 手动设置日/周配额限额 |
+| **机器 ID 重置** | 重置 Windsurf machineId 解除设备绑定 |
+| **JSON XSS 防护** | safeJsonForScript 防止 script 注入 |
+| **密码字段过滤** | webview 不传输明文密码 |
+| **数据迁移兼容** | load() 自动补充旧数据缺失的 quota 字段 |
 
 ---
 

@@ -1,11 +1,15 @@
 {
-  "name": "ai-echo-rebuild",
-  "displayName": "Echo Rebuild",
-  "description": "Evidence-driven reconstruction of the AI Echo VS Code extension.",
-  "version": "0.1.0",
-  "publisher": "local-rebuild",
+  "name": "ai-echo",
+  "displayName": "Echo",
+  "description": "",
+  "version": "2.1.4",
+  "publisher": "opensource",
   "license": "MIT",
-  "author": "OpenCode Reconstruction",
+  "author": "EVILZIXIE",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -13,29 +17,14 @@
     "Other"
   ],
   "keywords": [
-    "echo",
-    "mcp",
-    "bridge",
-    "utility",
-    "reconstruction"
+    "tool",
+    "helper",
+    "utility"
   ],
   "activationEvents": [
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
-  "extensionKind": [
-    "workspace"
-  ],
-  "capabilities": {
-    "untrustedWorkspaces": {
-      "supported": "limited",
-      "description": "AI Echo Rebuild writes MCP config files and feedback rules. These features are limited in untrusted workspaces.",
-      "restrictedConfigurations": [
-        "infiniteDialog.serverPort",
-        "infiniteDialog.autoConfigureRules"
-      ]
-    }
-  },
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -74,10 +63,6 @@
       {
         "command": "infiniteDialog.showStatus",
         "title": "AI Echo: Show Status"
-      },
-      {
-        "command": "infiniteDialog.openLogs",
-        "title": "AI Echo: Open Logs"
       }
     ],
     "menus": {
@@ -118,7 +103,7 @@
     "test:e2e": "vitest run tests/e2e",
     "test": "npm run test:unit && npm run test:e2e",
     "dev": "node esbuild.mjs --watch",
-    "dev:debug": "npm run build && code --extensionDevelopmentPath=\"$PWD\" --disableExtensions",
+    "dev:debug": "npm run build && /Applications/vscode.app/Contents/Resources/app/bin/code --extensionDevelopmentPath=\"$PWD\" --disable-extensions",
     "test:integration": "npm run build && npm run compile-tests && vscode-test",
     "verify": "npm run check-types && npm run build && npm run test && npm run test:integration",
     "vscode:prepublish": "npm run build"
