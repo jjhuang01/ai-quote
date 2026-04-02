@@ -30,6 +30,7 @@ export class DataManager {
   public readonly templates: TemplateManager;
   public readonly usageStats: UsageStatsManager;
   public readonly windsurfAccounts: WindsurfAccountManager;
+  public readonly globalStoragePath: string;
 
   private sessionHistory: SessionHistory[] = [];
   private currentSessionId: string | undefined;
@@ -40,6 +41,7 @@ export class DataManager {
     context: vscode.ExtensionContext,
     private readonly logger: LoggerLike
   ) {
+    this.globalStoragePath = context.globalStorageUri.fsPath;
     this.history = new HistoryManager(context);
     this.queue = new QueueManager(logger);
     this.account = new AccountManager(context, logger);

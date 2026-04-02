@@ -1301,11 +1301,11 @@ button:hover {
   font-weight: 500;
   z-index: 999;
   animation: toast-in 0.2s ease;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  max-width: 90%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  max-width: 85vw;
+  text-align: center;
 }
 .toast-success {
   background: color-mix(in srgb, var(--success) 90%, transparent);

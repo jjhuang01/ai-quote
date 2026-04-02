@@ -110,341 +110,325 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
     const value = Reflect.get(message, 'value');
     const payload = Reflect.get(message, 'payload');
 
-    // --- General ---
-    if (action === 'refresh') {
-      this.render();
-      return;
-    }
+    if (!action) return;
 
-    if (action === 'testFeedback') {
-      await this.bridge.injectTestFeedback();
-      this.postState();
-      return;
-    }
-
-    // --- History ---
-    if (action === 'clearHistory') {
-      await this.dataManager.history.clear();
-      this.postBootstrap();
-      void this.view?.webview.postMessage({ type: 'opResult', value: { message: '历史记录已清空' } });
-      return;
-    }
-
-    if (action === 'deleteHistory') {
-      if (typeof value === 'string') {
-        await this.dataManager.history.delete(value);
-        this.postBootstrap();
-      }
-      return;
-    }
-
-    // --- Session control ---
-    if (action === 'sessionContinue') {
-      this.dataManager.incrementSessionMessageCount();
-      await this.dataManager.usageStats.recordContinue();
-      this.postBootstrap();
-      return;
-    }
-
-    if (action === 'sessionEnd') {
-      this.dataManager.endSession();
-      this.dataManager.startSession();
-      await this.dataManager.usageStats.recordEnd();
-      this.postBootstrap();
-      return;
-    }
-
-    // --- Windsurf Accounts ---
-    if (action === 'accountAdd') {
-      if (payload && typeof payload === 'object') {
-        const email = Reflect.get(payload, 'email') as string;
-        const password = Reflect.get(payload, 'password') as string;
-        if (email && password) {
-          await this.dataManager.windsurfAccounts.add(email, password);
-          this.postBootstrap();
-        }
-      }
-      return;
-    }
-
-    if (action === 'accountImport') {
-      if (typeof value === 'string') {
-        const result = await this.dataManager.windsurfAccounts.importBatch(value);
-        void this.view?.webview.postMessage({ type: 'importResult', value: result });
-        this.postBootstrap();
-      }
-      return;
-    }
-
-    if (action === 'accountDelete') {
-      if (typeof value === 'string') {
-        const account = this.dataManager.windsurfAccounts.getById(value);
-        await this.dataManager.windsurfAccounts.delete(value);
-        this.postBootstrap();
-        void this.view?.webview.postMessage({ type: 'opResult', value: { message: account ? `已删除 ${account.email}` : '账号已删除' } });
-      }
-      return;
-    }
-
-    if (action === 'accountSwitch') {
-      if (typeof value === 'string') {
-        void this.view?.webview.postMessage({ type: 'switchLoading', value: true });
-        const account = this.dataManager.windsurfAccounts.getById(value);
-        const ok = await this.dataManager.windsurfAccounts.switchTo(value);
-        void this.view?.webview.postMessage({ type: 'switchLoading', value: false });
-        this.postBootstrap();
-        if (ok && account) {
-          const msg = `已切换到 ${account.email}`;
-          void this.view?.webview.postMessage({ type: 'switchResult', value: { success: true, message: msg } });
-          vscode.window.setStatusBarMessage(`$(check) ${msg}`, 4000);
-        } else {
-          void this.view?.webview.postMessage({ type: 'switchResult', value: { success: false, message: '切换失败：账号不存在' } });
-        }
-      }
-      return;
-    }
-
-    if (action === 'accountClear') {
-      await this.dataManager.windsurfAccounts.clear();
-      this.postBootstrap();
-      void this.view?.webview.postMessage({ type: 'opResult', value: { message: '所有账号已清空' } });
-      return;
-    }
-
-    if (action === 'autoSwitchUpdate') {
-      if (payload && typeof payload === 'object') {
-        await this.dataManager.windsurfAccounts.updateAutoSwitch(payload as Record<string, unknown>);
-        this.postBootstrap();
-      }
-      return;
-    }
-
-    if (action === 'resetMachineId') {
-      const result = await this.dataManager.windsurfAccounts.resetMachineId();
-      void this.view?.webview.postMessage({ type: 'machineIdResult', value: result });
-      return;
-    }
-
-    if (action === 'quotaSetLimits') {
-      if (payload && typeof payload === 'object') {
-        const id = Reflect.get(payload, 'id') as string;
-        const dailyLimit = Reflect.get(payload, 'dailyLimit') as number;
-        const weeklyLimit = Reflect.get(payload, 'weeklyLimit') as number;
-        if (id && typeof dailyLimit === 'number' && typeof weeklyLimit === 'number') {
-          await this.dataManager.windsurfAccounts.setQuotaLimits(id, dailyLimit, weeklyLimit);
-          this.postBootstrap();
-        }
-      }
-      return;
-    }
-
-    if (action === 'recordPrompt') {
-      await this.dataManager.windsurfAccounts.recordPrompt(
-        typeof value === 'string' ? value : undefined
-      );
-      this.postBootstrap();
-      return;
-    }
-
-    if (action === 'fetchQuota') {
-      const id = typeof value === 'string' ? value : undefined;
-      this.postBootstrap(); // 先发送 fetching 状态
-      const result = await this.dataManager.windsurfAccounts.fetchRealQuota(id);
-      void this.view?.webview.postMessage({ type: 'quotaFetchResult', value: result });
-      this.postBootstrap();
-      return;
-    }
-
-    if (action === 'fetchAllQuotas') {
-      this.postBootstrap(); // 先发送 fetching 状态
-      const result = await this.dataManager.windsurfAccounts.fetchAllRealQuotas();
-      void this.view?.webview.postMessage({ type: 'quotaFetchAllResult', value: result });
-      this.postBootstrap();
-      return;
-    }
-
-    // --- Shortcuts ---
-    if (action === 'shortcutAdd') {
-      if (typeof value === 'string') {
-        await this.dataManager.shortcuts.add(value);
-        this.postBootstrap();
-      }
-      return;
-    }
-
-    if (action === 'shortcutUpdate') {
-      if (payload && typeof payload === 'object') {
-        const id = Reflect.get(payload, 'id') as string;
-        const content = Reflect.get(payload, 'content') as string;
-        if (id && content) {
-          await this.dataManager.shortcuts.update(id, content);
-          this.postBootstrap();
-        }
-      }
-      return;
-    }
-
-    if (action === 'shortcutDelete') {
-      if (typeof value === 'string') {
-        await this.dataManager.shortcuts.delete(value);
-        this.postBootstrap();
-      }
-      return;
-    }
-
-    // --- Templates ---
-    if (action === 'templateAdd') {
-      if (payload && typeof payload === 'object') {
-        const name = Reflect.get(payload, 'name') as string;
-        const content = Reflect.get(payload, 'content') as string;
-        if (name && content) {
-          await this.dataManager.templates.add(name, content);
-          this.postBootstrap();
-        }
-      }
-      return;
-    }
-
-    if (action === 'templateUpdate') {
-      if (payload && typeof payload === 'object') {
-        const id = Reflect.get(payload, 'id') as string;
-        const name = Reflect.get(payload, 'name') as string;
-        const content = Reflect.get(payload, 'content') as string;
-        if (id && name && content) {
-          await this.dataManager.templates.update(id, name, content);
-          this.postBootstrap();
-        }
-      }
-      return;
-    }
-
-    if (action === 'templateDelete') {
-      if (typeof value === 'string') {
-        await this.dataManager.templates.delete(value);
-        this.postBootstrap();
-      }
-      return;
-    }
-
-    // --- Settings ---
-    if (action === 'settingsUpdate') {
-      if (payload && typeof payload === 'object') {
-        const updated = await this.dataManager.settings.update(payload as Record<string, unknown>);
-        if (updated.firebaseApiKey) {
-          this.dataManager.windsurfAccounts.setFirebaseApiKey(updated.firebaseApiKey);
-        }
-        this.postBootstrap();
-      }
-      return;
-    }
-
-    if (action === 'settingsReset') {
-      await this.dataManager.settings.reset();
-      this.postBootstrap();
-      void this.view?.webview.postMessage({ type: 'opResult', value: { message: '设置已恢复默认' } });
-      return;
-    }
-
-    // --- Maintenance ---
-    if (action === 'maintenanceClearHistory') {
-      await this.dataManager.history.clear();
-      this.postBootstrap();
-      return;
-    }
-
-    if (action === 'maintenanceResetStats') {
-      await this.dataManager.usageStats.reset();
-      this.postBootstrap();
-      return;
-    }
-
-    if (action === 'maintenanceCleanMcp') {
-      void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'cleanMcp' });
-      try {
-        const result = await this.cleanOldMcpConfigs();
-        void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'cleanMcp' } });
-        vscode.window.showInformationMessage(`已清理 ${result.cleaned} 条旧MCP配置`);
-      } catch (err) {
-        void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'cleanMcp', error: String(err) } });
-        vscode.window.showErrorMessage(`清理旧MCP配置失败: ${String(err)}`);
-      }
-      return;
-    }
-
-    if (action === 'maintenanceResetSettings') {
-      void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'resetSettings' });
-      try {
-        await this.dataManager.settings.reset();
-        await this.dataManager.shortcuts.clear();
-        await this.dataManager.templates.clear();
-        this.postBootstrap();
-        void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { action: 'resetSettings' } });
-        vscode.window.showInformationMessage('所有设置已恢复默认');
-      } catch (err) {
-        void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'resetSettings', error: String(err) } });
-        vscode.window.showErrorMessage(`重置设置失败: ${String(err)}`);
-      }
-      return;
-    }
-
-    if (action === 'maintenanceRewriteRules') {
-      void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'rewriteRules' });
-      try {
-        const result = await this.rewriteRules();
-        void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'rewriteRules' } });
-        if (result.failed.length > 0) {
-          vscode.window.showWarningMessage(`规则写入: ${result.written.length} 成功, ${result.failed.length} 失败`);
-        } else {
-          vscode.window.showInformationMessage(`规则文件已重新写入 (${result.written.length} 个文件)`);
-        }
-      } catch (err) {
-        void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'rewriteRules', error: String(err) } });
-        vscode.window.showErrorMessage(`重写规则文件失败: ${String(err)}`);
-      }
-      return;
-    }
-
-    if (action === 'maintenanceClearCache') {
-      void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'clearCache' });
-      try {
-        await this.dataManager.history.clear();
-        await this.dataManager.usageStats.reset();
-        this.logger.info('Plugin cache cleared.');
-        this.postBootstrap();
-        void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { action: 'clearCache' } });
-        vscode.window.showInformationMessage('插件缓存已清理');
-      } catch (err) {
-        void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'clearCache', error: String(err) } });
-        vscode.window.showErrorMessage(`清理缓存失败: ${String(err)}`);
-      }
-      return;
-    }
-
-    if (action === 'maintenanceDiagnose') {
-      void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'diagnose' });
-      try {
-        const result = await this.runDiagnose();
-        void this.view?.webview.postMessage({ type: 'diagnoseResult', value: result });
-        const ok = result.checks.filter(c => c.ok).length;
-        const fail = result.checks.filter(c => !c.ok).length;
-        const repairText = result.repaired ? `，已修复 ${result.repaired} 项` : '';
-        const summary = `诊断完成: ${ok} 通过, ${fail} 异常${repairText}`;
-        if (fail > 0) {
-          const detail = result.checks.filter(c => !c.ok).map(c => `${c.name}: ${c.detail}`).join('; ');
-          vscode.window.showWarningMessage(`${summary} — ${detail}`, '查看详情').then(choice => {
-            if (choice === '查看详情') this.reveal();
-          });
-        } else {
-          vscode.window.showInformationMessage(summary);
-        }
-      } catch (err) {
-        void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'diagnose', error: String(err) } });
-        vscode.window.showErrorMessage(`诊断失败: ${String(err)}`);
-      }
-      return;
-    }
+    if (await this.handleGeneral(action)) return;
+    if (await this.handleAccount(action, value, payload)) return;
+    if (await this.handleTools(action, value, payload)) return;
+    if (await this.handleSettings(action, payload)) return;
+    if (await this.handleMaintenance(action)) return;
 
     this.logger.debug('Unhandled webview message.', { action });
+  }
+
+  // --- General & Session & History ---
+
+  private async handleGeneral(action: string): Promise<boolean> {
+    switch (action) {
+      case 'refresh':
+        this.render();
+        return true;
+      case 'testFeedback':
+        await this.bridge.injectTestFeedback();
+        this.postState();
+        return true;
+      case 'clearHistory':
+        await this.dataManager.history.clear();
+        this.postBootstrap();
+        void this.view?.webview.postMessage({ type: 'opResult', value: { message: '历史记录已清空' } });
+        return true;
+      case 'sessionContinue':
+        this.dataManager.incrementSessionMessageCount();
+        await this.dataManager.usageStats.recordContinue();
+        this.postBootstrap();
+        return true;
+      case 'sessionEnd':
+        this.dataManager.endSession();
+        this.dataManager.startSession();
+        await this.dataManager.usageStats.recordEnd();
+        this.postBootstrap();
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  // --- Account ---
+
+  private async handleAccount(action: string, value: unknown, payload: unknown): Promise<boolean> {
+    switch (action) {
+      case 'deleteHistory':
+        if (typeof value === 'string') {
+          await this.dataManager.history.delete(value);
+          this.postBootstrap();
+        }
+        return true;
+      case 'accountAdd':
+        if (payload && typeof payload === 'object') {
+          const email = Reflect.get(payload, 'email') as string;
+          const password = Reflect.get(payload, 'password') as string;
+          if (email && password) {
+            await this.dataManager.windsurfAccounts.add(email, password);
+            this.postBootstrap();
+          }
+        }
+        return true;
+      case 'accountImport':
+        if (typeof value === 'string') {
+          const result = await this.dataManager.windsurfAccounts.importBatch(value);
+          void this.view?.webview.postMessage({ type: 'importResult', value: result });
+          this.postBootstrap();
+        }
+        return true;
+      case 'accountDelete':
+        if (typeof value === 'string') {
+          const account = this.dataManager.windsurfAccounts.getById(value);
+          await this.dataManager.windsurfAccounts.delete(value);
+          this.postBootstrap();
+          void this.view?.webview.postMessage({ type: 'opResult', value: { message: account ? `已删除 ${account.email}` : '账号已删除' } });
+        }
+        return true;
+      case 'accountSwitch':
+        if (typeof value === 'string') {
+          void this.view?.webview.postMessage({ type: 'switchLoading', value: true });
+          const account = this.dataManager.windsurfAccounts.getById(value);
+          const ok = await this.dataManager.windsurfAccounts.switchTo(value);
+          void this.view?.webview.postMessage({ type: 'switchLoading', value: false });
+          this.postBootstrap();
+          if (ok && account) {
+            const msg = `已切换到 ${account.email}`;
+            void this.view?.webview.postMessage({ type: 'switchResult', value: { success: true, message: msg } });
+            vscode.window.setStatusBarMessage(`$(check) ${msg}`, 4000);
+          } else {
+            void this.view?.webview.postMessage({ type: 'switchResult', value: { success: false, message: '切换失败：账号不存在' } });
+          }
+        }
+        return true;
+      case 'accountClear':
+        await this.dataManager.windsurfAccounts.clear();
+        this.postBootstrap();
+        void this.view?.webview.postMessage({ type: 'opResult', value: { message: '所有账号已清空' } });
+        return true;
+      case 'autoSwitchUpdate':
+        if (payload && typeof payload === 'object') {
+          await this.dataManager.windsurfAccounts.updateAutoSwitch(payload as Record<string, unknown>);
+          this.postBootstrap();
+        }
+        return true;
+      case 'resetMachineId': {
+        const result = await this.dataManager.windsurfAccounts.resetMachineId();
+        void this.view?.webview.postMessage({ type: 'machineIdResult', value: result });
+        return true;
+      }
+      case 'quotaSetLimits':
+        if (payload && typeof payload === 'object') {
+          const id = Reflect.get(payload, 'id') as string;
+          const dailyLimit = Reflect.get(payload, 'dailyLimit') as number;
+          const weeklyLimit = Reflect.get(payload, 'weeklyLimit') as number;
+          if (id && typeof dailyLimit === 'number' && typeof weeklyLimit === 'number') {
+            await this.dataManager.windsurfAccounts.setQuotaLimits(id, dailyLimit, weeklyLimit);
+            this.postBootstrap();
+          }
+        }
+        return true;
+      case 'recordPrompt':
+        await this.dataManager.windsurfAccounts.recordPrompt(
+          typeof value === 'string' ? value : undefined
+        );
+        this.postBootstrap();
+        return true;
+      case 'fetchQuota': {
+        const id = typeof value === 'string' ? value : undefined;
+        this.postBootstrap();
+        const result = await this.dataManager.windsurfAccounts.fetchRealQuota(id);
+        void this.view?.webview.postMessage({ type: 'quotaFetchResult', value: result });
+        this.postBootstrap();
+        return true;
+      }
+      case 'fetchAllQuotas': {
+        this.postBootstrap();
+        const result = await this.dataManager.windsurfAccounts.fetchAllRealQuotas();
+        void this.view?.webview.postMessage({ type: 'quotaFetchAllResult', value: result });
+        this.postBootstrap();
+        return true;
+      }
+      default:
+        return false;
+    }
+  }
+
+  // --- Shortcuts & Templates ---
+
+  private async handleTools(action: string, value: unknown, payload: unknown): Promise<boolean> {
+    switch (action) {
+      case 'shortcutAdd':
+        if (typeof value === 'string') {
+          await this.dataManager.shortcuts.add(value);
+          this.postBootstrap();
+        }
+        return true;
+      case 'shortcutUpdate':
+        if (payload && typeof payload === 'object') {
+          const id = Reflect.get(payload, 'id') as string;
+          const content = Reflect.get(payload, 'content') as string;
+          if (id && content) {
+            await this.dataManager.shortcuts.update(id, content);
+            this.postBootstrap();
+          }
+        }
+        return true;
+      case 'shortcutDelete':
+        if (typeof value === 'string') {
+          await this.dataManager.shortcuts.delete(value);
+          this.postBootstrap();
+        }
+        return true;
+      case 'templateAdd':
+        if (payload && typeof payload === 'object') {
+          const name = Reflect.get(payload, 'name') as string;
+          const content = Reflect.get(payload, 'content') as string;
+          if (name && content) {
+            await this.dataManager.templates.add(name, content);
+            this.postBootstrap();
+          }
+        }
+        return true;
+      case 'templateUpdate':
+        if (payload && typeof payload === 'object') {
+          const id = Reflect.get(payload, 'id') as string;
+          const name = Reflect.get(payload, 'name') as string;
+          const content = Reflect.get(payload, 'content') as string;
+          if (id && name && content) {
+            await this.dataManager.templates.update(id, name, content);
+            this.postBootstrap();
+          }
+        }
+        return true;
+      case 'templateDelete':
+        if (typeof value === 'string') {
+          await this.dataManager.templates.delete(value);
+          this.postBootstrap();
+        }
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  // --- Settings ---
+
+  private async handleSettings(action: string, payload: unknown): Promise<boolean> {
+    switch (action) {
+      case 'settingsUpdate':
+        if (payload && typeof payload === 'object') {
+          const updated = await this.dataManager.settings.update(payload as Record<string, unknown>);
+          if (updated.firebaseApiKey) {
+            this.dataManager.windsurfAccounts.setFirebaseApiKey(updated.firebaseApiKey);
+          }
+          this.postBootstrap();
+        }
+        return true;
+      case 'settingsReset':
+        await this.dataManager.settings.reset();
+        this.postBootstrap();
+        void this.view?.webview.postMessage({ type: 'opResult', value: { message: '设置已恢复默认' } });
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  // --- Maintenance ---
+
+  private async handleMaintenance(action: string): Promise<boolean> {
+    switch (action) {
+      case 'maintenanceClearHistory':
+        await this.dataManager.history.clear();
+        this.postBootstrap();
+        return true;
+      case 'maintenanceResetStats':
+        await this.dataManager.usageStats.reset();
+        this.postBootstrap();
+        return true;
+      case 'maintenanceCleanMcp':
+        void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'cleanMcp' });
+        try {
+          const result = await this.cleanOldMcpConfigs();
+          void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'cleanMcp' } });
+          vscode.window.showInformationMessage(`已清理 ${result.cleaned} 条旧MCP配置`);
+        } catch (err) {
+          void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'cleanMcp', error: String(err) } });
+          vscode.window.showErrorMessage(`清理旧MCP配置失败: ${String(err)}`);
+        }
+        return true;
+      case 'maintenanceResetSettings':
+        void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'resetSettings' });
+        try {
+          await this.dataManager.settings.reset();
+          await this.dataManager.shortcuts.clear();
+          await this.dataManager.templates.clear();
+          this.postBootstrap();
+          void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { action: 'resetSettings' } });
+          vscode.window.showInformationMessage('所有设置已恢复默认');
+        } catch (err) {
+          void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'resetSettings', error: String(err) } });
+          vscode.window.showErrorMessage(`重置设置失败: ${String(err)}`);
+        }
+        return true;
+      case 'maintenanceRewriteRules':
+        void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'rewriteRules' });
+        try {
+          const result = await this.rewriteRules();
+          void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'rewriteRules' } });
+          if (result.failed.length > 0) {
+            vscode.window.showWarningMessage(`规则写入: ${result.written.length} 成功, ${result.failed.length} 失败`);
+          } else {
+            vscode.window.showInformationMessage(`规则文件已重新写入 (${result.written.length} 个文件)`);
+          }
+        } catch (err) {
+          void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'rewriteRules', error: String(err) } });
+          vscode.window.showErrorMessage(`重写规则文件失败: ${String(err)}`);
+        }
+        return true;
+      case 'maintenanceClearCache':
+        void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'clearCache' });
+        try {
+          await this.dataManager.history.clear();
+          await this.dataManager.usageStats.reset();
+          this.logger.info('Plugin cache cleared.');
+          this.postBootstrap();
+          void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { action: 'clearCache' } });
+          vscode.window.showInformationMessage('插件缓存已清理');
+        } catch (err) {
+          void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'clearCache', error: String(err) } });
+          vscode.window.showErrorMessage(`清理缓存失败: ${String(err)}`);
+        }
+        return true;
+      case 'maintenanceDiagnose':
+        void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'diagnose' });
+        try {
+          const result = await this.runDiagnose();
+          void this.view?.webview.postMessage({ type: 'diagnoseResult', value: result });
+          const ok = result.checks.filter(c => c.ok).length;
+          const fail = result.checks.filter(c => !c.ok).length;
+          const repairText = result.repaired ? `，已修复 ${result.repaired} 项` : '';
+          const summary = `诊断完成: ${ok} 通过, ${fail} 异常${repairText}`;
+          if (fail > 0) {
+            const detail = result.checks.filter(c => !c.ok).map(c => `${c.name}: ${c.detail}`).join('; ');
+            vscode.window.showWarningMessage(`${summary} — ${detail}`, '查看详情').then(choice => {
+              if (choice === '查看详情') this.reveal();
+            });
+          } else {
+            vscode.window.showInformationMessage(summary);
+          }
+        } catch (err) {
+          void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'diagnose', error: String(err) } });
+          vscode.window.showErrorMessage(`诊断失败: ${String(err)}`);
+        }
+        return true;
+      default:
+        return false;
+    }
   }
 
   // --- Maintenance helpers ---
@@ -574,7 +558,7 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
     }
 
     // 5. globalStorage 目录
-    const storagePath = pathMod.join(osMod.homedir(), 'Library', 'Application Support', 'Code', 'User', 'globalStorage', 'opensource.ai-echo');
+    const storagePath = this.dataManager.globalStoragePath;
     let storageOk = false;
     try { await fs.access(storagePath); storageOk = true; } catch { /* */ }
     checks.push({
