@@ -343,6 +343,180 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
       return;
     }
 
+    if (action === 'maintenanceCleanMcp') {
+      const result = await this.cleanOldMcpConfigs();
+      void this.view?.webview.postMessage({ type: 'maintenanceResult', value: result });
+      return;
+    }
+
+    if (action === 'maintenanceResetSettings') {
+      await this.dataManager.settings.reset();
+      await this.dataManager.shortcuts.clear();
+      await this.dataManager.templates.clear();
+      this.postBootstrap();
+      return;
+    }
+
+    if (action === 'maintenanceRewriteRules') {
+      const result = await this.rewriteRules();
+      void this.view?.webview.postMessage({ type: 'maintenanceResult', value: result });
+      return;
+    }
+
+    if (action === 'maintenanceClearCache') {
+      await this.dataManager.history.clear();
+      await this.dataManager.usageStats.reset();
+      this.logger.info('Plugin cache cleared.');
+      this.postBootstrap();
+      return;
+    }
+
+    if (action === 'maintenanceDiagnose') {
+      const result = await this.runDiagnose();
+      void this.view?.webview.postMessage({ type: 'diagnoseResult', value: result });
+      return;
+    }
+
     this.logger.debug('Unhandled webview message.', { action });
+  }
+
+  // --- Maintenance helpers ---
+
+  private async cleanOldMcpConfigs(): Promise<{ cleaned: number; details: string[] }> {
+    const { IDE_TARGETS } = await import('../adapters/mcp-config');
+    const fs = await import('node:fs/promises');
+    let cleaned = 0;
+    const details: string[] = [];
+
+    for (const target of IDE_TARGETS) {
+      try {
+        const raw = await fs.readFile(target.configPath, 'utf8');
+        const config = JSON.parse(raw) as { mcpServers?: Record<string, unknown> };
+        if (!config.mcpServers) continue;
+
+        const currentToolName = this.bridge.getStatus().toolName;
+        const keysToRemove = Object.keys(config.mcpServers).filter(k =>
+          k !== currentToolName && (k.startsWith('echo_') || k.startsWith('infinite_') || k.startsWith('ai-echo'))
+        );
+
+        if (keysToRemove.length === 0) continue;
+
+        for (const key of keysToRemove) {
+          delete config.mcpServers[key];
+          cleaned++;
+          details.push(`${target.name}: 删除 ${key}`);
+        }
+
+        await fs.writeFile(target.configPath, JSON.stringify(config, null, 2), 'utf8');
+      } catch {
+        // 文件不存在或无法读取，跳过
+      }
+    }
+
+    this.logger.info('Old MCP configs cleaned.', { cleaned, details });
+    return { cleaned, details };
+  }
+
+  private async rewriteRules(): Promise<{ written: string[]; failed: string[] }> {
+    const { configureGlobalRules } = await import('../adapters/rules');
+    const toolName = this.bridge.getStatus().toolName;
+    const results = await configureGlobalRules(toolName);
+    const written = results.filter(r => r.written).map(r => r.path);
+    const failed = results.filter(r => !r.written).map(r => `${r.path}: ${r.reason}`);
+    this.logger.info('Rules rewritten.', { written, failed });
+    return { written, failed };
+  }
+
+  private async runDiagnose(): Promise<{ checks: Array<{ name: string; ok: boolean; detail: string }>; repaired: number }> {
+    const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
+    const fs = await import('node:fs/promises');
+    const pathMod = await import('node:path');
+    const osMod = await import('node:os');
+    let repaired = 0;
+
+    // 1. Bridge 状态
+    const status = this.bridge.getStatus();
+    checks.push({
+      name: '服务器状态',
+      ok: status.running,
+      detail: status.running ? `端口 ${status.port} 运行中` : '服务器未启动'
+    });
+
+    // 2. MCP 配置检查 + 自动修复
+    const { IDE_TARGETS, writeMcpConfig } = await import('../adapters/mcp-config');
+    const currentIde = IDE_TARGETS.find(t => t.name === status.currentIde) ?? IDE_TARGETS[4];
+    let mcpOk = false;
+    try {
+      const raw = await fs.readFile(currentIde.configPath, 'utf8');
+      const config = JSON.parse(raw) as { mcpServers?: Record<string, unknown> };
+      mcpOk = !!(config.mcpServers && status.toolName in config.mcpServers);
+    } catch {
+      mcpOk = false;
+    }
+
+    if (!mcpOk && status.running) {
+      // 自动修复: 写入 MCP 配置
+      try {
+        const sseUrl = `http://127.0.0.1:${status.port}/sse`;
+        await writeMcpConfig(currentIde, status.toolName, sseUrl);
+        mcpOk = true;
+        repaired++;
+        checks.push({ name: 'MCP 配置', ok: true, detail: `${currentIde.name}: 已自动修复` });
+      } catch (err) {
+        checks.push({ name: 'MCP 配置', ok: false, detail: `自动修复失败: ${String(err)}` });
+      }
+    } else {
+      checks.push({
+        name: 'MCP 配置',
+        ok: mcpOk,
+        detail: mcpOk ? `${currentIde.name}: ${status.toolName} 已配置` : `${currentIde.configPath} 中未找到 ${status.toolName}`
+      });
+    }
+
+    // 3. 账号数据
+    const accounts = this.dataManager.windsurfAccounts.getAll();
+    const withPassword = accounts.filter(a => a.password && a.password !== '***');
+    checks.push({
+      name: '账号数据',
+      ok: accounts.length > 0,
+      detail: `${accounts.length} 个账号, ${withPassword.length} 个有密码`
+    });
+
+    // 4. 规则文件检查 + 自动修复
+    const workspaceFolder = (await import('vscode')).workspace.workspaceFolders?.[0];
+    if (workspaceFolder) {
+      const rulePath = pathMod.join(workspaceFolder.uri.fsPath, 'AI_FEEDBACK_RULES.md');
+      let ruleExists = false;
+      try { await fs.access(rulePath); ruleExists = true; } catch { /* */ }
+
+      if (!ruleExists) {
+        try {
+          const { configureGlobalRules } = await import('../adapters/rules');
+          await configureGlobalRules(status.toolName);
+          ruleExists = true;
+          repaired++;
+          checks.push({ name: '规则文件', ok: true, detail: '已自动写入 AI_FEEDBACK_RULES.md' });
+        } catch (err) {
+          checks.push({ name: '规则文件', ok: false, detail: `自动修复失败: ${String(err)}` });
+        }
+      } else {
+        checks.push({ name: '规则文件', ok: true, detail: '已存在' });
+      }
+    } else {
+      checks.push({ name: '规则文件', ok: false, detail: '无打开的工作区' });
+    }
+
+    // 5. globalStorage 目录
+    const storagePath = pathMod.join(osMod.homedir(), 'Library', 'Application Support', 'Code', 'User', 'globalStorage', 'opensource.ai-echo');
+    let storageOk = false;
+    try { await fs.access(storagePath); storageOk = true; } catch { /* */ }
+    checks.push({
+      name: '存储目录',
+      ok: storageOk,
+      detail: storageOk ? storagePath : '不存在'
+    });
+
+    this.logger.info('Diagnose completed.', { checks, repaired });
+    return { checks, repaired };
   }
 }

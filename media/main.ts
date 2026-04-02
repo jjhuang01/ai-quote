@@ -141,7 +141,7 @@ declare global {
 
 // ---- State ----
 
-type TabId = 'status' | 'account' | 'history' | 'shortcut' | 'template' | 'settings' | 'update';
+type TabId = 'status' | 'account' | 'history' | 'tools' | 'settings';
 
 const vscode = acquireVsCodeApi();
 
@@ -191,6 +191,10 @@ function render(): void {
       ${state.notification ? `<div class="toast">${escapeHtml(state.notification)}</div>` : ''}
     </main>`;
   bindEvents();
+  // JS 程序化设置进度条宽度（绕过 CSP 对 inline style 的限制）
+  root.querySelectorAll<HTMLElement>('.quota-bar-fill[data-pct]').forEach(el => {
+    el.style.width = `${el.dataset.pct}%`;
+  });
 }
 
 // ---- Header ----
@@ -198,10 +202,9 @@ function render(): void {
 function renderHeader(bs: Bootstrap): string {
   return `
     <header class="infinite-header">
-      <div>
-        <p class="eyebrow">AI Echo</p>
-        <h1>桥接服务 :${bs.status.port}</h1>
-        <p class="subtle">${escapeHtml(bs.status.currentIde)} · ${escapeHtml(bs.status.toolName)}</p>
+      <div class="header-brand">
+        <span class="header-title">AI Echo</span>
+        <span class="header-sub">:${bs.status.port} · ${escapeHtml(bs.status.currentIde)}</span>
       </div>
       <span class="status-pill ${bs.status.running ? 'online' : 'offline'}">
         <span class="pill-dot"></span>
@@ -217,10 +220,8 @@ function renderTabNav(): string {
     { id: 'status', label: '状态' },
     { id: 'account', label: '账号' },
     { id: 'history', label: '历史' },
-    { id: 'shortcut', label: '快捷' },
-    { id: 'template', label: '模板' },
+    { id: 'tools', label: '工具' },
     { id: 'settings', label: '设置' },
-    { id: 'update', label: '更新' }
   ];
   return `
     <nav class="tab-nav">
@@ -236,10 +237,8 @@ function renderActiveTab(bs: Bootstrap): string {
     case 'status': return renderStatusTab(bs);
     case 'account': return renderAccountTab(bs);
     case 'history': return renderHistoryTab(bs);
-    case 'shortcut': return renderShortcutTab(bs);
-    case 'template': return renderTemplateTab(bs);
+    case 'tools': return renderToolsTab(bs);
     case 'settings': return renderSettingsTab(bs);
-    case 'update': return renderUpdateTab(bs);
   }
 }
 
@@ -344,37 +343,21 @@ function renderAccountTab(bs: Bootstrap): string {
 
   return `
     <div class="tab-content">
-      ${accounts.length > 0 ? `
-      <section class="card quota-dashboard">
-        <div class="section-header">
-          <h2>配额概览</h2>
-          <button class="btn-grad btn-sm ${isFetching ? 'btn-loading' : ''}" data-action="fetchAllQuotas" ${isFetching ? 'disabled' : ''}>
-            ${isFetching ? '<span class="spin-icon">↻</span> 查询中...' : '↻ 刷新全部配额'}
-          </button>
-        </div>
-        <div class="quota-overview-grid">
-          ${accounts.map(a => {
-            const snap = snapshotMap.get(a.id);
-            const rq = snap?.real;
-            return renderQuotaMiniCard(a, snap, rq, bs.currentAccountId);
-          }).join('')}
-        </div>
-      </section>` : ''}
-
       <section class="card">
         <div class="section-header">
-          <h2>Windsurf 账号 (${accounts.length})</h2>
+          <h2>账号 (${accounts.length})</h2>
           <div class="btn-group">
+            <button class="btn-xs ${isFetching ? 'disabled' : ''}" data-action="fetchAllQuotas" ${isFetching ? 'disabled' : ''} title="刷新全部配额">${isFetching ? '↻…' : '↻ 配额'}</button>
             <button class="btn-xs" data-action="toggleAddAccount">+ 添加</button>
-            <button class="btn-xs" data-action="toggleImportAccount">批量导入</button>
+            <button class="btn-xs" data-action="toggleImportAccount">批量</button>
             ${accounts.length > 0 ? `<button class="btn-xs btn-danger-xs" data-action="accountClear">清空</button>` : ''}
           </div>
         </div>
 
         ${state.showAddAccount ? `
           <div class="inline-form">
-            <input class="text-input" id="addEmail" type="text" placeholder="邮箱" value="${escapeHtml(state.addEmail)}">
-            <input class="text-input" id="addPassword" type="password" placeholder="密码" value="${escapeHtml(state.addPassword)}">
+            <p class="hint">格式: 邮箱 密码（空格分隔）</p>
+            <input class="text-input" id="addAccountLine" type="text" placeholder="user@mail.com password123" value="${escapeHtml(state.addEmail)}">
             <div class="btn-group">
               <button class="btn-grad btn-sm" data-action="accountAdd">确认添加</button>
               <button class="btn-secondary btn-sm" data-action="toggleAddAccount">取消</button>
@@ -383,8 +366,8 @@ function renderAccountTab(bs: Bootstrap): string {
 
         ${state.showImportAccount ? `
           <div class="inline-form">
-            <p class="hint">每行一个账号，格式：邮箱----密码 或 邮箱:密码</p>
-            <textarea class="text-area" id="importText" rows="5" placeholder="example@mail.com----password">${escapeHtml(state.importText)}</textarea>
+            <p class="hint">📬 批量导入 (每行: 邮箱 密码)</p>
+            <textarea class="text-area" id="importText" rows="5" placeholder="user1@mail.com pass123\nuser2@mail.com pass456">${escapeHtml(state.importText)}</textarea>
             <div class="btn-group">
               <button class="btn-grad btn-sm" data-action="accountImport">导入</button>
               <button class="btn-secondary btn-sm" data-action="toggleImportAccount">取消</button>
@@ -519,45 +502,83 @@ function renderAccountItem(a: WindsurfAccount, currentId?: string, snapshot?: Qu
   };
   const planColor = planColors[a.plan] ?? 'var(--muted)';
   const q = snapshot;
+  const rq = q?.real;
+
+  let dailyFillPct: number | null = null;
+  let weeklyFillPct: number | null = null;
+  let dailyText = '';
+  let weeklyText = '';
+  let dailyResetText = '';
+  let weeklyResetText = '';
+
+  if (rq) {
+    dailyFillPct = 100 - rq.dailyRemainingPercent;
+    weeklyFillPct = 100 - rq.weeklyRemainingPercent;
+    dailyText = `${Math.round(dailyFillPct)}%`;
+    weeklyText = `${Math.round(weeklyFillPct)}%`;
+    const now = Date.now();
+    if (rq.dailyResetAtUnix) {
+      const diff = rq.dailyResetAtUnix * 1000 - now;
+      if (diff > 0) dailyResetText = formatResetTime(diff);
+    }
+    if (rq.weeklyResetAtUnix) {
+      const diff = rq.weeklyResetAtUnix * 1000 - now;
+      if (diff > 0) weeklyResetText = formatResetTime(diff);
+    }
+  } else if (q && q.dailyLimit > 0) {
+    dailyFillPct = pct(q.dailyUsed, q.dailyLimit);
+    weeklyFillPct = q.weeklyLimit > 0 ? pct(q.weeklyUsed, q.weeklyLimit) : null;
+    dailyText = `${Math.round(dailyFillPct)}%`;
+    weeklyText = weeklyFillPct !== null ? `${Math.round(weeklyFillPct)}%` : '';
+    dailyResetText = q.dailyResetIn;
+    weeklyResetText = q.weeklyResetIn;
+  } else if (a.creditsTotal > 0) {
+    dailyFillPct = pct(a.creditsUsed, a.creditsTotal);
+    dailyText = `${Math.round(dailyFillPct)}%`;
+  }
+
+  const fillClass = (usedPct: number | null): string => {
+    if (usedPct === null) return '';
+    if (usedPct < 50) return 'quota-fill-ok';
+    if (usedPct < 80) return 'quota-fill-warn';
+    return 'quota-fill-danger';
+  };
 
   return `
     <div class="account-item ${isCurrent ? 'active' : ''} ${q?.warningLevel === 'critical' ? 'quota-critical' : q?.warningLevel === 'warn' ? 'quota-warn' : ''}">
-      <div class="account-avatar" style="background: linear-gradient(135deg, ${planColor}, #6366f1)">
-        ${a.email[0].toUpperCase()}
+      <div class="account-header-row">
+        <div class="account-avatar" style="background: linear-gradient(135deg, ${planColor}, #6366f1)">
+          ${a.email[0].toUpperCase()}
+        </div>
+        <div class="account-info">
+          <p class="account-name">${escapeHtml(a.email)}</p>
+          <p class="account-meta">
+            <span class="plan-badge" style="color:${planColor}">${a.plan}</span>
+            ${isCurrent ? ' · <span class="badge-active">当前</span>' : ''}
+          </p>
+        </div>
+        <div class="account-actions">
+          ${!isCurrent ? `<button class="btn-xs" data-action="accountSwitch" data-id="${a.id}">切换</button>` : ''}
+          <button class="btn-xs btn-danger-xs" data-action="accountDelete" data-id="${a.id}">删除</button>
+        </div>
       </div>
-      <div class="account-info">
-        <p class="account-name">${escapeHtml(a.email)}</p>
-        <p class="account-meta">
-          <span class="plan-badge" style="color:${planColor}">${a.plan}</span>
-          ${isCurrent ? ' · <span class="badge-active">当前</span>' : ''}
-        </p>
-        ${q && q.dailyLimit > 0 ? `
-          <div class="quota-bars">
-            <div class="quota-row">
-              <span class="quota-label">日</span>
-              <div class="credit-bar"><div class="credit-fill" style="width:${pct(q.dailyUsed, q.dailyLimit)}%; background:${quotaColor(q.dailyUsed, q.dailyLimit)}"></div></div>
-              <span class="quota-nums">${q.dailyRemaining}/${q.dailyLimit}</span>
-              <span class="quota-reset">${q.dailyResetIn}</span>
-            </div>
-            <div class="quota-row">
-              <span class="quota-label">周</span>
-              <div class="credit-bar"><div class="credit-fill" style="width:${pct(q.weeklyUsed, q.weeklyLimit)}%; background:${quotaColor(q.weeklyUsed, q.weeklyLimit)}"></div></div>
-              <span class="quota-nums">${q.weeklyRemaining}/${q.weeklyLimit}</span>
-              <span class="quota-reset">${q.weeklyResetIn}</span>
-            </div>
-          </div>` : a.creditsTotal > 0 ? `
-          <div class="quota-bars">
-            <div class="quota-row">
-              <span class="quota-label">额度</span>
-              <div class="credit-bar"><div class="credit-fill" style="width:${pct(a.creditsUsed, a.creditsTotal)}%; background:${quotaColor(a.creditsUsed, a.creditsTotal)}"></div></div>
-              <span class="quota-nums">${a.creditsTotal - a.creditsUsed}/${a.creditsTotal}</span>
-            </div>
-          </div>` : ''}
-      </div>
-      <div class="account-actions">
-        ${!isCurrent ? `<button class="btn-xs" data-action="accountSwitch" data-id="${a.id}">切换</button>` : ''}
-        <button class="btn-xs" data-action="quotaEditLimits" data-id="${a.id}">配额</button>
-        <button class="btn-xs btn-danger-xs" data-action="accountDelete" data-id="${a.id}">删除</button>
+      <div class="quota-section">
+        <div class="quota-bar-row">
+          <span class="quota-bar-label">日</span>
+          <div class="quota-bar-track">
+            <div class="quota-bar-fill ${fillClass(dailyFillPct)}" data-pct="${dailyFillPct ?? 0}" style="width:${dailyFillPct ?? 0}%"></div>
+          </div>
+          <span class="quota-bar-pct${dailyFillPct === null ? ' quota-pct-empty' : ''}">${dailyText || '—'}</span>
+          ${dailyResetText ? `<span class="quota-bar-reset">${dailyResetText}</span>` : ''}
+        </div>
+        <div class="quota-bar-row">
+          <span class="quota-bar-label">周</span>
+          <div class="quota-bar-track">
+            <div class="quota-bar-fill ${fillClass(weeklyFillPct)}" data-pct="${weeklyFillPct ?? 0}" style="width:${weeklyFillPct ?? 0}%"></div>
+          </div>
+          <span class="quota-bar-pct${weeklyFillPct === null ? ' quota-pct-empty' : ''}">${weeklyText || '—'}</span>
+          ${weeklyResetText ? `<span class="quota-bar-reset">${weeklyResetText}</span>` : ''}
+        </div>
       </div>
     </div>`;
 }
@@ -595,6 +616,13 @@ function quotaColor(used: number, total: number): string {
   if (ratio >= 0.9) return 'var(--danger)';
   if (ratio >= 0.7) return 'var(--warning)';
   return 'var(--accent)';
+}
+
+function formatResetTime(ms: number): string {
+  const h = Math.floor(ms / 3600000);
+  if (h >= 48) return `${Math.floor(h / 24)}d`;
+  if (h >= 1) return `${h}h`;
+  return `${Math.floor(ms / 60000)}m`;
 }
 
 // ---- History Tab ----
@@ -655,7 +683,6 @@ function renderHistoryItem(item: HistoryItem): string {
 
 function renderShortcutTab(bs: Bootstrap): string {
   return `
-    <div class="tab-content">
       <section class="card">
         <div class="section-header"><h2>快捷短语 (${bs.shortcuts.length})</h2></div>
         <div class="inline-form">
@@ -667,8 +694,7 @@ function renderShortcutTab(bs: Bootstrap): string {
             ? bs.shortcuts.map(s => renderShortcutItem(s)).join('')
             : '<p class="empty-state">暂无快捷短语</p>'}
         </div>
-      </section>
-    </div>`;
+      </section>`;
 }
 
 function renderShortcutItem(s: ShortcutItem): string {
@@ -693,7 +719,6 @@ function renderShortcutItem(s: ShortcutItem): string {
 
 function renderTemplateTab(bs: Bootstrap): string {
   return `
-    <div class="tab-content">
       <section class="card">
         <div class="section-header"><h2>提示词模板 (${bs.templates.length})</h2></div>
         <div class="inline-form">
@@ -706,8 +731,7 @@ function renderTemplateTab(bs: Bootstrap): string {
             ? bs.templates.map(t => renderTemplateItem(t)).join('')
             : '<p class="empty-state">暂无模板</p>'}
         </div>
-      </section>
-    </div>`;
+      </section>`;
 }
 
 function renderTemplateItem(t: TemplateItem): string {
@@ -729,6 +753,16 @@ function renderTemplateItem(t: TemplateItem): string {
           </div>
         </div>
         <p class="template-preview">${escapeHtml(t.content.slice(0, 80))}${t.content.length > 80 ? '...' : ''}</p>`}
+    </div>`;
+}
+
+// ---- Tools Tab ----
+
+function renderToolsTab(bs: Bootstrap): string {
+  return `
+    <div class="tab-content">
+      ${renderShortcutTab(bs)}
+      ${renderTemplateTab(bs)}
     </div>`;
 }
 
@@ -850,10 +884,36 @@ function renderSettingsTab(bs: Bootstrap): string {
 
       <section class="card">
         <div class="section-header"><h2>维护</h2></div>
-        <div class="actions">
-          <button class="btn-secondary" data-action="maintenanceClearHistory">清空历史</button>
-          <button class="btn-secondary" data-action="maintenanceResetStats">重置统计</button>
+        <div class="maintenance-grid">
+          <button class="btn-maintenance" data-action="maintenanceCleanMcp">🧹 清理旧MCP配置</button>
+          <p class="hint">清理MCP配置文件中的旧端口记录</p>
+          <button class="btn-maintenance" data-action="maintenanceResetSettings">🔄 重置所有设置</button>
+          <p class="hint">恢复默认设置（清空快捷回复、模板等）</p>
+          <button class="btn-maintenance" data-action="maintenanceRewriteRules">📝 重写规则文件</button>
+          <p class="hint">重新写入AI反馈规则到工作区</p>
+          <button class="btn-maintenance" data-action="maintenanceClearCache">🗑️ 清理插件缓存</button>
+          <p class="hint">清理历史记录、日志等缓存数据</p>
+          <button class="btn-maintenance btn-grad" data-action="maintenanceDiagnose">🔧 诊断并修复</button>
+          <p class="hint">检测服务器状态、MCP配置并自动修复</p>
         </div>
+      </section>
+
+      <section class="card">
+        <div class="section-header"><h2>版本信息</h2></div>
+        <div class="settings-section">
+          <div class="setting-row">
+            <span class="setting-label">当前版本</span>
+            <span class="setting-value">rebuild-local</span>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">服务状态</span>
+            <span class="setting-value ${bs.status.running ? 'text-ok' : 'text-warn'}">${bs.status.running ? '正常运行' : '已停止'}</span>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn-grad btn-sm" data-action="refresh">检查更新</button>
+        </div>
+        <p class="hint">当前为本地重建版本，更新功能需连接至远程服务器。</p>
       </section>
     </div>`;
 }
@@ -986,13 +1046,17 @@ function handleAction(el: HTMLElement): void {
       render();
       break;
     case 'accountAdd': {
-      const email = (document.getElementById('addEmail') as HTMLInputElement)?.value.trim() ?? '';
-      const password = (document.getElementById('addPassword') as HTMLInputElement)?.value.trim() ?? '';
-      if (email && password) {
-        vscode.postMessage({ type: 'accountAdd', payload: { email, password } });
-        state.addEmail = '';
-        state.addPassword = '';
-        state.showAddAccount = false;
+      const line = (document.getElementById('addAccountLine') as HTMLInputElement)?.value.trim() ?? '';
+      const spaceIdx = line.indexOf(' ');
+      if (spaceIdx > 0) {
+        const email = line.slice(0, spaceIdx).trim();
+        const password = line.slice(spaceIdx + 1).trim();
+        if (email && password) {
+          vscode.postMessage({ type: 'accountAdd', payload: { email, password } });
+          state.addEmail = '';
+          state.addPassword = '';
+          state.showAddAccount = false;
+        }
       }
       break;
     }
@@ -1158,6 +1222,26 @@ function handleAction(el: HTMLElement): void {
       vscode.postMessage({ type: 'maintenanceResetStats' });
       showToast('统计已重置');
       break;
+    case 'maintenanceCleanMcp':
+      vscode.postMessage({ type: 'maintenanceCleanMcp' });
+      showToast('正在清理旧MCP配置...');
+      break;
+    case 'maintenanceResetSettings':
+      vscode.postMessage({ type: 'maintenanceResetSettings' });
+      showToast('所有设置已重置');
+      break;
+    case 'maintenanceRewriteRules':
+      vscode.postMessage({ type: 'maintenanceRewriteRules' });
+      showToast('正在重写规则文件...');
+      break;
+    case 'maintenanceClearCache':
+      vscode.postMessage({ type: 'maintenanceClearCache' });
+      showToast('缓存已清理');
+      break;
+    case 'maintenanceDiagnose':
+      vscode.postMessage({ type: 'maintenanceDiagnose' });
+      showToast('正在诊断...');
+      break;
   }
 }
 
@@ -1224,6 +1308,26 @@ window.addEventListener('message', event => {
     state.quotaFetching = false;
     const r = msg.value as { success: number; failed: number; errors: string[] };
     showToast(`配额刷新完成: ${r.success} 成功, ${r.failed} 失败`);
+    return;
+  }
+
+  if (msg.type === 'maintenanceResult') {
+    const r = msg.value as { cleaned?: number; details?: string[]; written?: string[]; failed?: string[] };
+    if (r.cleaned !== undefined) {
+      showToast(`清理完成: ${r.cleaned} 条旧配置已删除`);
+    } else if (r.written) {
+      showToast(`规则写入完成: ${r.written.length} 个文件`);
+    }
+    return;
+  }
+
+  if (msg.type === 'diagnoseResult') {
+    const r = msg.value as { checks: Array<{ name: string; ok: boolean; detail: string }>; repaired?: number };
+    const ok = r.checks.filter(c => c.ok).length;
+    const fail = r.checks.filter(c => !c.ok).length;
+    const repairText = r.repaired ? `, ${r.repaired} 项已修复` : '';
+    const details = r.checks.map(c => `${c.ok ? '✅' : '❌'} ${c.name}: ${c.detail}`).join('\n');
+    showToast(`诊断完成: ${ok} 通过, ${fail} 异常${repairText}\n${details}`);
     return;
   }
 });

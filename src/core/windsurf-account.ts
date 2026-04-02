@@ -97,10 +97,19 @@ export class WindsurfAccountManager {
 
     for (const entry of entries) {
       const sep = entry.includes('----') ? '----' : entry.includes(':') ? ':' : null;
-      if (!sep) { skipped++; continue; }
-      const idx = entry.indexOf(sep);
-      const email = entry.slice(0, idx).trim();
-      const password = entry.slice(idx + sep.length).trim();
+      let email: string;
+      let password: string;
+      if (sep) {
+        const idx = entry.indexOf(sep);
+        email = entry.slice(0, idx).trim();
+        password = entry.slice(idx + sep.length).trim();
+      } else {
+        // 空格分隔: "email password"
+        const spaceIdx = entry.indexOf(' ');
+        if (spaceIdx <= 0) { skipped++; continue; }
+        email = entry.slice(0, spaceIdx).trim();
+        password = entry.slice(spaceIdx + 1).trim();
+      }
       if (!email || !password) { skipped++; continue; }
       const exists = this.accounts.some(a => a.email === email);
       if (exists) { skipped++; continue; }
@@ -284,9 +293,21 @@ export class WindsurfAccountManager {
 
     this._quotaFetching = true;
     try {
-      const result = await this.quotaFetcher.fetchQuota(
-        account.id, account.email, account.password, { forceRefresh: true }
-      );
+      let result;
+
+      // 有密码 → 优先 Channel B (GetPlanStatus API, 实时数据)
+      if (account.password) {
+        result = await this.quotaFetcher.fetchFromGetPlanStatus(
+          account.id, account.email, account.password
+        );
+      }
+
+      // Channel B 失败或无密码 → 降级到 fetchQuota (E → D → A → B)
+      if (!result?.success) {
+        result = await this.quotaFetcher.fetchQuota(
+          account.id, account.email, account.password, { forceRefresh: true }
+        );
+      }
 
       if (result.success && result.planInfo) {
         account.realQuota = this.planInfoToRealQuota(result.planInfo, result.source, result.fetchedAt);
@@ -307,8 +328,8 @@ export class WindsurfAccountManager {
    *
    * 策略:
    * 1. Channel D (apikey) 无邮箱限制调用一次，匹配到对应账号 → 应用实时数据
-   * 2. Channel A (cachedPlanInfo) 仅对邮箱匹配的当前 Windsurf 用户使用
-   * 3. Channel B (Firebase) 对其余账号，需要 Firebase API Key
+   * 优先级: Channel B (GetPlanStatus API, 实时) > Channel E/A (本地缓存, 可能过期)
+   * Channel E/A 仅用于无密码账号的兜底
    */
   public async fetchAllRealQuotas(): Promise<{ success: number; failed: number; errors: string[] }> {
     this._quotaFetching = true;
@@ -318,60 +339,12 @@ export class WindsurfAccountManager {
     const updatedIds = new Set<string>();
 
     try {
-      // 步骤1: Channel E —— 从本地 proto 获取实时配额（含 email，最准确）
-      const protoResult = await this.quotaFetcher.fetchFromLocalProto();
-      const currentWindsurfEmail = protoResult.userEmail?.toLowerCase();
-
-      if (protoResult.success && protoResult.planInfo) {
-        const matchedByEmail = currentWindsurfEmail
-          ? this.accounts.find(a => a.email.toLowerCase() === currentWindsurfEmail)
-          : undefined;
-
-        if (matchedByEmail) {
-          matchedByEmail.realQuota = this.planInfoToRealQuota(protoResult.planInfo!, protoResult.source, protoResult.fetchedAt);
-          matchedByEmail.plan = (protoResult.planInfo!.planName as WindsurfAccount['plan']) || matchedByEmail.plan;
-          matchedByEmail.lastCheckedAt = protoResult.fetchedAt;
-          updatedIds.add(matchedByEmail.id);
-          success++;
-          this.logger.info('Channel E quota applied.', { email: matchedByEmail.email });
-        } else if (!currentWindsurfEmail) {
-          // Channel E 成功但无 email —— 尝试匹配当前激活账号作为兜底
-          const active = this.accounts.find(a => a.id === this.currentAccountId || a.isActive);
-          if (active && !updatedIds.has(active.id)) {
-            active.realQuota = this.planInfoToRealQuota(protoResult.planInfo!, protoResult.source, protoResult.fetchedAt);
-            active.plan = (protoResult.planInfo!.planName as WindsurfAccount['plan']) || active.plan;
-            active.lastCheckedAt = protoResult.fetchedAt;
-            updatedIds.add(active.id);
-            success++;
-          }
-        }
-      } else {
-        // Channel E 不可用，降级: Channel D → Channel A (cachedPlanInfo)
-        const apikeyResult = await this.quotaFetcher.fetchFromLocalApiKey();
-        const fallbackResult = (apikeyResult.success && apikeyResult.planInfo)
-          ? apikeyResult
-          : await this.quotaFetcher.fetchFromLocal();
-
-        if (fallbackResult.success && fallbackResult.planInfo) {
-          const active = this.accounts.find(a => a.id === this.currentAccountId || a.isActive);
-          if (active) {
-            active.realQuota = this.planInfoToRealQuota(fallbackResult.planInfo!, fallbackResult.source, fallbackResult.fetchedAt);
-            active.plan = (fallbackResult.planInfo!.planName as WindsurfAccount['plan']) || active.plan;
-            active.lastCheckedAt = fallbackResult.fetchedAt;
-            updatedIds.add(active.id);
-            success++;
-            this.logger.info('Fallback quota applied to active account.', { email: active.email, source: fallbackResult.source });
-          }
-        }
-      }
-
-      // 步骤2: 对未更新的账号，使用 Channel B (Firebase) 或记录失败
+      // 步骤1: Channel B —— 所有有密码的账号直接走 GetPlanStatus API（实时数据）
       for (const account of this.accounts) {
-        if (updatedIds.has(account.id)) continue;
+        if (!account.password) continue;
 
-        // preferLocal:false 避免将当前用户的 cachedPlanInfo 错误应用到其他账号
-        const result = await this.quotaFetcher.fetchQuota(
-          account.id, account.email, account.password, { preferLocal: false }
+        const result = await this.quotaFetcher.fetchFromGetPlanStatus(
+          account.id, account.email, account.password
         );
 
         if (result.success && result.planInfo) {
@@ -380,14 +353,36 @@ export class WindsurfAccountManager {
           account.lastCheckedAt = result.fetchedAt;
           updatedIds.add(account.id);
           success++;
+          this.logger.info('Channel B quota applied.', { email: account.email, daily: result.planInfo.quotaUsage?.dailyRemainingPercent });
         } else {
-          failed++;
-          errors.push(`${account.email}: ${result.error ?? '未知错误'}`);
+          this.logger.warn('Channel B failed.', { email: account.email, error: result.error });
         }
 
         // 避免 rate limit
         if (this.accounts.length > 1) {
           await new Promise(r => setTimeout(r, 500));
+        }
+      }
+
+      // 步骤2: 对 Channel B 未覆盖的账号（无密码），降级到 Channel E/A
+      for (const account of this.accounts) {
+        if (updatedIds.has(account.id)) continue;
+
+        // Channel E (proto) → Channel D (apikey) → Channel A (cachedPlanInfo)
+        const result = await this.quotaFetcher.fetchQuota(
+          account.id, account.email, account.password, { preferLocal: true }
+        );
+
+        if (result.success && result.planInfo) {
+          account.realQuota = this.planInfoToRealQuota(result.planInfo, result.source, result.fetchedAt);
+          account.plan = (result.planInfo.planName as WindsurfAccount['plan']) || account.plan;
+          account.lastCheckedAt = result.fetchedAt;
+          updatedIds.add(account.id);
+          success++;
+          this.logger.info('Fallback quota applied.', { email: account.email, source: result.source });
+        } else {
+          failed++;
+          errors.push(`${account.email}: ${result.error ?? '未知错误'}`);
         }
       }
 

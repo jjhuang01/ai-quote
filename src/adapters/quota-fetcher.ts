@@ -194,14 +194,23 @@ export class WindsurfQuotaFetcher {
   private readonly logger: LoggerLike;
   private readonly codeiumApiBase = 'https://server.codeium.com';
 
-  // 结果缓存: accountId → QuotaFetchResult
+  // 结果缓存: accountId → QuotaFetchResult (最多 100 条)
   private cache = new Map<string, QuotaFetchResult>();
   private readonly cacheTtlMs = 5 * 60_000; // 5 分钟
+  private readonly cacheMaxSize = 100;
   private readonly languageServerBase = 'https://server.codeium.com';
 
   public constructor(auth: WindsurfAuth, logger: LoggerLike) {
     this.auth = auth;
     this.logger = logger;
+  }
+
+  private cacheSet(accountId: string, result: QuotaFetchResult): void {
+    if (this.cache.size >= this.cacheMaxSize && !this.cache.has(accountId)) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest !== undefined) this.cache.delete(oldest);
+    }
+    this.cache.set(accountId, result);
   }
 
   /**
@@ -228,7 +237,7 @@ export class WindsurfQuotaFetcher {
     if (preferLocal !== false) {
       const protoResult = await this.fetchFromLocalProto(email);
       if (protoResult.success && protoResult.planInfo) {
-        this.cache.set(accountId, protoResult);
+        this.cacheSet(accountId, protoResult);
         return protoResult;
       }
     }
@@ -236,7 +245,7 @@ export class WindsurfQuotaFetcher {
     // 通道 D: windsurfAuthStatus.apiKey → GetUserStatus (实时，无需 Firebase)
     const apikeyResult = await this.fetchFromLocalApiKey(email);
     if (apikeyResult.success && apikeyResult.planInfo) {
-      this.cache.set(accountId, apikeyResult);
+      this.cacheSet(accountId, apikeyResult);
       return apikeyResult;
     }
 
@@ -244,7 +253,7 @@ export class WindsurfQuotaFetcher {
     if (preferLocal !== false) {
       const localResult = await this.fetchFromLocal();
       if (localResult.success && localResult.planInfo) {
-        this.cache.set(accountId, localResult);
+        this.cacheSet(accountId, localResult);
         return localResult;
       }
     }
@@ -252,7 +261,7 @@ export class WindsurfQuotaFetcher {
     // 通道 B: Firebase Auth + GetPlanStatus (web-backend.windsurf.com)
     const apiResult = await this.fetchFromGetPlanStatus(accountId, email, password);
     if (apiResult.success) {
-      this.cache.set(accountId, apiResult);
+      this.cacheSet(accountId, apiResult);
     }
     return apiResult;
   }

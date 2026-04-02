@@ -54,28 +54,32 @@ body {
 
 .infinite-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px;
+  padding: 10px 14px;
 }
 
-.infinite-header h1,
 .card h2 {
   margin: 0;
 }
 
-.infinite-header h1 {
-  font-size: 18px;
-  line-height: 1.25;
+.header-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.eyebrow {
-  margin: 0 0 8px;
-  color: var(--muted);
+.header-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.header-sub {
   font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .subtle,
@@ -898,8 +902,8 @@ button:hover {
 
 .account-item {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   padding: 10px 12px;
   background: color-mix(in srgb, var(--bg) 60%, transparent);
   border-radius: 10px;
@@ -911,15 +915,20 @@ button:hover {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
+.account-header-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .account-avatar {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--accent), #6366f1);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: white;
   flex-shrink: 0;
@@ -931,7 +940,7 @@ button:hover {
 .account-name {
   font-size: 12px;
   font-weight: 500;
-  margin: 0 0 2px;
+  margin: 0 0 1px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -939,7 +948,7 @@ button:hover {
 .account-meta {
   font-size: 11px;
   color: var(--muted);
-  margin: 0 0 4px;
+  margin: 0;
 }
 .account-actions {
   display: flex;
@@ -958,18 +967,115 @@ button:hover {
   font-weight: 600;
 }
 
-/* === Credit Bar === */
+/* === Credit Bar (legacy, kept for compat) === */
 .credit-bar {
-  height: 3px;
+  height: 5px;
   background: var(--border);
-  border-radius: 2px;
+  border-radius: 3px;
   overflow: hidden;
   margin-top: 4px;
 }
 .credit-fill {
   height: 100%;
-  border-radius: 2px;
+  border-radius: 3px;
   transition: width 0.4s;
+}
+
+/* === Quota Section (new per-account progress bars) === */
+.quota-section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 0 2px;
+}
+.quota-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.quota-bar-label {
+  width: 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: center;
+  flex-shrink: 0;
+}
+.quota-bar-track {
+  flex: 1;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.quota-bar-fill {
+  width: 0;
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+  min-width: 0;
+}
+.quota-fill-ok { background: #3b82f6; }
+.quota-fill-warn { background: #f59e0b; }
+.quota-fill-danger { background: #ef4444; }
+.quota-bar-pct {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 36px;
+  text-align: right;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.quota-bar-reset {
+  font-size: 10px;
+  color: var(--muted);
+  min-width: 24px;
+  text-align: right;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.quota-pct-empty {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* === Maintenance Grid === */
+.maintenance-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0;
+}
+.maintenance-grid .hint {
+  margin: 0 0 8px 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.btn-maintenance {
+  width: 100%;
+  padding: 9px 14px;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn-maintenance:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: var(--accent);
+}
+
+/* === Status text utilities === */
+.text-ok {
+  color: #7ef0a0;
+}
+.text-warn {
+  color: #ff928f;
 }
 
 /* === Inline Form === */

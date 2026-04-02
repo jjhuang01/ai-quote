@@ -89,6 +89,10 @@ export class DataManager {
       startedAt: new Date().toISOString(),
       messageCount: 0
     });
+    // 限制 sessionHistory 最多 50 条
+    if (this.sessionHistory.length > 50) {
+      this.sessionHistory = this.sessionHistory.slice(-50);
+    }
     this.logger.debug('Session started.', { sessionId: this.currentSessionId });
   }
 
