@@ -1,0 +1,141 @@
+{
+  "name": "ai-echo-rebuild",
+  "displayName": "Echo Rebuild",
+  "description": "Evidence-driven reconstruction of the AI Echo VS Code extension.",
+  "version": "0.1.0",
+  "publisher": "local-rebuild",
+  "license": "MIT",
+  "author": "OpenCode Reconstruction",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "echo",
+    "mcp",
+    "bridge",
+    "utility",
+    "reconstruction"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "AI Echo Rebuild writes MCP config files and feedback rules. These features are limited in untrusted workspaces.",
+      "restrictedConfigurations": [
+        "infiniteDialog.serverPort",
+        "infiniteDialog.autoConfigureRules"
+      ]
+    }
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "infinite-dialog-sidebar",
+          "title": "AI Echo",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "infinite-dialog-sidebar": [
+        {
+          "type": "webview",
+          "id": "infiniteDialogView",
+          "name": "AI Echo",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "infiniteDialog.openPanel",
+        "title": "AI Echo: Open Panel",
+        "icon": "$(window)"
+      },
+      {
+        "command": "infiniteDialog.refresh",
+        "title": "AI Echo: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "infiniteDialog.testFeedback",
+        "title": "AI Echo: Test Feedback"
+      },
+      {
+        "command": "infiniteDialog.showStatus",
+        "title": "AI Echo: Show Status"
+      },
+      {
+        "command": "infiniteDialog.openLogs",
+        "title": "AI Echo: Open Logs"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "infiniteDialog.refresh",
+          "when": "view == infiniteDialogView",
+          "group": "navigation"
+        },
+        {
+          "command": "infiniteDialog.openPanel",
+          "when": "view == infiniteDialogView",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AI Echo",
+      "properties": {
+        "infiniteDialog.serverPort": {
+          "type": "number",
+          "default": 3456,
+          "description": "服务端口"
+        },
+        "infiniteDialog.autoConfigureRules": {
+          "type": "boolean",
+          "default": true,
+          "description": "自动配置全局规则"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit -p tsconfig.json",
+    "build": "npm run check-types && node esbuild.mjs",
+    "compile-tests": "tsc -p tsconfig.tests.json",
+    "test:unit": "vitest run tests/unit",
+    "test:e2e": "vitest run tests/e2e",
+    "test": "npm run test:unit && npm run test:e2e",
+    "dev": "node esbuild.mjs --watch",
+    "dev:debug": "npm run build && code --extensionDevelopmentPath=\"$PWD\" --disableExtensions",
+    "test:integration": "npm run build && npm run compile-tests && vscode-test",
+    "verify": "npm run check-types && npm run build && npm run test && npm run test:integration",
+    "vscode:prepublish": "npm run build"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.19.0",
+    "@types/vscode": "^1.80.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.27.5",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.2"
+  },
+  "dependencies": {
+    "mammoth": "^1.11.0",
+    "proxy-agent": "^6.3.0",
+    "xlsx": "^0.18.5"
+  }
+}

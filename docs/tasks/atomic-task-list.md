@@ -1,0 +1,23 @@
+# Atomic Task List
+
+- [ ] 建立根目录说明文件与文档树
+- [ ] 固化 recovered facts / parity matrix
+- [ ] 创建 VS Code extension manifest 与构建脚本
+- [ ] 注册 Activity Bar webview view provider
+- [ ] 注册 4 个命令
+- [ ] 启动 bridge server
+- [ ] 实现 `/events` 与 `/sse`
+- [ ] 实现 `POST /message`
+- [ ] 实现 `GET /api/version`
+- [ ] 实现 `POST /api/verify`
+- [ ] 实现 `POST /api/firebase/login`
+- [ ] 实现 current IDE 检测
+- [ ] 实现 MCP config merge / write
+- [ ] 实现 workspace feedback rules write
+- [ ] 实现 Cursor global rule write
+- [ ] 实现 status bar
+- [ ] 实现 webview 状态面板
+- [ ] 编写 unit tests
+- [ ] 编写 bridge e2e tests
+- [ ] 编写 extension integration tests
+- [ ] 运行 typecheck / build / tests

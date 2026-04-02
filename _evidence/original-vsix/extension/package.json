@@ -1,0 +1,118 @@
+{
+  "name": "ai-echo",
+  "displayName": "Echo",
+  "description": "",
+  "version": "2.1.4",
+  "publisher": "opensource",
+  "author": "EVILZIXIE",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "tool",
+    "helper",
+    "utility"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "infinite-dialog-sidebar",
+          "title": "AI Echo",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "infinite-dialog-sidebar": [
+        {
+          "type": "webview",
+          "id": "infiniteDialogView",
+          "name": "AI Echo",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "infiniteDialog.openPanel",
+        "title": "AI Echo: Open Panel",
+        "icon": "$(window)"
+      },
+      {
+        "command": "infiniteDialog.refresh",
+        "title": "AI Echo: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "infiniteDialog.testFeedback",
+        "title": "AI Echo: Test Feedback"
+      },
+      {
+        "command": "infiniteDialog.showStatus",
+        "title": "AI Echo: Show Status"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "infiniteDialog.refresh",
+          "when": "view == infiniteDialogView",
+          "group": "navigation"
+        },
+        {
+          "command": "infiniteDialog.openPanel",
+          "when": "view == infiniteDialogView",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AI Echo",
+      "properties": {
+        "infiniteDialog.serverPort": {
+          "type": "number",
+          "default": 3456,
+          "description": "服务端口"
+        },
+        "infiniteDialog.autoConfigureRules": {
+          "type": "boolean",
+          "default": true,
+          "description": "自动配置全局规则"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run esbuild",
+    "compile": "tsc -p ./",
+    "esbuild": "node esbuild.js",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package --out AI-Echo.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.80.0",
+    "@vscode/vsce": "^2.21.0",
+    "esbuild": "^0.27.2",
+    "javascript-obfuscator": "^5.1.0",
+    "typescript": "^5.1.0"
+  },
+  "dependencies": {
+    "mammoth": "^1.11.0",
+    "proxy-agent": "^6.3.0",
+    "xlsx": "^0.18.5"
+  }
+}

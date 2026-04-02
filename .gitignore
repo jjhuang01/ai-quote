@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+dist-test/
+out/
+!_evidence/original-vsix/extension/out/
+!_evidence/original-vsix/extension/out/extension.js
+
+# VS Code extension package
+*.vsix
+
+# Test artifacts
+.vscode-test/
+
+# Logs
+logs/*
+!logs/README.md
+
+# Debug
+debug/*
+!debug/README.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
+.windsurfrules
+analyze-original.js
+
+# TypeScript cache
+*.tsbuildinfo
