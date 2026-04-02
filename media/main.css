@@ -1015,9 +1015,15 @@ button:hover {
   transition: width 0.4s ease;
   min-width: 0;
 }
-.quota-fill-ok { background: #3b82f6; }
-.quota-fill-warn { background: #f59e0b; }
-.quota-fill-danger { background: #ef4444; }
+.quota-fill-ok {
+  background: #3b82f6;
+}
+.quota-fill-warn {
+  background: #f59e0b;
+}
+.quota-fill-danger {
+  background: #ef4444;
+}
 .quota-bar-pct {
   font-size: 11px;
   font-weight: 600;
@@ -1063,7 +1069,9 @@ button:hover {
   font-weight: 500;
   cursor: pointer;
   text-align: left;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 .btn-maintenance:hover {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
@@ -1295,6 +1303,15 @@ button:hover {
   animation: toast-in 0.2s ease;
   white-space: nowrap;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.toast-success {
+  background: color-mix(in srgb, var(--success) 90%, transparent);
+}
+.toast-error {
+  background: color-mix(in srgb, var(--danger) 90%, transparent);
 }
 @keyframes toast-in {
   from {
@@ -1305,6 +1322,95 @@ button:hover {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
   }
+}
+
+/* === Button Loading State === */
+.btn-loading {
+  opacity: 0.7;
+  pointer-events: none;
+  cursor: wait;
+}
+.btn-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: btn-spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* === Diagnose Result Card === */
+.diagnose-card {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  overflow: hidden;
+  animation: toast-in 0.2s ease;
+}
+.diagnose-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--border) 40%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+.diagnose-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+.diagnose-summary {
+  font-size: 11px;
+  color: var(--muted);
+  flex: 1;
+}
+.diagnose-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.diagnose-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+.diagnose-check:last-child {
+  border-bottom: none;
+}
+.check-icon {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.check-name {
+  font-weight: 600;
+  color: var(--text);
+  min-width: 72px;
+}
+.check-detail {
+  color: var(--muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.check-fail .check-name {
+  color: var(--danger);
+}
+.check-ok .check-name {
+  color: var(--success);
 }
 
 /* === Quota Bars === */

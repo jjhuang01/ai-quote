@@ -126,6 +126,7 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
     if (action === 'clearHistory') {
       await this.dataManager.history.clear();
       this.postBootstrap();
+      void this.view?.webview.postMessage({ type: 'opResult', value: { message: '历史记录已清空' } });
       return;
     }
 
@@ -177,16 +178,28 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
 
     if (action === 'accountDelete') {
       if (typeof value === 'string') {
+        const account = this.dataManager.windsurfAccounts.getById(value);
         await this.dataManager.windsurfAccounts.delete(value);
         this.postBootstrap();
+        void this.view?.webview.postMessage({ type: 'opResult', value: { message: account ? `已删除 ${account.email}` : '账号已删除' } });
       }
       return;
     }
 
     if (action === 'accountSwitch') {
       if (typeof value === 'string') {
-        await this.dataManager.windsurfAccounts.switchTo(value);
+        void this.view?.webview.postMessage({ type: 'switchLoading', value: true });
+        const account = this.dataManager.windsurfAccounts.getById(value);
+        const ok = await this.dataManager.windsurfAccounts.switchTo(value);
+        void this.view?.webview.postMessage({ type: 'switchLoading', value: false });
         this.postBootstrap();
+        if (ok && account) {
+          const msg = `已切换到 ${account.email}`;
+          void this.view?.webview.postMessage({ type: 'switchResult', value: { success: true, message: msg } });
+          vscode.window.setStatusBarMessage(`$(check) ${msg}`, 4000);
+        } else {
+          void this.view?.webview.postMessage({ type: 'switchResult', value: { success: false, message: '切换失败：账号不存在' } });
+        }
       }
       return;
     }
@@ -194,6 +207,7 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
     if (action === 'accountClear') {
       await this.dataManager.windsurfAccounts.clear();
       this.postBootstrap();
+      void this.view?.webview.postMessage({ type: 'opResult', value: { message: '所有账号已清空' } });
       return;
     }
 
@@ -327,6 +341,7 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
     if (action === 'settingsReset') {
       await this.dataManager.settings.reset();
       this.postBootstrap();
+      void this.view?.webview.postMessage({ type: 'opResult', value: { message: '设置已恢复默认' } });
       return;
     }
 
@@ -344,36 +359,88 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
     }
 
     if (action === 'maintenanceCleanMcp') {
-      const result = await this.cleanOldMcpConfigs();
-      void this.view?.webview.postMessage({ type: 'maintenanceResult', value: result });
+      void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'cleanMcp' });
+      try {
+        const result = await this.cleanOldMcpConfigs();
+        void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'cleanMcp' } });
+        vscode.window.showInformationMessage(`已清理 ${result.cleaned} 条旧MCP配置`);
+      } catch (err) {
+        void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'cleanMcp', error: String(err) } });
+        vscode.window.showErrorMessage(`清理旧MCP配置失败: ${String(err)}`);
+      }
       return;
     }
 
     if (action === 'maintenanceResetSettings') {
-      await this.dataManager.settings.reset();
-      await this.dataManager.shortcuts.clear();
-      await this.dataManager.templates.clear();
-      this.postBootstrap();
+      void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'resetSettings' });
+      try {
+        await this.dataManager.settings.reset();
+        await this.dataManager.shortcuts.clear();
+        await this.dataManager.templates.clear();
+        this.postBootstrap();
+        void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { action: 'resetSettings' } });
+        vscode.window.showInformationMessage('所有设置已恢复默认');
+      } catch (err) {
+        void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'resetSettings', error: String(err) } });
+        vscode.window.showErrorMessage(`重置设置失败: ${String(err)}`);
+      }
       return;
     }
 
     if (action === 'maintenanceRewriteRules') {
-      const result = await this.rewriteRules();
-      void this.view?.webview.postMessage({ type: 'maintenanceResult', value: result });
+      void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'rewriteRules' });
+      try {
+        const result = await this.rewriteRules();
+        void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'rewriteRules' } });
+        if (result.failed.length > 0) {
+          vscode.window.showWarningMessage(`规则写入: ${result.written.length} 成功, ${result.failed.length} 失败`);
+        } else {
+          vscode.window.showInformationMessage(`规则文件已重新写入 (${result.written.length} 个文件)`);
+        }
+      } catch (err) {
+        void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'rewriteRules', error: String(err) } });
+        vscode.window.showErrorMessage(`重写规则文件失败: ${String(err)}`);
+      }
       return;
     }
 
     if (action === 'maintenanceClearCache') {
-      await this.dataManager.history.clear();
-      await this.dataManager.usageStats.reset();
-      this.logger.info('Plugin cache cleared.');
-      this.postBootstrap();
+      void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'clearCache' });
+      try {
+        await this.dataManager.history.clear();
+        await this.dataManager.usageStats.reset();
+        this.logger.info('Plugin cache cleared.');
+        this.postBootstrap();
+        void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { action: 'clearCache' } });
+        vscode.window.showInformationMessage('插件缓存已清理');
+      } catch (err) {
+        void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'clearCache', error: String(err) } });
+        vscode.window.showErrorMessage(`清理缓存失败: ${String(err)}`);
+      }
       return;
     }
 
     if (action === 'maintenanceDiagnose') {
-      const result = await this.runDiagnose();
-      void this.view?.webview.postMessage({ type: 'diagnoseResult', value: result });
+      void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'diagnose' });
+      try {
+        const result = await this.runDiagnose();
+        void this.view?.webview.postMessage({ type: 'diagnoseResult', value: result });
+        const ok = result.checks.filter(c => c.ok).length;
+        const fail = result.checks.filter(c => !c.ok).length;
+        const repairText = result.repaired ? `，已修复 ${result.repaired} 项` : '';
+        const summary = `诊断完成: ${ok} 通过, ${fail} 异常${repairText}`;
+        if (fail > 0) {
+          const detail = result.checks.filter(c => !c.ok).map(c => `${c.name}: ${c.detail}`).join('; ');
+          vscode.window.showWarningMessage(`${summary} — ${detail}`, '查看详情').then(choice => {
+            if (choice === '查看详情') this.reveal();
+          });
+        } else {
+          vscode.window.showInformationMessage(summary);
+        }
+      } catch (err) {
+        void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'diagnose', error: String(err) } });
+        vscode.window.showErrorMessage(`诊断失败: ${String(err)}`);
+      }
       return;
     }
 

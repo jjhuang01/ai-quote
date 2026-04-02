@@ -173,8 +173,15 @@ let state = {
   quotaWeeklyLimit: 0,
   // Notification
   notification: undefined as string | undefined,
+  notificationType: 'info' as 'info' | 'success' | 'error',
   // Quota fetching
   quotaFetching: false,
+  // Maintenance loading
+  maintenanceLoadingAction: undefined as string | undefined,
+  // Switch loading
+  switchLoadingId: undefined as string | undefined,
+  // Diagnose result
+  diagnoseResult: undefined as { checks: Array<{ name: string; ok: boolean; detail: string }>; repaired?: number } | undefined,
 };
 
 // ---- Render Root ----
@@ -188,7 +195,7 @@ function render(): void {
       ${renderHeader(bs)}
       ${renderTabNav()}
       ${renderActiveTab(bs)}
-      ${state.notification ? `<div class="toast">${escapeHtml(state.notification)}</div>` : ''}
+      ${state.notification ? `<div class="toast toast-${state.notificationType}">${escapeHtml(state.notification)}</div>` : ''}
     </main>`;
   bindEvents();
   // JS 程序化设置进度条宽度（绕过 CSP 对 inline style 的限制）
@@ -558,7 +565,7 @@ function renderAccountItem(a: WindsurfAccount, currentId?: string, snapshot?: Qu
           </p>
         </div>
         <div class="account-actions">
-          ${!isCurrent ? `<button class="btn-xs" data-action="accountSwitch" data-id="${a.id}">切换</button>` : ''}
+          ${!isCurrent ? `<button class="btn-xs ${state.switchLoadingId === a.id ? 'btn-loading' : ''}" data-action="accountSwitch" data-id="${a.id}" ${state.switchLoadingId === a.id ? 'disabled' : ''}>${state.switchLoadingId === a.id ? '<span class="btn-spinner"></span>' : '切换'}</button>` : ''}
           <button class="btn-xs btn-danger-xs" data-action="accountDelete" data-id="${a.id}">删除</button>
         </div>
       </div>
@@ -885,16 +892,17 @@ function renderSettingsTab(bs: Bootstrap): string {
       <section class="card">
         <div class="section-header"><h2>维护</h2></div>
         <div class="maintenance-grid">
-          <button class="btn-maintenance" data-action="maintenanceCleanMcp">🧹 清理旧MCP配置</button>
+          ${renderMaintenanceBtn('maintenanceCleanMcp', '🧹 清理旧MCP配置', 'cleanMcp')}
           <p class="hint">清理MCP配置文件中的旧端口记录</p>
-          <button class="btn-maintenance" data-action="maintenanceResetSettings">🔄 重置所有设置</button>
+          ${renderMaintenanceBtn('maintenanceResetSettings', '🔄 重置所有设置', 'resetSettings')}
           <p class="hint">恢复默认设置（清空快捷回复、模板等）</p>
-          <button class="btn-maintenance" data-action="maintenanceRewriteRules">📝 重写规则文件</button>
+          ${renderMaintenanceBtn('maintenanceRewriteRules', '📝 重写规则文件', 'rewriteRules')}
           <p class="hint">重新写入AI反馈规则到工作区</p>
-          <button class="btn-maintenance" data-action="maintenanceClearCache">🗑️ 清理插件缓存</button>
+          ${renderMaintenanceBtn('maintenanceClearCache', '🗑️ 清理插件缓存', 'clearCache')}
           <p class="hint">清理历史记录、日志等缓存数据</p>
-          <button class="btn-maintenance btn-grad" data-action="maintenanceDiagnose">🔧 诊断并修复</button>
+          ${renderMaintenanceBtn('maintenanceDiagnose', '🔧 诊断并修复', 'diagnose', true)}
           <p class="hint">检测服务器状态、MCP配置并自动修复</p>
+          ${state.diagnoseResult ? renderDiagnoseCard(state.diagnoseResult) : ''}
         </div>
       </section>
 
@@ -919,6 +927,33 @@ function renderSettingsTab(bs: Bootstrap): string {
 }
 
 // ---- Update Tab ----
+
+function renderMaintenanceBtn(action: string, label: string, loadingKey: string, isGrad = false): string {
+  const isLoading = state.maintenanceLoadingAction === loadingKey;
+  const cls = isGrad ? 'btn-maintenance btn-grad' : 'btn-maintenance';
+  return `<button class="${cls} ${isLoading ? 'btn-loading' : ''}" data-action="${action}" ${isLoading ? 'disabled' : ''}>${isLoading ? `<span class="btn-spinner"></span> 处理中...` : label}</button>`;
+}
+
+function renderDiagnoseCard(result: { checks: Array<{ name: string; ok: boolean; detail: string }>; repaired?: number }): string {
+  const ok = result.checks.filter(c => c.ok).length;
+  const fail = result.checks.filter(c => !c.ok).length;
+  return `
+    <div class="diagnose-card">
+      <div class="diagnose-header">
+        <span class="diagnose-title">诊断报告</span>
+        <span class="diagnose-summary">${ok} 通过${fail > 0 ? `, ${fail} 异常` : ''}${result.repaired ? `, ${result.repaired} 已修复` : ''}</span>
+        <button class="btn-xs" data-action="dismissDiagnose">关闭</button>
+      </div>
+      <div class="diagnose-checks">
+        ${result.checks.map(c => `
+          <div class="diagnose-check ${c.ok ? 'check-ok' : 'check-fail'}">
+            <span class="check-icon">${c.ok ? '✅' : '❌'}</span>
+            <span class="check-name">${escapeHtml(c.name)}</span>
+            <span class="check-detail">${escapeHtml(c.detail)}</span>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
 
 function renderUpdateTab(bs: Bootstrap): string {
   return `
@@ -1028,7 +1063,9 @@ function handleAction(el: HTMLElement): void {
 
     // History
     case 'clearHistory':
-      vscode.postMessage({ type: 'clearHistory' });
+      if (confirm('确定要清空所有历史记录吗？')) {
+        vscode.postMessage({ type: 'clearHistory' });
+      }
       break;
     case 'deleteHistory':
       if (id) vscode.postMessage({ type: 'deleteHistory', value: id });
@@ -1070,13 +1107,21 @@ function handleAction(el: HTMLElement): void {
       break;
     }
     case 'accountSwitch':
-      if (id) vscode.postMessage({ type: 'accountSwitch', value: id });
+      if (id) {
+        state.switchLoadingId = id;
+        render();
+        vscode.postMessage({ type: 'accountSwitch', value: id });
+      }
       break;
     case 'accountDelete':
-      if (id) vscode.postMessage({ type: 'accountDelete', value: id });
+      if (id && confirm('确定要删除该账号吗？')) {
+        vscode.postMessage({ type: 'accountDelete', value: id });
+      }
       break;
     case 'accountClear':
-      vscode.postMessage({ type: 'accountClear' });
+      if (confirm('确定要清空所有账号吗？此操作不可撤销。')) {
+        vscode.postMessage({ type: 'accountClear' });
+      }
       break;
     case 'autoSwitchSave': {
       const enabled = (document.getElementById('autoSwitchEnabled') as HTMLInputElement)?.checked ?? false;
@@ -1196,7 +1241,9 @@ function handleAction(el: HTMLElement): void {
       break;
     }
     case 'settingsReset':
-      vscode.postMessage({ type: 'settingsReset' });
+      if (confirm('确定要恢复默认设置吗？')) {
+        vscode.postMessage({ type: 'settingsReset' });
+      }
       break;
 
     // Quota fetch
@@ -1215,42 +1262,49 @@ function handleAction(el: HTMLElement): void {
 
     // Maintenance
     case 'maintenanceClearHistory':
-      vscode.postMessage({ type: 'maintenanceClearHistory' });
-      showToast('历史已清空');
+      if (confirm('确定要清空历史记录吗？')) {
+        vscode.postMessage({ type: 'maintenanceClearHistory' });
+      }
       break;
     case 'maintenanceResetStats':
       vscode.postMessage({ type: 'maintenanceResetStats' });
-      showToast('统计已重置');
+      showToast('统计已重置', 'success');
       break;
     case 'maintenanceCleanMcp':
       vscode.postMessage({ type: 'maintenanceCleanMcp' });
-      showToast('正在清理旧MCP配置...');
       break;
     case 'maintenanceResetSettings':
-      vscode.postMessage({ type: 'maintenanceResetSettings' });
-      showToast('所有设置已重置');
+      if (confirm('确定要重置所有设置吗？快捷短语和模板也会被清空。')) {
+        vscode.postMessage({ type: 'maintenanceResetSettings' });
+      }
       break;
     case 'maintenanceRewriteRules':
       vscode.postMessage({ type: 'maintenanceRewriteRules' });
-      showToast('正在重写规则文件...');
       break;
     case 'maintenanceClearCache':
-      vscode.postMessage({ type: 'maintenanceClearCache' });
-      showToast('缓存已清理');
+      if (confirm('确定要清理插件缓存吗？历史记录和统计数据将被清除。')) {
+        vscode.postMessage({ type: 'maintenanceClearCache' });
+      }
       break;
     case 'maintenanceDiagnose':
+      state.diagnoseResult = undefined;
       vscode.postMessage({ type: 'maintenanceDiagnose' });
-      showToast('正在诊断...');
+      break;
+    case 'dismissDiagnose':
+      state.diagnoseResult = undefined;
+      render();
       break;
   }
 }
 
 // ---- Utilities ----
 
-function showToast(msg: string): void {
+function showToast(msg: string, type: 'info' | 'success' | 'error' = 'info', duration?: number): void {
   state.notification = msg;
+  state.notificationType = type;
   render();
-  setTimeout(() => { state.notification = undefined; render(); }, 2500);
+  const dur = duration ?? (type === 'error' ? 5000 : msg.length > 30 ? 4000 : 2500);
+  setTimeout(() => { state.notification = undefined; render(); }, dur);
 }
 
 function escapeHtml(value: string): string {
@@ -1285,49 +1339,89 @@ window.addEventListener('message', event => {
     return;
   }
 
+  if (msg.type === 'switchLoading') {
+    if (!(msg.value as boolean)) {
+      state.switchLoadingId = undefined;
+    }
+    render();
+    return;
+  }
+
+  if (msg.type === 'switchResult') {
+    state.switchLoadingId = undefined;
+    const r = msg.value as { success: boolean; message: string };
+    showToast(r.message, r.success ? 'success' : 'error');
+    return;
+  }
+
+  if (msg.type === 'opResult') {
+    const r = msg.value as { message: string };
+    showToast(r.message, 'success');
+    return;
+  }
+
   if (msg.type === 'importResult') {
     const r = msg.value as { added: number; skipped: number };
-    showToast(`导入完成：${r.added} 个成功，${r.skipped} 个跳过`);
+    showToast(`导入完成：${r.added} 个成功，${r.skipped} 个跳过`, 'success');
     return;
   }
 
   if (msg.type === 'machineIdResult') {
     const r = msg.value as { success: boolean; message: string };
-    showToast(r.message);
+    showToast(r.message, r.success ? 'success' : 'error');
     return;
   }
 
   if (msg.type === 'quotaFetchResult') {
     state.quotaFetching = false;
     const r = msg.value as { success: boolean; error?: string };
-    showToast(r.success ? '配额已更新' : `配额获取失败: ${r.error ?? '未知错误'}`);
+    showToast(r.success ? '配额已更新' : `配额获取失败: ${r.error ?? '未知错误'}`, r.success ? 'success' : 'error');
     return;
   }
 
   if (msg.type === 'quotaFetchAllResult') {
     state.quotaFetching = false;
     const r = msg.value as { success: number; failed: number; errors: string[] };
-    showToast(`配额刷新完成: ${r.success} 成功, ${r.failed} 失败`);
+    showToast(`配额刷新完成: ${r.success} 成功, ${r.failed} 失败`, r.failed > 0 ? 'error' : 'success');
+    return;
+  }
+
+  if (msg.type === 'maintenanceLoading') {
+    state.maintenanceLoadingAction = msg.value as string;
+    render();
     return;
   }
 
   if (msg.type === 'maintenanceResult') {
-    const r = msg.value as { cleaned?: number; details?: string[]; written?: string[]; failed?: string[] };
+    state.maintenanceLoadingAction = undefined;
+    const r = msg.value as { action?: string; cleaned?: number; details?: string[]; written?: string[]; failed?: string[] };
     if (r.cleaned !== undefined) {
-      showToast(`清理完成: ${r.cleaned} 条旧配置已删除`);
+      showToast(`清理完成: ${r.cleaned} 条旧配置已删除`, 'success');
     } else if (r.written) {
-      showToast(`规则写入完成: ${r.written.length} 个文件`);
+      showToast(`规则写入完成: ${r.written.length} 个文件`, r.failed && r.failed.length > 0 ? 'error' : 'success');
+    } else if (r.action === 'resetSettings') {
+      showToast('所有设置已恢复默认', 'success');
+    } else if (r.action === 'clearCache') {
+      showToast('插件缓存已清理', 'success');
     }
     return;
   }
 
+  if (msg.type === 'maintenanceError') {
+    state.maintenanceLoadingAction = undefined;
+    const r = msg.value as { action: string; error: string };
+    showToast(`操作失败: ${r.error}`, 'error', 5000);
+    return;
+  }
+
   if (msg.type === 'diagnoseResult') {
+    state.maintenanceLoadingAction = undefined;
     const r = msg.value as { checks: Array<{ name: string; ok: boolean; detail: string }>; repaired?: number };
+    state.diagnoseResult = r;
     const ok = r.checks.filter(c => c.ok).length;
     const fail = r.checks.filter(c => !c.ok).length;
     const repairText = r.repaired ? `, ${r.repaired} 项已修复` : '';
-    const details = r.checks.map(c => `${c.ok ? '✅' : '❌'} ${c.name}: ${c.detail}`).join('\n');
-    showToast(`诊断完成: ${ok} 通过, ${fail} 异常${repairText}\n${details}`);
+    showToast(`诊断完成: ${ok} 通过, ${fail} 异常${repairText}`, fail > 0 ? 'error' : 'success');
     return;
   }
 });
