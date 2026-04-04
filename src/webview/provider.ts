@@ -400,17 +400,18 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
         await this.dataManager.usageStats.reset();
         this.postBootstrap();
         return true;
-      case 'maintenanceCleanMcp':
-        void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'cleanMcp' });
-        try {
-          const result = await this.cleanOldMcpConfigs();
-          void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'cleanMcp' } });
-          vscode.window.showInformationMessage(`已清理 ${result.cleaned} 条旧MCP配置`);
-        } catch (err) {
-          void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'cleanMcp', error: String(err) } });
-          vscode.window.showErrorMessage(`清理旧MCP配置失败: ${String(err)}`);
-        }
-        return true;
+      // MCP cleaning disabled
+      // case 'maintenanceCleanMcp':
+      //   void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'cleanMcp' });
+      //   try {
+      //     const result = await this.cleanOldMcpConfigs();
+      //     void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'cleanMcp' } });
+      //     vscode.window.showInformationMessage(`已清理 ${result.cleaned} 条旧MCP配置`);
+      //   } catch (err) {
+      //     void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'cleanMcp', error: String(err) } });
+      //     vscode.window.showErrorMessage(`清理旧MCP配置失败: ${String(err)}`);
+      //   }
+      //   return true;
       case 'maintenanceResetSettings':
         void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'resetSettings' });
         try {
@@ -425,21 +426,22 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
           vscode.window.showErrorMessage(`重置设置失败: ${String(err)}`);
         }
         return true;
-      case 'maintenanceRewriteRules':
-        void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'rewriteRules' });
-        try {
-          const result = await this.rewriteRules();
-          void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'rewriteRules' } });
-          if (result.failed.length > 0) {
-            vscode.window.showWarningMessage(`规则写入: ${result.written.length} 成功, ${result.failed.length} 失败`);
-          } else {
-            vscode.window.showInformationMessage(`规则文件已重新写入 (${result.written.length} 个文件)`);
-          }
-        } catch (err) {
-          void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'rewriteRules', error: String(err) } });
-          vscode.window.showErrorMessage(`重写规则文件失败: ${String(err)}`);
-        }
-        return true;
+      // Rules writing disabled
+      // case 'maintenanceRewriteRules':
+      //   void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'rewriteRules' });
+      //   try {
+      //     const result = await this.rewriteRules();
+      //     void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'rewriteRules' } });
+      //     if (result.failed.length > 0) {
+      //       vscode.window.showWarningMessage(`规则写入: ${result.written.length} 成功, ${result.failed.length} 失败`);
+      //     } else {
+      //       vscode.window.showInformationMessage(`规则文件已重新写入 (${result.written.length} 个文件)`);
+      //     }
+      //   } catch (err) {
+      //     void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'rewriteRules', error: String(err) } });
+      //     vscode.window.showErrorMessage(`重写规则文件失败: ${String(err)}`);
+      //   }
+      //   return true;
       case 'maintenanceClearCache':
         void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'clearCache' });
         try {

@@ -63,35 +63,36 @@ export async function activate(
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
-  if (config.autoConfigureRules && vscode.workspace.isTrusted) {
-    const sseUrl = `http://127.0.0.1:${runningPort}/sse`;
-    const configuredPaths: string[] = [];
+  // Disabled auto MCP config and rules writing - only account switching and quota stats
+  // if (config.autoConfigureRules && vscode.workspace.isTrusted) {
+  //   const sseUrl = `http://127.0.0.1:${runningPort}/sse`;
+  //   const configuredPaths: string[] = [];
 
-    const mcpPath = await writeMcpConfig(currentIde, toolName, sseUrl);
-    configuredPaths.push(mcpPath);
+  //   const mcpPath = await writeMcpConfig(currentIde, toolName, sseUrl);
+  //   configuredPaths.push(mcpPath);
 
-    const ruleResults = await configureGlobalRules(toolName);
-    configuredPaths.push(
-      ...ruleResults
-        .filter((result) => result.written)
-        .map((result) => result.path),
-    );
-    bridge.setConfiguredPaths(configuredPaths);
-    logger.info("Auto configuration completed.", { configuredPaths });
+  //   const ruleResults = await configureGlobalRules(toolName);
+  //   configuredPaths.push(
+  //     ...ruleResults
+  //       .filter((result) => result.written)
+  //       .map((result) => result.path),
+  //   );
+  //   bridge.setConfiguredPaths(configuredPaths);
+  //   logger.info("Auto configuration completed.", { configuredPaths });
 
-    void vscode.window
-      .showInformationMessage(
-        `AI Echo MCP 已配置 (${currentIde.name}) · 工具名: ${toolName}`,
-        "查看配置",
-      )
-      .then((choice) => {
-        if (choice === "查看配置") {
-          void vscode.workspace
-            .openTextDocument(vscode.Uri.file(currentIde.configPath))
-            .then((doc) => vscode.window.showTextDocument(doc));
-        }
-      });
-  }
+  //   void vscode.window
+  //     .showInformationMessage(
+  //       `AI Echo MCP 已配置 (${currentIde.name}) · 工具名: ${toolName}`,
+  //       "查看配置",
+  //     )
+  //     .then((choice) => {
+  //       if (choice === "查看配置") {
+  //         void vscode.workspace
+  //           .openTextDocument(vscode.Uri.file(currentIde.configPath))
+  //           .then((doc) => vscode.window.showTextDocument(doc));
+  //       }
+  //     });
+  // }
 
   context.subscriptions.push(
     vscode.commands.registerCommand("infiniteDialog.openPanel", async () => {
