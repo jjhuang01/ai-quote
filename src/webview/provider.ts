@@ -1,19 +1,20 @@
 import * as vscode from 'vscode';
-import { EchoBridgeServer } from '../core/bridge';
-import { EchoLogger } from '../core/logger';
+import type { QuoteBridge } from '../core/bridge';
+import type { QuoteLogger } from '../core/logger';
 import type { DataManager } from '../core/data-manager';
 import type { WebviewBootstrap } from '../core/contracts';
 import { buildWebviewHtml } from './view-html';
+import { QuoteDialogPanel } from './dialog-panel';
 import { WindsurfPatchService } from '../adapters/windsurf-patch';
 
-export class EchoSidebarProvider implements vscode.WebviewViewProvider {
+export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'quoteView';
   private view?: vscode.WebviewView;
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
-    private readonly bridge: EchoBridgeServer,
-    private readonly logger: EchoLogger,
+    private readonly bridge: QuoteBridge,
+    private readonly logger: QuoteLogger,
     private readonly dataManager: DataManager
   ) {}
 
@@ -57,6 +58,15 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
 
   public reveal(): void {
     this.view?.show?.(true);
+  }
+
+  public isVisible(): boolean {
+    return this.view?.visible ?? false;
+  }
+
+  public postPendingDialog(req: import('../core/contracts').McpDialogRequest): void {
+    if (!this.view) return;
+    void this.view.webview.postMessage({ type: 'mcpDialog', value: req });
   }
 
   public postBootstrap(): void {
@@ -120,7 +130,7 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
 
     if (!action) return;
 
-    if (await this.handleGeneral(action)) return;
+    if (await this.handleGeneral(action, value, payload)) return;
     if (await this.handleAccount(action, value, payload)) return;
     if (await this.handleTools(action, value, payload)) return;
     if (await this.handleSettings(action, payload)) return;
@@ -131,7 +141,7 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
 
   // --- General & Session & History ---
 
-  private async handleGeneral(action: string): Promise<boolean> {
+  private async handleGeneral(action: string, value?: unknown, _payload?: unknown): Promise<boolean> {
     switch (action) {
       case 'refresh':
         this.render();
@@ -140,20 +150,78 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
         await this.bridge.injectTestFeedback();
         this.postState();
         return true;
+      case 'testDialog': {
+        const { createId } = await import('../utils/tool-name');
+        const sessionId = createId('test');
+        const req: import('../core/contracts').McpDialogRequest = {
+          id: createId('test'),
+          sessionId,
+          summary: '## 对话框测试\n\n这是来自**调试面板**的测试请求。\n\n请选择一个选项或输入自定义回复：',
+          options: ['✅ 确认', '❌ 取消', '🔄 重试'],
+          isMarkdown: true,
+          receivedAt: new Date().toISOString(),
+        };
+        this.bridge.injectTestDialogRequest(req, (response) => {
+          this.logger.info('TestDialog (debug panel): user responded.', { response });
+          void this.view?.webview.postMessage({
+            type: 'opResult',
+            value: { message: `测试对话框回复: "${response}"` }
+          });
+          this.postBootstrap();
+        });
+        // Sidebar receives dialog via dialogHandler → postPendingDialog; no need to duplicate
+        return true;
+      }
+      case 'mcpDialogSubmit': {
+        const submitVal = value as Record<string, unknown> | undefined;
+        const sessionId = submitVal?.['sessionId'] as string | undefined;
+        const userResponse = submitVal?.['response'] as string | undefined;
+        const submitImages = submitVal?.['images'] as import('../core/contracts').ImageAttachment[] | undefined;
+        if (sessionId && userResponse !== undefined) {
+          this.bridge.resolvePendingDialog(sessionId, userResponse, submitImages);
+          // Mark editor tab panel as submitted before disposing to prevent double resolution
+          QuoteDialogPanel.markSubmitted();
+          QuoteDialogPanel.dispose();
+          this.logger.info('MCP dialog submitted from webview.', { sessionId });
+          this.postBootstrap();
+        }
+        return true;
+      }
       case 'rotateName': {
         const { rotateToolName } = await import('../utils/tool-name');
+        const { detectCurrentIde, writeMcpConfig } = await import('../adapters/mcp-config');
         const storagePath = this.dataManager.globalStoragePath;
         const newName = await rotateToolName(storagePath);
         this.bridge.updateToolName(newName);
+
+        // Re-write MCP config and rules so the AI finds the new tool name
+        const currentIde = detectCurrentIde();
+        const sseUrl = this.bridge.getSseUrl();
+        try {
+          await writeMcpConfig(currentIde, newName, sseUrl);
+          this.logger.info('MCP config re-written after rotation.', { newName });
+        } catch (err) {
+          this.logger.warn('Failed to re-write MCP config after rotation.', { error: String(err) });
+        }
+        try {
+          await this.rewriteRules();
+        } catch (err) {
+          this.logger.warn('Failed to re-write rules after rotation.', { error: String(err) });
+        }
+
         this.postBootstrap();
         void this.view?.webview.postMessage({ type: 'opResult', value: { message: `工具名已旋转为: ${newName}` } });
         return true;
       }
-      case 'clearHistory':
-        await this.dataManager.history.clear();
-        this.postBootstrap();
-        void this.view?.webview.postMessage({ type: 'opResult', value: { message: '历史记录已清空' } });
+      case 'clearHistory': {
+        const clearChoice = await vscode.window.showWarningMessage('确定要清空所有历史记录吗？', { modal: true }, '清空');
+        if (clearChoice === '清空') {
+          await this.dataManager.history.clear();
+          this.postBootstrap();
+          void this.view?.webview.postMessage({ type: 'opResult', value: { message: '历史记录已清空' } });
+        }
         return true;
+      }
       case 'sessionContinue':
         this.dataManager.incrementSessionMessageCount();
         await this.dataManager.usageStats.recordContinue();
@@ -200,9 +268,14 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
       case 'accountDelete':
         if (typeof value === 'string') {
           const account = this.dataManager.windsurfAccounts.getById(value);
-          await this.dataManager.windsurfAccounts.delete(value);
-          this.postBootstrap();
-          void this.view?.webview.postMessage({ type: 'opResult', value: { message: account ? `已删除 ${account.email}` : '账号已删除' } });
+          const delChoice = await vscode.window.showWarningMessage(
+            `确定要删除账号 ${account?.email ?? value} 吗？`, { modal: true }, '删除'
+          );
+          if (delChoice === '删除') {
+            await this.dataManager.windsurfAccounts.delete(value);
+            this.postBootstrap();
+            void this.view?.webview.postMessage({ type: 'opResult', value: { message: account ? `已删除 ${account.email}` : '账号已删除' } });
+          }
         }
         return true;
       case 'accountSwitch':
@@ -244,11 +317,17 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
           }
         }
         return true;
-      case 'accountClear':
-        await this.dataManager.windsurfAccounts.clear();
-        this.postBootstrap();
-        void this.view?.webview.postMessage({ type: 'opResult', value: { message: '所有账号已清空' } });
+      case 'accountClear': {
+        const clearAccChoice = await vscode.window.showWarningMessage(
+          '确定要清空所有账号吗？此操作不可撤销。', { modal: true }, '清空'
+        );
+        if (clearAccChoice === '清空') {
+          await this.dataManager.windsurfAccounts.clear();
+          this.postBootstrap();
+          void this.view?.webview.postMessage({ type: 'opResult', value: { message: '所有账号已清空' } });
+        }
         return true;
+      }
       case 'autoSwitchUpdate':
         if (payload && typeof payload === 'object') {
           await this.dataManager.windsurfAccounts.updateAutoSwitch(payload as Record<string, unknown>);
@@ -382,70 +461,85 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
 
   private async handleMaintenance(action: string): Promise<boolean> {
     switch (action) {
-      case 'maintenanceClearHistory':
-        await this.dataManager.history.clear();
-        this.postBootstrap();
+      case 'maintenanceClearHistory': {
+        const mchChoice = await vscode.window.showWarningMessage('确定要清空历史记录吗？', { modal: true }, '清空');
+        if (mchChoice === '清空') {
+          await this.dataManager.history.clear();
+          this.postBootstrap();
+        }
         return true;
+      }
       case 'maintenanceResetStats':
         await this.dataManager.usageStats.reset();
         this.postBootstrap();
         return true;
-      // MCP cleaning disabled
-      // case 'maintenanceCleanMcp':
-      //   void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'cleanMcp' });
-      //   try {
-      //     const result = await this.cleanOldMcpConfigs();
-      //     void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'cleanMcp' } });
-      //     vscode.window.showInformationMessage(`已清理 ${result.cleaned} 条旧MCP配置`);
-      //   } catch (err) {
-      //     void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'cleanMcp', error: String(err) } });
-      //     vscode.window.showErrorMessage(`清理旧MCP配置失败: ${String(err)}`);
-      //   }
-      //   return true;
-      case 'maintenanceResetSettings':
-        void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'resetSettings' });
+      case 'maintenanceCleanMcp':
+        void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'cleanMcp' });
         try {
-          await this.dataManager.settings.reset();
-          await this.dataManager.shortcuts.clear();
-          await this.dataManager.templates.clear();
-          this.postBootstrap();
-          void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { action: 'resetSettings' } });
-          vscode.window.showInformationMessage('所有设置已恢复默认');
+          const whitelist = this.dataManager.settings.get().mcpWhitelist ?? [];
+          const result = await this.cleanOldMcpConfigs(whitelist);
+          void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'cleanMcp' } });
+          vscode.window.showInformationMessage(`已清理 ${result.cleaned} 条旧MCP配置`);
         } catch (err) {
-          void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'resetSettings', error: String(err) } });
-          vscode.window.showErrorMessage(`重置设置失败: ${String(err)}`);
+          void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'cleanMcp', error: String(err) } });
+          vscode.window.showErrorMessage(`清理旧MCP配置失败: ${String(err)}`);
         }
         return true;
-      // Rules writing disabled
-      // case 'maintenanceRewriteRules':
-      //   void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'rewriteRules' });
-      //   try {
-      //     const result = await this.rewriteRules();
-      //     void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'rewriteRules' } });
-      //     if (result.failed.length > 0) {
-      //       vscode.window.showWarningMessage(`规则写入: ${result.written.length} 成功, ${result.failed.length} 失败`);
-      //     } else {
-      //       vscode.window.showInformationMessage(`规则文件已重新写入 (${result.written.length} 个文件)`);
-      //     }
-      //   } catch (err) {
-      //     void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'rewriteRules', error: String(err) } });
-      //     vscode.window.showErrorMessage(`重写规则文件失败: ${String(err)}`);
-      //   }
-      //   return true;
-      case 'maintenanceClearCache':
-        void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'clearCache' });
-        try {
-          await this.dataManager.history.clear();
-          await this.dataManager.usageStats.reset();
-          this.logger.info('Plugin cache cleared.');
-          this.postBootstrap();
-          void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { action: 'clearCache' } });
-          vscode.window.showInformationMessage('插件缓存已清理');
-        } catch (err) {
-          void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'clearCache', error: String(err) } });
-          vscode.window.showErrorMessage(`清理缓存失败: ${String(err)}`);
+      case 'maintenanceResetSettings': {
+        const mrsChoice = await vscode.window.showWarningMessage(
+          '确定要重置所有设置吗？快捷短语和模板也会被清空。', { modal: true }, '重置'
+        );
+        if (mrsChoice === '重置') {
+          void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'resetSettings' });
+          try {
+            await this.dataManager.settings.reset();
+            await this.dataManager.shortcuts.clear();
+            await this.dataManager.templates.clear();
+            this.postBootstrap();
+            void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { action: 'resetSettings' } });
+            vscode.window.showInformationMessage('所有设置已恢复默认');
+          } catch (err) {
+            void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'resetSettings', error: String(err) } });
+            vscode.window.showErrorMessage(`重置设置失败: ${String(err)}`);
+          }
         }
         return true;
+      }
+      case 'maintenanceRewriteRules':
+        void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'rewriteRules' });
+        try {
+          const result = await this.rewriteRules();
+          void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'rewriteRules' } });
+          if (result.failed.length > 0) {
+            vscode.window.showWarningMessage(`规则写入: ${result.written.length} 成功, ${result.failed.length} 失败`);
+          } else {
+            vscode.window.showInformationMessage(`规则文件已重新写入 (${result.written.length} 个文件)`);
+          }
+        } catch (err) {
+          void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'rewriteRules', error: String(err) } });
+          vscode.window.showErrorMessage(`重写规则文件失败: ${String(err)}`);
+        }
+        return true;
+      case 'maintenanceClearCache': {
+        const mccChoice = await vscode.window.showWarningMessage(
+          '确定要清理插件缓存吗？历史记录和统计数据将被清除。', { modal: true }, '清理'
+        );
+        if (mccChoice === '清理') {
+          void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'clearCache' });
+          try {
+            await this.dataManager.history.clear();
+            await this.dataManager.usageStats.reset();
+            this.logger.info('Plugin cache cleared.');
+            this.postBootstrap();
+            void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { action: 'clearCache' } });
+            vscode.window.showInformationMessage('插件缓存已清理');
+          } catch (err) {
+            void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'clearCache', error: String(err) } });
+            vscode.window.showErrorMessage(`清理缓存失败: ${String(err)}`);
+          }
+        }
+        return true;
+      }
       case 'getDebugInfo': {
         const [logContent, patchStatus] = await Promise.all([
           this.logger.getRecentLogs(200),
@@ -492,7 +586,7 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
 
   // --- Maintenance helpers ---
 
-  private async cleanOldMcpConfigs(): Promise<{ cleaned: number; details: string[] }> {
+  private async cleanOldMcpConfigs(whitelist: string[] = []): Promise<{ cleaned: number; details: string[] }> {
     const { IDE_TARGETS } = await import('../adapters/mcp-config');
     const fs = await import('node:fs/promises');
     let cleaned = 0;
@@ -506,11 +600,13 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
 
         const currentToolName = this.bridge.getStatus().toolName;
         const keysToRemove = Object.keys(config.mcpServers).filter(k =>
-          k !== currentToolName && (
+          k !== currentToolName &&
+          !whitelist.includes(k) && (
             k.startsWith('windsurf_endless_') ||
             k.startsWith('echo_') ||
             k.startsWith('infinite_') ||
-            k.startsWith('ai-echo')
+            k.startsWith('ai-echo') ||
+            /^[a-z]{4}_[a-f0-9]{8}$/.test(k)
           )
         );
 

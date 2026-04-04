@@ -105,6 +105,7 @@ interface PluginSettings {
   historyLimit: number;
   soundAlert: "none" | "tada" | "ding" | "pop" | "chime";
   firebaseApiKey: string;
+  mcpWhitelist: string[];
 }
 
 interface UsageStats {
@@ -126,8 +127,17 @@ interface AutoSwitchConfig {
   switchOnWeekly: boolean;
 }
 
+interface McpDialogRequest {
+  id: number | string;
+  sessionId: string;
+  summary: string;
+  options?: string[];
+  isMarkdown?: boolean;
+  receivedAt: string;
+}
+
 interface Bootstrap {
-  status: BridgeStatus;
+  status: BridgeStatus & { pendingDialog?: McpDialogRequest };
   logPath: string;
   history: HistoryItem[];
   accounts: WindsurfAccount[];
@@ -143,7 +153,7 @@ interface Bootstrap {
 
 declare global {
   interface Window {
-    __AI_ECHO_BOOTSTRAP__: Bootstrap;
+    __QUOTE_BOOTSTRAP__: Bootstrap;
   }
 }
 
@@ -263,6 +273,18 @@ let state = {
   maintenanceLoadingAction: undefined as string | undefined,
   // Switch loading
   switchLoadingId: undefined as string | undefined,
+  // MCP pending dialog
+  pendingDialog: undefined as McpDialogRequest | undefined,
+  dialogInput: "",
+  dialogCallCount: 0,
+  // Pre-response queue: auto-send in order when LLM calls tools/call
+  responseQueue: [] as string[],
+  queueInput: "",
+  queueCollapsed: false,
+  editingQueueIdx: undefined as number | undefined,
+  editingQueueText: "",
+  // Sent history: last N items sent (manual + auto-queue)
+  sentHistory: [] as Array<{ text: string; sentAt: string; mode: 'manual' | 'queue' }>,
   // Diagnose result
   diagnoseResult: undefined as
     | {
@@ -288,10 +310,11 @@ let state = {
 function render(): void {
   const root = document.querySelector<HTMLDivElement>("#app");
   if (!root) return;
-  const bs = window.__AI_ECHO_BOOTSTRAP__;
+  const bs = window.__QUOTE_BOOTSTRAP__;
   root.innerHTML = `
     <main class="infinite-shell">
       ${renderHeader(bs)}
+      ${state.pendingDialog ? '<div class="dialog-redirect-hint"><span>⏸</span> 对话已在编辑器标签页中打开，请在编辑器中回复</div>' : ''}
       ${renderTabNav()}
       ${renderActiveTab(bs)}
       ${state.notification ? `<div class="toast toast-${state.notificationType}">${state.notificationType === "success" ? icon("check") : state.notificationType === "error" ? icon("alertCircle") : icon("info")} ${escapeHtml(state.notification)}</div>` : ""}
@@ -311,7 +334,7 @@ function renderHeader(bs: Bootstrap): string {
   return `
     <header class="infinite-header">
       <div class="header-brand">
-        <span class="header-title">AI Echo</span>
+        <span class="header-title">Quote${state.pendingDialog ? ' ⏸' : ''}</span>
         <span class="header-sub">:${bs.status.port} · ${escapeHtml(bs.status.currentIde)}</span>
       </div>
       <span class="status-pill ${bs.status.running ? "online" : "offline"}">
@@ -458,6 +481,65 @@ function renderStatusTab(bs: Bootstrap): string {
               : `<li class="empty-state">${icon("inbox", "empty-icon")} 暂无自动配置路径</li>`
           }
         </ul>
+      </section>
+
+      <section class="card">
+        <div class="section-header">
+          <h2>发送队列</h2>
+          <div class="btn-group">
+            <span class="badge ${state.responseQueue.length > 0 ? 'badge-ok' : 'badge-neutral'}">${state.responseQueue.length} 条</span>
+            <button class="btn-xs" data-action="queueToggle" title="${state.queueCollapsed ? '展开' : '折叠'}">${state.queueCollapsed ? '▶' : '▼'}</button>
+            ${state.responseQueue.length > 0 ? `<button class="btn-xs btn-danger-xs" data-action="queueClear" title="清空队列">🗑</button>` : ''}
+          </div>
+        </div>
+
+        ${state.sentHistory.length > 0 ? `
+        <div class="sent-history">
+          <div class="sent-history-label">📤 已发送内容 <span class="sent-count">(共 ${state.sentHistory.length} 条)</span></div>
+          <ul class="sent-list">
+            ${state.sentHistory.slice(0, 3).map(item => `
+            <li class="sent-item ${item.mode === 'queue' ? 'sent-queue' : 'sent-manual'}">
+              <span class="sent-badge">${item.mode === 'queue' ? '队列' : '手动'}</span>
+              <span class="sent-text">${escapeHtml(item.text.slice(0, 60))}${item.text.length > 60 ? '…' : ''}</span>
+              <span class="sent-ts">${item.sentAt}</span>
+            </li>`).join('')}
+          </ul>
+        </div>` : ''}
+
+        ${!state.queueCollapsed ? `
+        <p class="hint">LLM 每次调用工具时，自动从队列头部取一条回复。</p>
+        <div class="queue-input-row">
+          <textarea class="text-area queue-input" id="queue-add-input" rows="2" placeholder="输入预设回复… (Ctrl+Enter 加入)">${escapeHtml(state.queueInput)}</textarea>
+          <button class="btn-grad btn-sm" data-action="queueAdd">+加入</button>
+        </div>
+        ${state.responseQueue.length > 0 ? `
+        <ol class="queue-list">
+          ${state.responseQueue.map((item, i) => {
+            const isEditing = state.editingQueueIdx === i;
+            if (isEditing) {
+              return `
+              <li class="queue-item queue-item-editing">
+                <span class="queue-idx">#${i + 1}</span>
+                <textarea class="queue-edit-input" id="queue-edit-${i}" rows="2">${escapeHtml(state.editingQueueText)}</textarea>
+                <div class="queue-edit-btns">
+                  <button class="btn-xs" data-action="queueEditSave" data-idx="${i}">✓</button>
+                  <button class="btn-xs btn-danger-xs" data-action="queueEditCancel">✕</button>
+                </div>
+              </li>`;
+            }
+            return `
+            <li class="queue-item">
+              <span class="queue-idx">#${i + 1}</span>
+              <span class="queue-text">${escapeHtml(item.slice(0, 80))}${item.length > 80 ? '…' : ''}</span>
+              <div class="queue-item-btns">
+                <button class="btn-xs" data-action="queueEdit" data-idx="${i}" title="编辑">✎</button>
+                <button class="btn-xs btn-danger-xs" data-action="queueRemove" data-idx="${i}" title="删除">×</button>
+              </div>
+            </li>`;
+          }).join('')}
+        </ol>` : '<p class="hint empty-queue-hint">队列为空，添加后 LLM 将自动回复。</p>'}
+        ${state.dialogCallCount > 0 ? `<p class="hint" style="margin-top:8px">已处理 ${state.dialogCallCount} 次调用（含队列自动回复）</p>` : ''}
+        ` : ''}
       </section>
     </div>`;
 }
@@ -998,6 +1080,27 @@ function renderSettingsTab(bs: Bootstrap): string {
       </section>
 
       <section class="card">
+        <div class="section-header"><h2>MCP 清理白名单</h2></div>
+        <div class="settings-section">
+          <p class="hint" style="margin:0 0 8px">以下 MCP 服务在执行「清理旧MCP配置」时将被保留，不会被删除。</p>
+          <div class="whitelist-tags" id="mcpWhitelistTags">
+            ${(settings.mcpWhitelist ?? []).map((name: string) => `
+              <span class="whitelist-tag">
+                ${escapeHtml(name)}
+                <button class="whitelist-tag-remove" data-action="mcpWhitelistRemove" data-name="${escapeHtml(name)}" title="移除">×</button>
+              </span>`).join("")}
+          </div>
+          <div class="whitelist-add-row">
+            <input class="text-input text-input-sm" id="mcpWhitelistInput" placeholder="输入 MCP 名称…" style="flex:1">
+            <button class="btn-secondary btn-sm" data-action="mcpWhitelistAdd">添加</button>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn-grad btn-sm" data-action="settingsSave">保存白名单</button>
+        </div>
+      </section>
+
+      <section class="card">
         <div class="section-header"><h2>诊断</h2></div>
         <div class="settings-section">
           <div class="setting-row">
@@ -1093,6 +1196,48 @@ function renderDiagnoseCard(result: {
     </div>`;
 }
 
+// ---- MCP Dialog Card ----
+
+function renderDialogCard(req: McpDialogRequest): string {
+  const optionBtns = req.options?.length
+    ? req.options
+        .map(
+          (opt, i) =>
+            `<button class="btn-dialog-opt" data-action="dialogOption" data-idx="${i}" data-opt="${escapeHtml(opt)}">${escapeHtml(opt)}</button>`,
+        )
+        .join('')
+    : '';
+
+  const charCount = state.dialogInput.length;
+  const ts = new Date(req.receivedAt).toLocaleTimeString();
+  const callLabel = state.dialogCallCount > 0 ? `第 ${state.dialogCallCount} 次调用` : '';
+  const queueLen = state.responseQueue.length;
+  const queueHint = queueLen > 0
+    ? `<span class="dialog-queue-hint">队列剩余 ${queueLen} 条</span>`
+    : '';
+
+  return `
+    <div class="dialog-card">
+      <div class="dialog-header">
+        <span class="dialog-icon">⏸</span>
+        <span class="dialog-title">LLM 等待回复</span>
+        ${callLabel ? `<span class="dialog-call-count">${callLabel}</span>` : ''}
+        ${queueHint}
+        <span class="dialog-ts">${ts}</span>
+        <button class="btn-xs dialog-close-btn" data-action="dialogDismiss" title="忽略 (Esc)">✕</button>
+      </div>
+      <div class="dialog-summary${req.isMarkdown ? ' dialog-summary-md' : ''}">${req.isMarkdown ? renderMd(req.summary) : escapeHtml(req.summary)}</div>
+      ${optionBtns ? `<div class="dialog-options">${optionBtns}</div>` : ''}
+      <div class="dialog-input-row">
+        <textarea class="dialog-textarea" id="dialog-input" placeholder="输入回复… (Ctrl+Enter 发送, Esc 忽略)" rows="3">${escapeHtml(state.dialogInput)}</textarea>
+        <span class="dialog-charcount">${charCount} 字</span>
+      </div>
+      <div class="dialog-actions">
+        <button class="btn-primary" data-action="dialogSubmit">✓ 发送 (Ctrl+Enter)</button>
+      </div>
+    </div>`;
+}
+
 function renderUpdateTab(bs: Bootstrap): string {
   return `
     <div class="tab-content">
@@ -1172,6 +1317,7 @@ function renderDebugTab(_bs: Bootstrap): string {
         <div class="section-header">
           <h2>调试面板</h2>
           <div class="btn-group">
+            <button class="btn-xs btn-icon" data-action="testDialog" title="注入一个测试对话框，验证完整闭环">${icon("message")} 测试对话框</button>
             <button class="btn-xs btn-icon ${loading ? "disabled" : ""}" data-action="debugRefresh" ${loading ? "disabled" : ""}>${icon("refresh")} 刷新</button>
           </div>
         </div>
@@ -1294,6 +1440,58 @@ function bindEvents(): void {
     });
   });
 
+  // Dialog textarea: sync input to state.dialogInput for char count, Ctrl+Enter to submit
+  const dialogTextarea = document.getElementById("dialog-input") as HTMLTextAreaElement | null;
+  if (dialogTextarea) {
+    dialogTextarea.addEventListener("input", () => {
+      state.dialogInput = dialogTextarea.value;
+      // Update char count without full re-render
+      const counter = dialogTextarea.parentElement?.querySelector(".dialog-charcount");
+      if (counter) counter.textContent = `${state.dialogInput.length} 字`;
+    });
+    dialogTextarea.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        const response = dialogTextarea.value.trim();
+        if (response && state.pendingDialog) {
+          const sessionId = state.pendingDialog.sessionId;
+          state.sentHistory.unshift({ text: response, sentAt: new Date().toLocaleTimeString(), mode: 'manual' });
+          if (state.sentHistory.length > 10) state.sentHistory.pop();
+          state.pendingDialog = undefined;
+          state.dialogInput = "";
+          vscode.postMessage({ type: "mcpDialogSubmit", value: { sessionId, response } });
+          render();
+        }
+      }
+      if (e.key === "Escape") {
+        state.pendingDialog = undefined;
+        state.dialogInput = "";
+        render();
+      }
+    });
+    // Focus textarea when dialog appears
+    dialogTextarea.focus();
+  }
+
+  // Queue input: sync to state
+  const queueTextarea = document.getElementById("queue-add-input") as HTMLTextAreaElement | null;
+  if (queueTextarea) {
+    queueTextarea.addEventListener("input", () => {
+      state.queueInput = queueTextarea.value;
+    });
+    queueTextarea.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        const val = queueTextarea.value.trim();
+        if (val) {
+          state.responseQueue.push(val);
+          state.queueInput = "";
+          render();
+        }
+      }
+    });
+  }
+
   // All data-action buttons
   document.querySelectorAll<HTMLElement>("[data-action]").forEach((el) => {
     if (el.tagName === "INPUT" || el.tagName === "SELECT") return;
@@ -1309,6 +1507,111 @@ function handleAction(el: HTMLElement): void {
   const id = el.dataset.id;
 
   switch (action) {
+    // MCP Dialog
+    case "dialogSubmit": {
+      const textarea = document.getElementById("dialog-input") as HTMLTextAreaElement | null;
+      const response = (textarea?.value ?? state.dialogInput).trim();
+      if (response && state.pendingDialog) {
+        const sessionId = state.pendingDialog.sessionId;
+        state.sentHistory.unshift({ text: response, sentAt: new Date().toLocaleTimeString(), mode: 'manual' });
+        if (state.sentHistory.length > 10) state.sentHistory.pop();
+        state.pendingDialog = undefined;
+        state.dialogInput = "";
+        vscode.postMessage({ type: "mcpDialogSubmit", value: { sessionId, response } });
+        render();
+      }
+      break;
+    }
+    case "dialogOption": {
+      const opt = el.dataset.opt;
+      if (opt && state.pendingDialog) {
+        const sessionId = state.pendingDialog.sessionId;
+        state.sentHistory.unshift({ text: opt, sentAt: new Date().toLocaleTimeString(), mode: 'manual' });
+        if (state.sentHistory.length > 10) state.sentHistory.pop();
+        state.pendingDialog = undefined;
+        state.dialogInput = "";
+        vscode.postMessage({ type: "mcpDialogSubmit", value: { sessionId, response: opt } });
+        render();
+      }
+      break;
+    }
+    case "dialogDismiss": {
+      if (state.pendingDialog) {
+        const dismissSid = state.pendingDialog.sessionId;
+        vscode.postMessage({ type: "mcpDialogSubmit", value: { sessionId: dismissSid, response: "(dismissed)" } });
+      }
+      state.pendingDialog = undefined;
+      state.dialogInput = "";
+      render();
+      break;
+    }
+
+    // Queue toggle (collapse/expand)
+    case "queueToggle":
+      state.queueCollapsed = !state.queueCollapsed;
+      render();
+      break;
+
+    // Queue item edit
+    case "queueEdit": {
+      const editIdx = parseInt(el.dataset.idx ?? "", 10);
+      if (!isNaN(editIdx) && editIdx >= 0 && editIdx < state.responseQueue.length) {
+        state.editingQueueIdx = editIdx;
+        state.editingQueueText = state.responseQueue[editIdx];
+        render();
+        document.getElementById(`queue-edit-${editIdx}`)?.focus();
+      }
+      break;
+    }
+    case "queueEditSave": {
+      const saveIdx = parseInt(el.dataset.idx ?? "", 10);
+      const editEl = document.getElementById(`queue-edit-${saveIdx}`) as HTMLTextAreaElement | null;
+      const newText = (editEl?.value ?? state.editingQueueText).trim();
+      if (!isNaN(saveIdx) && newText && saveIdx < state.responseQueue.length) {
+        state.responseQueue[saveIdx] = newText;
+      }
+      state.editingQueueIdx = undefined;
+      state.editingQueueText = "";
+      render();
+      break;
+    }
+    case "queueEditCancel":
+      state.editingQueueIdx = undefined;
+      state.editingQueueText = "";
+      render();
+      break;
+
+    // Response Queue management
+    case "queueAdd": {
+      const qInput = (document.getElementById("queue-add-input") as HTMLTextAreaElement | null)?.value.trim()
+        ?? state.queueInput.trim();
+      if (qInput) {
+        state.responseQueue.push(qInput);
+        state.queueInput = "";
+        render();
+      }
+      break;
+    }
+    case "queueRemove": {
+      const idx = parseInt(el.dataset.idx ?? "", 10);
+      if (!isNaN(idx) && idx >= 0 && idx < state.responseQueue.length) {
+        state.responseQueue.splice(idx, 1);
+        render();
+      }
+      break;
+    }
+    case "queueClear":
+      if (state.responseQueue.length > 0) {
+        state.responseQueue = [];
+        render();
+      }
+      break;
+
+    // Debug panel test dialog
+    case "testDialog":
+      vscode.postMessage({ type: "testDialog" });
+      break;
+
     // General
     case "refresh":
       vscode.postMessage({ type: "refresh" });
@@ -1327,9 +1630,7 @@ function handleAction(el: HTMLElement): void {
 
     // History
     case "clearHistory":
-      if (confirm("确定要清空所有历史记录吗？")) {
-        vscode.postMessage({ type: "clearHistory" });
-      }
+      vscode.postMessage({ type: "clearHistory" });
       break;
     case "deleteHistory":
       if (id) vscode.postMessage({ type: "deleteHistory", value: id });
@@ -1386,14 +1687,12 @@ function handleAction(el: HTMLElement): void {
       }
       break;
     case "accountDelete":
-      if (id && confirm("确定要删除该账号吗？")) {
+      if (id) {
         vscode.postMessage({ type: "accountDelete", value: id });
       }
       break;
     case "accountClear":
-      if (confirm("确定要清空所有账号吗？此操作不可撤销。")) {
-        vscode.postMessage({ type: "accountClear" });
-      }
+      vscode.postMessage({ type: "accountClear" });
       break;
     case "autoSwitchSave": {
       const enabled =
@@ -1432,8 +1731,8 @@ function handleAction(el: HTMLElement): void {
       vscode.postMessage({ type: "resetMachineId" });
       break;
     case "quotaEditLimits": {
-      const account = window.__AI_ECHO_BOOTSTRAP__.accounts.find(
-        (a) => a.id === id,
+      const account = window.__QUOTE_BOOTSTRAP__.accounts.find(
+        (a: WindsurfAccount) => a.id === id,
       );
       if (account) {
         state.editingQuotaAccountId = id;
@@ -1593,6 +1892,9 @@ function handleAction(el: HTMLElement): void {
         (
           document.getElementById("settingFirebaseApiKey") as HTMLInputElement
         )?.value?.trim() ?? "";
+      const mcpWhitelist = Array.from(
+        document.querySelectorAll<HTMLElement>(".whitelist-tag-remove")
+      ).map(btn => btn.dataset.name ?? "").filter(Boolean);
       vscode.postMessage({
         type: "settingsUpdate",
         payload: {
@@ -1605,9 +1907,30 @@ function handleAction(el: HTMLElement): void {
           soundAlert,
           historyLimit,
           firebaseApiKey,
+          mcpWhitelist,
         },
       });
       showToast("设置已保存");
+      break;
+    }
+    case "mcpWhitelistAdd": {
+      const input = document.getElementById("mcpWhitelistInput") as HTMLInputElement | null;
+      const name = input?.value.trim();
+      if (!name) { showToast("请输入 MCP 名称", "error"); break; }
+      const current = (window.__QUOTE_BOOTSTRAP__?.settings?.mcpWhitelist ?? []) as string[];
+      if (current.includes(name)) { showToast("已在白名单中", "error"); break; }
+      const updated = [...current, name];
+      vscode.postMessage({ type: "settingsUpdate", payload: { mcpWhitelist: updated } });
+      showToast(`已添加: ${name}`);
+      break;
+    }
+    case "mcpWhitelistRemove": {
+      const name = el.dataset.name ?? "";
+      if (!name) break;
+      const current = (window.__QUOTE_BOOTSTRAP__?.settings?.mcpWhitelist ?? []) as string[];
+      const updated = current.filter((n: string) => n !== name);
+      vscode.postMessage({ type: "settingsUpdate", payload: { mcpWhitelist: updated } });
+      showToast(`已移除: ${name}`);
       break;
     }
     case "settingsReset":
@@ -1632,9 +1955,7 @@ function handleAction(el: HTMLElement): void {
 
     // Maintenance
     case "maintenanceClearHistory":
-      if (confirm("确定要清空历史记录吗？")) {
-        vscode.postMessage({ type: "maintenanceClearHistory" });
-      }
+      vscode.postMessage({ type: "maintenanceClearHistory" });
       break;
     case "maintenanceResetStats":
       vscode.postMessage({ type: "maintenanceResetStats" });
@@ -1644,17 +1965,13 @@ function handleAction(el: HTMLElement): void {
       vscode.postMessage({ type: "maintenanceCleanMcp" });
       break;
     case "maintenanceResetSettings":
-      if (confirm("确定要重置所有设置吗？快捷短语和模板也会被清空。")) {
-        vscode.postMessage({ type: "maintenanceResetSettings" });
-      }
+      vscode.postMessage({ type: "maintenanceResetSettings" });
       break;
     case "maintenanceRewriteRules":
       vscode.postMessage({ type: "maintenanceRewriteRules" });
       break;
     case "maintenanceClearCache":
-      if (confirm("确定要清理插件缓存吗？历史记录和统计数据将被清除。")) {
-        vscode.postMessage({ type: "maintenanceClearCache" });
-      }
+      vscode.postMessage({ type: "maintenanceClearCache" });
       break;
     case "maintenanceDiagnose":
       state.diagnoseResult = undefined;
@@ -1681,7 +1998,7 @@ function handleAction(el: HTMLElement): void {
       break;
     case "debugCopyLogs": {
       if (state.debugInfo) {
-        const header = `=== AI Echo Debug Report ===\n日志路径: ${state.debugInfo.logPath}\nWindsurf 补丁: ${state.debugInfo.patchApplied ? "已应用" : "未应用"}${state.debugInfo.patchExtensionPath ? `\nextension.js: ${state.debugInfo.patchExtensionPath}` : ""}${state.debugInfo.patchError ? `\n补丁错误: ${state.debugInfo.patchError}` : ""}\n时间: ${new Date().toISOString()}\n\n=== 最近日志 ===\n`;
+        const header = `=== Quote Debug Report ===\n日志路径: ${state.debugInfo.logPath}\nWindsurf 补丁: ${state.debugInfo.patchApplied ? "已应用" : "未应用"}${state.debugInfo.patchExtensionPath ? `\nextension.js: ${state.debugInfo.patchExtensionPath}` : ""}${state.debugInfo.patchError ? `\n补丁错误: ${state.debugInfo.patchError}` : ""}\n时间: ${new Date().toISOString()}\n\n=== 最近日志 ===\n`;
         void navigator.clipboard
           .writeText(header + state.debugInfo.logContent)
           .then(() => {
@@ -1727,19 +2044,71 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+/**
+ * Minimal safe Markdown → HTML renderer (no external deps, XSS-safe).
+ * Escapes HTML first, then applies inline formatting.
+ */
+function renderMd(raw: string): string {
+  const lines = raw.split('\n');
+  const out: string[] = [];
+  for (const line of lines) {
+    let s = escapeHtml(line);
+    // ## Heading
+    if (s.startsWith('## ')) { out.push(`<strong class="md-h2">${s.slice(3)}</strong>`); continue; }
+    if (s.startsWith('# ')) { out.push(`<strong class="md-h1">${s.slice(2)}</strong>`); continue; }
+    // > blockquote
+    if (s.startsWith('&gt; ')) { out.push(`<span class="md-quote">${s.slice(5)}</span>`); continue; }
+    // inline: **bold**, *italic*, `code`
+    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    s = s.replace(/`([^`]+)`/g, '<code class="md-code">$1</code>');
+    out.push(s);
+  }
+  return out.join('<br>');
+}
+
 // ---- Message Handler ----
 
 window.addEventListener("message", (event) => {
   const msg = event.data as { type: string; value: unknown };
 
   if (msg.type === "bootstrap") {
-    window.__AI_ECHO_BOOTSTRAP__ = msg.value as Bootstrap;
+    window.__QUOTE_BOOTSTRAP__ = msg.value as Bootstrap;
+    const pending = (msg.value as Bootstrap).status?.pendingDialog;
+    if (pending) state.pendingDialog = pending;
+    else if (!state.pendingDialog) state.pendingDialog = undefined;
+    render();
+    return;
+  }
+
+  if (msg.type === "mcpDialog") {
+    const req = msg.value as McpDialogRequest;
+    state.dialogCallCount += 1;
+
+    // Queue auto-reply: if there are queued responses, fire the first one immediately
+    if (state.responseQueue.length > 0) {
+      const autoReply = state.responseQueue.shift()!;
+      state.sentHistory.unshift({ text: autoReply, sentAt: new Date().toLocaleTimeString(), mode: 'queue' });
+      if (state.sentHistory.length > 10) state.sentHistory.pop();
+      vscode.postMessage({ type: "mcpDialogSubmit", value: { sessionId: req.sessionId, response: autoReply } });
+      showToast(`队列自动回复 [${state.dialogCallCount}]: "${autoReply.slice(0, 30)}${autoReply.length > 30 ? '…' : ''}"`, "success", 3500);
+      render();
+      return;
+    }
+
+    // No queue item — show dialog
+    state.pendingDialog = req;
+    state.dialogInput = "";
+    state.activeTab = "status";
     render();
     return;
   }
 
   if (msg.type === "status") {
-    window.__AI_ECHO_BOOTSTRAP__.status = msg.value as BridgeStatus;
+    window.__QUOTE_BOOTSTRAP__.status = msg.value as BridgeStatus & { pendingDialog?: McpDialogRequest };
+    if (!(msg.value as { pendingDialog?: McpDialogRequest }).pendingDialog) {
+      state.pendingDialog = undefined;
+    }
     render();
     return;
   }

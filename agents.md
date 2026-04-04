@@ -1,8 +1,8 @@
-# AI Echo Rebuild Agent Notes
+# Quote Agent Notes
 
 ## Mission
 
-在单一项目目录内，以“证据优先、行为对齐、接口隔离、可验证交付”为原则，重建 `ai-echo-2.1.4.vsix` 的可观察能力。
+在单一项目目录内，以“证据优先、行为对齐、接口隔离、可验证交付”为原则，构建 Quote VS Code 扩展的完整能力。
 
 ## Hard Rules
 

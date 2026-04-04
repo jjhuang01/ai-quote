@@ -23,7 +23,7 @@ vi.mock('../../src/webview/view-html', () => ({
 }));
 
 import * as vscode from 'vscode';
-import { EchoSidebarProvider } from '../../src/webview/provider';
+import { QuoteSidebarProvider } from '../../src/webview/provider';
 
 // --- Mock factories ---
 
@@ -39,7 +39,8 @@ function createMockBridge() {
     injectTestFeedback: vi.fn(async () => ({ id: 'test-1' })),
     setConfiguredPaths: vi.fn(),
     getSseUrl: vi.fn(() => 'http://127.0.0.1:9876/sse'),
-    updateToolName: vi.fn()
+    updateToolName: vi.fn(),
+    resolvePendingDialog: vi.fn()
   } as any;
 }
 
@@ -124,7 +125,7 @@ function setupProvider() {
   const dataManager = createMockDataManager();
   const extensionUri = { fsPath: '/tmp/ext' } as any;
 
-  const provider = new EchoSidebarProvider(extensionUri, bridge, logger, dataManager);
+  const provider = new QuoteSidebarProvider(extensionUri, bridge, logger, dataManager);
 
   const postMessage = vi.fn(async () => true);
   const mockWebviewView = {
@@ -151,7 +152,7 @@ function setupProvider() {
   return { provider, bridge, logger, dataManager, postMessage, send };
 }
 
-describe('EchoSidebarProvider - handleMessage', () => {
+describe('QuoteSidebarProvider - handleMessage', () => {
   let ctx: ReturnType<typeof setupProvider>;
 
   beforeEach(() => {
@@ -198,42 +199,69 @@ describe('EchoSidebarProvider - handleMessage', () => {
   // --- Account Delete ---
 
   describe('accountDelete', () => {
-    it('删除账号后发送 opResult 反馈', async () => {
+    it('确认删除后发送 opResult 反馈', async () => {
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('删除' as any);
       await ctx.send({ type: 'accountDelete', value: 'ws_1' });
 
+      expect(vscode.window.showWarningMessage).toHaveBeenCalled();
       expect(ctx.dataManager.windsurfAccounts.delete).toHaveBeenCalledWith('ws_1');
 
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
       const opResult = calls.find((m: any) => m.type === 'opResult');
       expect(opResult?.value?.message).toContain('test@example.com');
     });
+
+    it('取消删除时不执行', async () => {
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as any);
+      await ctx.send({ type: 'accountDelete', value: 'ws_1' });
+
+      expect(ctx.dataManager.windsurfAccounts.delete).not.toHaveBeenCalled();
+    });
   });
 
   // --- Account Clear ---
 
   describe('accountClear', () => {
-    it('清空所有账号后发送 opResult', async () => {
+    it('确认清空后发送 opResult', async () => {
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('清空' as any);
       await ctx.send({ type: 'accountClear' });
 
+      expect(vscode.window.showWarningMessage).toHaveBeenCalled();
       expect(ctx.dataManager.windsurfAccounts.clear).toHaveBeenCalled();
 
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
       const opResult = calls.find((m: any) => m.type === 'opResult');
       expect(opResult?.value?.message).toContain('清空');
     });
+
+    it('取消清空时不执行', async () => {
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as any);
+      await ctx.send({ type: 'accountClear' });
+
+      expect(ctx.dataManager.windsurfAccounts.clear).not.toHaveBeenCalled();
+    });
   });
 
   // --- Clear History ---
 
   describe('clearHistory', () => {
-    it('清空历史后发送 opResult', async () => {
+    it('确认清空历史后发送 opResult', async () => {
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('清空' as any);
       await ctx.send({ type: 'clearHistory' });
 
+      expect(vscode.window.showWarningMessage).toHaveBeenCalled();
       expect(ctx.dataManager.history.clear).toHaveBeenCalled();
 
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
       const opResult = calls.find((m: any) => m.type === 'opResult');
       expect(opResult?.value?.message).toContain('历史');
+    });
+
+    it('取消清空时不执行', async () => {
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as any);
+      await ctx.send({ type: 'clearHistory' });
+
+      expect(ctx.dataManager.history.clear).not.toHaveBeenCalled();
     });
   });
 
@@ -251,25 +279,28 @@ describe('EchoSidebarProvider - handleMessage', () => {
     });
   });
 
-  // --- Maintenance: Clean MCP (disabled) ---
+  // --- Maintenance: Clean MCP ---
 
   describe('maintenanceCleanMcp', () => {
-    it('已禁用 - 不发送任何 loading 或结果消息', async () => {
+    it('发送 loading → 清理 (白名单过滤) → 结果消息', async () => {
       await ctx.send({ type: 'maintenanceCleanMcp' });
 
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
-      // Handler is disabled; no maintenanceLoading message should be sent
       const loading = calls.find((m: any) => m.type === 'maintenanceLoading' && m.value === 'cleanMcp');
-      expect(loading).toBeUndefined();
+      expect(loading).toBeDefined();
+      const result = calls.find((m: any) => m.type === 'maintenanceResult' && m.value?.action === 'cleanMcp');
+      expect(result).toBeDefined();
     });
   });
 
   // --- Maintenance: Reset Settings ---
 
   describe('maintenanceResetSettings', () => {
-    it('发送 loading → 重置 → 结果 + VS Code 通知', async () => {
+    it('确认重置后发送 loading → 重置 → 结果 + VS Code 通知', async () => {
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('重置' as any);
       await ctx.send({ type: 'maintenanceResetSettings' });
 
+      expect(vscode.window.showWarningMessage).toHaveBeenCalled();
       expect(ctx.dataManager.settings.reset).toHaveBeenCalled();
       expect(ctx.dataManager.shortcuts.clear).toHaveBeenCalled();
       expect(ctx.dataManager.templates.clear).toHaveBeenCalled();
@@ -285,14 +316,23 @@ describe('EchoSidebarProvider - handleMessage', () => {
         expect.stringContaining('恢复默认')
       );
     });
+
+    it('取消重置时不执行', async () => {
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as any);
+      await ctx.send({ type: 'maintenanceResetSettings' });
+
+      expect(ctx.dataManager.settings.reset).not.toHaveBeenCalled();
+    });
   });
 
   // --- Maintenance: Clear Cache ---
 
   describe('maintenanceClearCache', () => {
-    it('发送 loading → 清理 → 结果 + VS Code 通知', async () => {
+    it('确认清理后发送 loading → 清理 → 结果 + VS Code 通知', async () => {
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('清理' as any);
       await ctx.send({ type: 'maintenanceClearCache' });
 
+      expect(vscode.window.showWarningMessage).toHaveBeenCalled();
       expect(ctx.dataManager.history.clear).toHaveBeenCalled();
       expect(ctx.dataManager.usageStats.reset).toHaveBeenCalled();
 
@@ -306,6 +346,13 @@ describe('EchoSidebarProvider - handleMessage', () => {
       expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
         expect.stringContaining('缓存')
       );
+    });
+
+    it('取消清理时不执行', async () => {
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as any);
+      await ctx.send({ type: 'maintenanceClearCache' });
+
+      expect(ctx.dataManager.history.clear).not.toHaveBeenCalled();
     });
   });
 

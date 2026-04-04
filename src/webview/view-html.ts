@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { WebviewBootstrap } from '../core/contracts';
 
@@ -18,12 +19,12 @@ export function buildWebviewHtml(
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="${styleUri}" />
-    <title>AI Echo</title>
+    <title>Quote</title>
   </head>
   <body>
     <div id="app"></div>
     <script nonce="${nonce}">
-      window.__AI_ECHO_BOOTSTRAP__ = ${safeJsonForScript({ ...bootstrap, logPath })};
+      window.__QUOTE_BOOTSTRAP__ = ${safeJsonForScript({ ...bootstrap, logPath })};
     </script>
     <script type="module" nonce="${nonce}" src="${scriptUri}"></script>
   </body>
@@ -31,12 +32,7 @@ export function buildWebviewHtml(
 }
 
 function createNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let nonce = '';
-  for (let index = 0; index < 32; index += 1) {
-    nonce += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return nonce;
+  return randomBytes(16).toString('hex');
 }
 
 function safeJsonForScript(data: unknown): string {

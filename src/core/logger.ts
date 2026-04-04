@@ -11,7 +11,7 @@ export interface LoggerLike {
   error(message: string, extra?: Record<string, unknown>): void;
 }
 
-export class EchoLogger {
+export class QuoteLogger {
   private readonly channel = vscode.window.createOutputChannel('WindSurf Account Manager');
   private readonly logFilePath: string;
 

@@ -16,3 +16,6 @@ _evidence/**
 tmp/**
 scripts/**
 *.vsix
+.claude/**
+agents.md
+.windsurfrules

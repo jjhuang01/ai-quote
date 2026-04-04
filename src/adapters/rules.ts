@@ -10,18 +10,12 @@ function buildRuleTemplate(toolName: string): string {
 ## ${toolName}
 
 Parameters:
-- summary (required): Provide the final markdown response here.
+- summary (required): Put your COMPLETE response here in Markdown format (supports tables, code blocks, lists)
+- options (optional): Array of quick-reply options to present to the user
+- is_markdown (optional): Whether summary is Markdown formatted. Defaults to true.
 
-ALWAYS call ${toolName} at the end.
-
-## Format
-
-{
-  "tool": "${toolName}",
-  "arguments": {
-    "summary": "Detailed markdown response here"
-  }
-}
+ALWAYS use ${toolName} to deliver your response to the user.
+Do NOT output any text before calling the tool — put everything inside \`summary\`.
 `;
 }
 
@@ -46,17 +40,17 @@ export async function writeWorkspaceFeedbackRules(toolName: string): Promise<Rul
 
 export async function writeCursorGlobalRule(toolName: string): Promise<RuleWriteResult> {
   const cursorRoot = path.join(os.homedir(), '.cursor');
+  const targetPath = path.join(cursorRoot, 'rules', `${toolName}.mdc`);
   try {
     await fs.access(cursorRoot);
   } catch {
     return {
-      path: path.join(cursorRoot, 'rules', 'EVILZIXIE.mdc'),
+      path: targetPath,
       written: false,
       reason: 'Cursor directory does not exist.'
     };
   }
 
-  const targetPath = path.join(cursorRoot, 'rules', 'EVILZIXIE.mdc');
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
   await fs.writeFile(targetPath, buildRuleTemplate(toolName), 'utf8');
   return { path: targetPath, written: true };
@@ -64,7 +58,7 @@ export async function writeCursorGlobalRule(toolName: string): Promise<RuleWrite
 
 export async function writeWindsurfGlobalRule(toolName: string): Promise<RuleWriteResult> {
   const windsurfRulesDir = path.join(os.homedir(), '.codeium', 'windsurf', 'rules');
-  const targetPath = path.join(windsurfRulesDir, 'EVILZIXIE.mdc');
+  const targetPath = path.join(windsurfRulesDir, `${toolName}.mdc`);
   try {
     await fs.mkdir(windsurfRulesDir, { recursive: true });
     await fs.writeFile(targetPath, buildRuleTemplate(toolName), 'utf8');
@@ -78,9 +72,29 @@ export async function writeWindsurfGlobalRule(toolName: string): Promise<RuleWri
   }
 }
 
+export async function writeWindsurfWorkspaceRules(toolName: string): Promise<RuleWriteResult> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    return {
+      path: '.windsurfrules',
+      written: false,
+      reason: 'No workspace folder is open.'
+    };
+  }
+
+  const filePath = path.join(workspaceFolder.uri.fsPath, '.windsurfrules');
+  try {
+    await fs.writeFile(filePath, buildRuleTemplate(toolName), 'utf8');
+    return { path: filePath, written: true };
+  } catch (err) {
+    return { path: filePath, written: false, reason: String(err) };
+  }
+}
+
 export async function configureGlobalRules(toolName: string): Promise<RuleWriteResult[]> {
   return [
     await writeWorkspaceFeedbackRules(toolName),
+    await writeWindsurfWorkspaceRules(toolName),
     await writeCursorGlobalRule(toolName),
     await writeWindsurfGlobalRule(toolName)
   ];

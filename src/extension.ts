@@ -1,16 +1,19 @@
 import * as vscode from "vscode";
-import { EchoBridgeServer } from "./core/bridge";
+import { QuoteBridge } from "./core/bridge";
+import type { DialogCallback } from "./core/bridge";
 import { getExtensionConfig } from "./core/config";
-import { EchoLogger } from "./core/logger";
+import { QuoteLogger } from "./core/logger";
 import { DataManager } from "./core/data-manager";
-import { detectCurrentIde } from "./adapters/mcp-config";
-import { EchoSidebarProvider } from "./webview/provider";
+import { detectCurrentIde, writeMcpConfig } from "./adapters/mcp-config";
+import { QuoteSidebarProvider } from "./webview/provider";
+import { QuoteDialogPanel } from "./webview/dialog-panel";
 import { loadOrCreateToolName, rotateToolName } from "./utils/tool-name";
+import { configureGlobalRules } from "./adapters/rules";
 import { WindsurfPatchService } from "./adapters/windsurf-patch";
 
 let statusBarItem: vscode.StatusBarItem | undefined;
-let logger: EchoLogger | undefined;
-let bridge: EchoBridgeServer | undefined;
+let logger: QuoteLogger | undefined;
+let bridge: QuoteBridge | undefined;
 let dataManager: DataManager | undefined;
 
 async function updateStatusBar(): Promise<void> {
@@ -18,14 +21,24 @@ async function updateStatusBar(): Promise<void> {
     return;
   }
   const status = bridge.getStatus();
-  statusBarItem.text = `$(comment) Quote ${status.running ? status.port : "offline"}`;
-  statusBarItem.tooltip = `IDE: ${status.currentIde}\nTool: ${status.toolName}\nClients: ${status.sseClientCount}`;
+  const waitingIcon = status.pendingDialog ? '$(pause-circle) ' : '';
+  const onlineText = status.running ? `端口 ${status.port}` : '离线';
+  statusBarItem.text = `${waitingIcon}$(comment) Quote (${onlineText})`;
+  const toolTipMd = new vscode.MarkdownString(
+    `**Quote 已激活 (${onlineText})**  \n` +
+    `工具名: \`${status.toolName}\`  \n` +
+    `IDE: ${status.currentIde}  \n` +
+    `SSE 客户端: ${status.sseClientCount}` +
+    (status.pendingDialog ? '  \n⏸ **LLM 等待响应...**' : '')
+  );
+  toolTipMd.isTrusted = true;
+  statusBarItem.tooltip = toolTipMd;
 }
 
 export async function activate(
   context: vscode.ExtensionContext,
 ): Promise<void> {
-  logger = new EchoLogger(context);
+  logger = new QuoteLogger(context);
   const config = getExtensionConfig();
   const currentIde = detectCurrentIde();
   const toolName = await loadOrCreateToolName(context.globalStorageUri.fsPath);
@@ -33,15 +46,16 @@ export async function activate(
   dataManager = DataManager.getInstance(context, logger);
   await dataManager.initialize();
 
-  bridge = new EchoBridgeServer(
+  bridge = new QuoteBridge(
     logger,
     config.serverPort,
     toolName,
     currentIde.name,
+    config.dialogTimeoutSeconds > 0 ? config.dialogTimeoutSeconds * 1000 : 0,
   );
   const runningPort = await bridge.start();
 
-  const sidebarProvider = new EchoSidebarProvider(
+  const sidebarProvider = new QuoteSidebarProvider(
     context.extensionUri,
     bridge,
     logger,
@@ -49,7 +63,7 @@ export async function activate(
   );
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
-      EchoSidebarProvider.viewId,
+      QuoteSidebarProvider.viewId,
       sidebarProvider,
       { webviewOptions: { retainContextWhenHidden: true } },
     ),
@@ -63,36 +77,55 @@ export async function activate(
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
-  // Disabled auto MCP config and rules writing - only account switching and quota stats
-  // if (config.autoConfigureRules && vscode.workspace.isTrusted) {
-  //   const sseUrl = `http://127.0.0.1:${runningPort}/sse`;
-  //   const configuredPaths: string[] = [];
+  // Auto MCP config and rules writing
+  if (config.autoConfigureRules && vscode.workspace.isTrusted) {
+    const sseUrl = `http://127.0.0.1:${runningPort}/sse`;
+    const configuredPaths: string[] = [];
+    try {
+      const mcpPath = await writeMcpConfig(currentIde, toolName, sseUrl);
+      configuredPaths.push(mcpPath);
+      logger.info('MCP config written.', { mcpPath });
+    } catch (err) {
+      logger.warn('Failed to write MCP config.', { error: String(err) });
+    }
+    try {
+      const ruleResults = await configureGlobalRules(toolName);
+      configuredPaths.push(
+        ...ruleResults.filter((r) => r.written).map((r) => r.path),
+      );
+      logger.info('Rules configured.', { ruleResults });
+    } catch (err) {
+      logger.warn('Failed to configure rules.', { error: String(err) });
+    }
+    bridge.setConfiguredPaths(configuredPaths);
+    logger.info('Auto configuration completed.', { configuredPaths });
+  }
 
-  //   const mcpPath = await writeMcpConfig(currentIde, toolName, sseUrl);
-  //   configuredPaths.push(mcpPath);
-
-  //   const ruleResults = await configureGlobalRules(toolName);
-  //   configuredPaths.push(
-  //     ...ruleResults
-  //       .filter((result) => result.written)
-  //       .map((result) => result.path),
-  //   );
-  //   bridge.setConfiguredPaths(configuredPaths);
-  //   logger.info("Auto configuration completed.", { configuredPaths });
-
-  //   void vscode.window
-  //     .showInformationMessage(
-  //       `AI Echo MCP 已配置 (${currentIde.name}) · 工具名: ${toolName}`,
-  //       "查看配置",
-  //     )
-  //     .then((choice) => {
-  //       if (choice === "查看配置") {
-  //         void vscode.workspace
-  //           .openTextDocument(vscode.Uri.file(currentIde.configPath))
-  //           .then((doc) => vscode.window.showTextDocument(doc));
-  //       }
-  //     });
-  // }
+  // Register MCP dialog callback: open QuoteDialogPanel (editor tab) on LLM call
+  const dialogHandler: DialogCallback = (req) => {
+    if (statusBarItem) {
+      statusBarItem.text = `$(pause-circle) $(comment) Quote ${bridge?.getPort() ?? '?'}`;
+      statusBarItem.tooltip = '⏸ LLM 等待用户响应...';
+    }
+    // Notify sidebar for queue auto-reply processing
+    sidebarProvider.postPendingDialog(req);
+    try {
+      QuoteDialogPanel.show(context.extensionUri, req, (sessionId, response, images) => {
+        bridge?.resolvePendingDialog(sessionId, response, images);
+        void updateStatusBar();
+        sidebarProvider.postState();
+      });
+    } catch (err) {
+      logger?.error('Failed to open QuoteDialogPanel.', { error: String(err) });
+      // Sidebar dialog card is the fallback — user can still respond from there
+    }
+  };
+  bridge.registerDialogCallback(dialogHandler);
+  bridge.registerDialogResolvedCallback(() => {
+    // Close editor tab dialog panel when dialog resolves from any source
+    QuoteDialogPanel.dispose();
+    void updateStatusBar();
+  });
 
   context.subscriptions.push(
     vscode.commands.registerCommand("quote.openPanel", async () => {
@@ -106,7 +139,7 @@ export async function activate(
       sidebarProvider.refresh();
       sidebarProvider.postState();
       await updateStatusBar();
-      vscode.window.showInformationMessage("Echo sidebar refreshed.");
+      vscode.window.showInformationMessage("Quote sidebar refreshed.");
     }),
     vscode.commands.registerCommand("quote.testFeedback", async () => {
       const message = await bridge?.injectTestFeedback();
@@ -123,7 +156,7 @@ export async function activate(
       const status = bridge.getStatus();
       await updateStatusBar();
       void vscode.window.showInformationMessage(
-        `Echo bridge ${status.running ? "running" : "stopped"} · port ${status.port} · IDE ${status.currentIde}`,
+        `Quote bridge ${status.running ? "running" : "stopped"} · port ${status.port} · IDE ${status.currentIde}`,
       );
     }),
     vscode.commands.registerCommand("quote.copyPort", () => {
@@ -137,9 +170,37 @@ export async function activate(
       if (!bridge) return;
       const newName = await rotateToolName(context.globalStorageUri.fsPath);
       bridge.updateToolName(newName);
+      // Re-write MCP config and rules so AI uses the new tool name
+      const sseUrl = `http://127.0.0.1:${bridge.getPort()}/sse`;
+      try {
+        await writeMcpConfig(detectCurrentIde(), newName, sseUrl);
+        await configureGlobalRules(newName);
+        logger?.info('MCP config + rules re-written after rotation.', { newName });
+      } catch (err) {
+        logger?.warn('Re-write after rotation partially failed.', { error: String(err) });
+      }
       await updateStatusBar();
       sidebarProvider.postBootstrap();
       void vscode.window.showInformationMessage(`工具名已旋转为: ${newName}`);
+    }),
+    vscode.commands.registerCommand("quote.testDialog", () => {
+      if (!bridge) return;
+      const sessionId = `test_${Date.now()}`;
+      const req: import('./core/contracts').McpDialogRequest = {
+        id: `test_${Date.now()}`,
+        sessionId,
+        summary: '## 对话框测试\n\n这是一条来自 **Quote 插件**的测试对话框请求。\n\n请选择一个选项或输入自定义回复：',
+        options: ['✅ 确认', '❌ 取消', '🔄 重试'],
+        isMarkdown: true,
+        receivedAt: new Date().toISOString(),
+      };
+
+      // injectTestDialogRequest triggers dialogCallback which opens QuoteDialogPanel
+      bridge.injectTestDialogRequest(req, (response) => {
+        logger?.info('TestDialog: user responded.', { response });
+        void vscode.window.showInformationMessage(`测试对话框收到回复: "${response}"`);
+        void updateStatusBar();
+      });
     }),
   );
 
@@ -181,7 +242,7 @@ export async function activate(
   }
 }
 
-async function ensurePatchApplied(log: EchoLogger): Promise<void> {
+async function ensurePatchApplied(log: QuoteLogger): Promise<void> {
   try {
     const result = await WindsurfPatchService.checkAndApply(log);
     if (result.needsRestart) {
@@ -212,8 +273,8 @@ async function waitForPatchedCommand(maxWaitMs = 30_000): Promise<boolean> {
 
 async function completePendingSwitch(
   dataManager: DataManager,
-  provider: EchoSidebarProvider,
-  log: EchoLogger,
+  provider: QuoteSidebarProvider,
+  log: QuoteLogger,
   pendingId: string,
 ): Promise<void> {
   // 等待补丁命令注册就绪（最多 30 秒，每 2 秒检查一次）

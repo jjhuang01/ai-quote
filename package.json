@@ -3,7 +3,7 @@
   "displayName": "Quote",
   "icon": "resources/icon.png",
   "description": "",
-  "version": "2.1.4",
+  "version": "2.3.3",
   "publisher": "opensource",
   "license": "MIT",
   "author": "EVILZIXIE",
@@ -72,6 +72,10 @@
       {
         "command": "quote.rotateName",
         "title": "Quote: Rotate MCP Name"
+      },
+      {
+        "command": "quote.testDialog",
+        "title": "Quote: Test Dialog (Simulate LLM Call)"
       }
     ],
     "menus": {
@@ -100,6 +104,12 @@
           "type": "boolean",
           "default": false,
           "description": "自动配置全局规则"
+        },
+        "quote.dialogTimeoutSeconds": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "MCP 对话框超时秒数（0 = 不超时，无限等待用户回复）"
         }
       }
     }
@@ -115,7 +125,10 @@
     "dev:debug": "npm run build && /Applications/vscode.app/Contents/Resources/app/bin/code --extensionDevelopmentPath=\"$PWD\" --disable-extensions",
     "test:integration": "npm run build && npm run compile-tests && vscode-test",
     "verify": "npm run check-types && npm run build && npm run test && npm run test:integration",
-    "vscode:prepublish": "npm run build"
+    "vscode:prepublish": "npm run build",
+    "release": "npm version patch --no-git-tag-version && vsce package --no-dependencies",
+    "release:minor": "npm version minor --no-git-tag-version && vsce package --no-dependencies",
+    "release:major": "npm version major --no-git-tag-version && vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

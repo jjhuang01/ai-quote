@@ -24,7 +24,7 @@ import {
   writeWindsurfGlobalRule
 } from '../../src/adapters/rules';
 
-const TOOL = 'windsurf_endless_aabbccdd';
+const TOOL = 'kpzm_a1b2c3d4';
 
 describe('writeWorkspaceFeedbackRules', () => {
   let tmpWs: string;
@@ -43,7 +43,7 @@ describe('writeWorkspaceFeedbackRules', () => {
     const content = await fs.readFile(result.path, 'utf8');
     expect(content).toContain('# Available Tools');
     expect(content).toContain(TOOL);
-    expect(content).toContain(`ALWAYS call ${TOOL}`);
+    expect(content).toContain(`ALWAYS use ${TOOL}`);
   });
 
   it('无工作区时返回 written:false', async () => {
@@ -72,7 +72,7 @@ describe('writeCursorGlobalRule', () => {
     // tmpDir has no .cursor subdir
     const result = await writeCursorGlobalRule(TOOL);
     expect(result.written).toBe(false);
-    expect(result.path).toContain('EVILZIXIE.mdc');
+    expect(result.path).toContain(`${TOOL}.mdc`);
   });
 
   it('Cursor 目录存在时写入正确内容', async () => {
@@ -80,7 +80,9 @@ describe('writeCursorGlobalRule', () => {
 
     const result = await writeCursorGlobalRule(TOOL);
     expect(result.written).toBe(true);
-    expect(result.path).toContain('EVILZIXIE.mdc');
+    expect(result.path).toContain(`${TOOL}.mdc`);
+    // Must NOT contain old hardcoded filename
+    expect(result.path).not.toContain('EVILZIXIE');
     const content = await fs.readFile(result.path, 'utf8');
     expect(content).toContain(TOOL);
     expect(content).toContain('# Available Tools');
@@ -104,7 +106,9 @@ describe('writeWindsurfGlobalRule', () => {
   it('自动创建目录并写入 Windsurf 全局规则', async () => {
     const result = await writeWindsurfGlobalRule(TOOL);
     expect(result.written).toBe(true);
-    expect(result.path).toContain('EVILZIXIE.mdc');
+    expect(result.path).toContain(`${TOOL}.mdc`);
+    // Must NOT contain old hardcoded filename
+    expect(result.path).not.toContain('EVILZIXIE');
     const content = await fs.readFile(result.path, 'utf8');
     expect(content).toContain(TOOL);
     expect(content).toContain('# Available Tools');

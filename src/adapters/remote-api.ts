@@ -5,7 +5,7 @@ import { ProxyAgent } from 'proxy-agent';
 import type { FirebaseLoginRequest, RemoteApiResponse, VerifyRequest, VersionInfo } from '../core/contracts';
 
 function getRemoteBaseUrl(): string | undefined {
-  const value = process.env.AI_ECHO_REMOTE_BASE_URL?.trim();
+  const value = process.env.QUOTE_REMOTE_BASE_URL?.trim();
   return value ? value.replace(/\/$/, '') : undefined;
 }
 
@@ -63,7 +63,7 @@ export async function fetchRemoteVersion(): Promise<RemoteApiResponse<VersionInf
       success: true,
       message: 'Remote API not configured; using local rebuild mode.',
       data: {
-        name: 'ai-echo-rebuild',
+        name: 'quote',
         version: '0.1.0',
         mode: 'local-rebuild'
       }
