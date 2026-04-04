@@ -1238,7 +1238,7 @@ function renderDialogCard(req: McpDialogRequest): string {
       </div>
       ${optionBtns ? `<div class="dialog-options">${optionBtns}</div>` : ''}
       <div class="dialog-input-row">
-        <textarea class="dialog-textarea" id="dialog-input" placeholder="输入回复… (Ctrl+Enter 发送, Esc 取消)" rows="3">${escapeHtml(state.dialogInput)}</textarea>
+        <textarea class="dialog-textarea" id="dialog-input" placeholder="输入回复… (${getSettings().enterToSend ? 'Enter 发送, Shift+Enter 换行' : 'Ctrl+Enter 发送'}, Esc 取消)" rows="3">${escapeHtml(state.dialogInput)}</textarea>
         <span class="dialog-charcount">${charCount} 字</span>
       </div>
       <div class="dialog-actions">
@@ -1459,7 +1459,11 @@ function bindEvents(): void {
       if (counter) counter.textContent = `${state.dialogInput.length} 字`;
     });
     dialogTextarea.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      const ets = getSettings().enterToSend;
+      const shouldSend = ets
+        ? (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey)
+        : (e.key === "Enter" && (e.ctrlKey || e.metaKey));
+      if (shouldSend) {
         e.preventDefault();
         const response = dialogTextarea.value.trim();
         if (response && state.pendingDialog) {
@@ -2109,6 +2113,15 @@ function showToast(
 
 function syncQueue(): void {
   vscode.postMessage({ type: "queueSync", value: [...state.responseQueue] });
+}
+
+function getSettings(): PluginSettings {
+  return window.__QUOTE_BOOTSTRAP__?.settings ?? {
+    theme: 'dark', panelPosition: 'right', feedbackHeight: 400, inputHeight: 100,
+    fontSize: 14, cardOpacity: 80, breathingLightColor: '#00ff88',
+    enterToSend: false, showUserPrompt: false, historyLimit: 30,
+    soundAlert: 'tada', firebaseApiKey: '', mcpWhitelist: []
+  };
 }
 
 function escapeHtml(value: string): string {

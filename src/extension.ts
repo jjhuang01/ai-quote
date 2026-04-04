@@ -111,11 +111,12 @@ export async function activate(
     // Notify sidebar for queue auto-reply processing
     sidebarProvider.postPendingDialog(req);
     try {
+      const settings = dataManager!.settings.get();
       QuoteDialogPanel.show(context.extensionUri, req, (sessionId, response, images) => {
         bridge?.resolvePendingDialog(sessionId, response, images);
         void updateStatusBar();
         sidebarProvider.postState();
-      });
+      }, { enterToSend: settings.enterToSend });
     } catch (err) {
       logger?.error('Failed to open QuoteDialogPanel.', { error: String(err) });
       // Sidebar dialog card is the fallback — user can still respond from there

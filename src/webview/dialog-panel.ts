@@ -112,6 +112,7 @@ export class QuoteDialogPanel {
   private currentReq?: McpDialogRequest;
   private onSubmit?: DialogSubmitHandler;
   private submitted = false;
+  private enterToSend = false;
 
   private constructor(
     private readonly extensionUri: vscode.Uri,
@@ -155,15 +156,18 @@ export class QuoteDialogPanel {
   public static show(
     extensionUri: vscode.Uri,
     req: McpDialogRequest,
-    onSubmit: DialogSubmitHandler
+    onSubmit: DialogSubmitHandler,
+    options?: { enterToSend?: boolean }
   ): void {
     if (QuoteDialogPanel.instance) {
       QuoteDialogPanel.instance.onSubmit = onSubmit;
+      QuoteDialogPanel.instance.enterToSend = options?.enterToSend ?? false;
       QuoteDialogPanel.instance.update(req);
       QuoteDialogPanel.instance.panel.reveal(vscode.ViewColumn.One);
       return;
     }
     const inst = new QuoteDialogPanel(extensionUri, onSubmit);
+    inst.enterToSend = options?.enterToSend ?? false;
     QuoteDialogPanel.instance = inst;
     inst.update(req);
   }
@@ -256,37 +260,40 @@ export class QuoteDialogPanel {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px 16px;
+    padding: 12px 20px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
-    background: var(--card);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--card) 100%, transparent), var(--bg));
+    backdrop-filter: blur(4px);
   }
   .header-icon {
-    width: 28px; height: 28px;
+    width: 30px; height: 30px;
     display: flex; align-items: center; justify-content: center;
-    background: var(--accent-subtle);
-    border-radius: 6px;
+    background: linear-gradient(135deg, var(--accent-subtle), color-mix(in srgb, var(--accent) 20%, transparent));
+    border-radius: 8px;
     font-size: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
   }
   .header-title { font-weight: 600; font-size: 13px; flex: 1; letter-spacing: -0.01em; }
   .header-ts { font-size: 11px; color: var(--muted); }
   .body {
     flex: 1;
     overflow-y: auto;
-    padding: 16px;
+    padding: 20px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
   }
   .summary {
     line-height: 1.65;
     max-height: 50vh;
     overflow-y: auto;
-    padding: 12px 14px;
-    background: var(--card);
-    border-radius: var(--radius);
+    padding: 14px 16px;
+    background: linear-gradient(135deg, var(--card), color-mix(in srgb, var(--card) 85%, var(--bg)));
+    border-radius: 8px;
     border: 1px solid var(--border-subtle);
     font-size: 13px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.03);
   }
   .summary pre { white-space: pre-wrap; word-break: break-word; }
   .summary.md h1,.summary.md h2,.summary.md h3 { margin: 8px 0 4px; font-weight: 600; }
@@ -309,8 +316,8 @@ export class QuoteDialogPanel {
   .summary.md th { background: rgba(255,255,255,0.05); }
   .options { display: flex; flex-wrap: wrap; gap: 6px; }
   .opt-btn {
-    padding: 5px 12px;
-    background: var(--surface);
+    padding: 6px 14px;
+    background: linear-gradient(180deg, var(--surface), color-mix(in srgb, var(--surface) 80%, var(--bg)));
     color: var(--fg);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -318,50 +325,54 @@ export class QuoteDialogPanel {
     font-size: 12px;
     font-family: var(--font);
     transition: all 0.15s ease;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
   }
-  .opt-btn:hover { background: var(--surface-hover); border-color: var(--accent); }
+  .opt-btn:hover { background: var(--surface-hover); border-color: var(--accent); box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
   .input-section { display: flex; flex-direction: column; gap: 6px; }
   .input-label { font-size: 11px; color: var(--muted); }
   textarea {
     width: 100%;
-    min-height: 72px;
+    min-height: 80px;
     resize: vertical;
     background: var(--input-bg);
     color: var(--input-fg);
     border: 1px solid var(--input-border);
-    border-radius: var(--radius);
-    padding: 8px 10px;
+    border-radius: 8px;
+    padding: 10px 12px;
     font-family: var(--font);
     font-size: 13px;
     line-height: 1.5;
     outline: none;
-    transition: border-color 0.15s;
+    transition: border-color 0.2s, box-shadow 0.2s;
   }
-  textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-subtle); }
+  textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-subtle); }
+  textarea.drag-active { border-color: var(--accent); background: var(--accent-subtle); }
   .actions {
     display: flex;
     gap: 8px;
     align-items: center;
   }
   .btn-primary {
-    padding: 6px 16px;
-    background: var(--btn-bg);
+    padding: 7px 20px;
+    background: linear-gradient(180deg, var(--btn-bg), color-mix(in srgb, var(--btn-bg) 80%, #000));
     color: var(--btn-fg);
     border: none;
-    border-radius: var(--radius);
+    border-radius: 8px;
     cursor: pointer;
     font-size: 12px;
     font-family: var(--font);
-    font-weight: 500;
-    transition: background 0.15s;
+    font-weight: 600;
+    transition: all 0.15s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    letter-spacing: 0.02em;
   }
-  .btn-primary:hover { background: var(--btn-hover); }
+  .btn-primary:hover { background: var(--btn-hover); box-shadow: 0 2px 6px rgba(0,0,0,0.3); transform: translateY(-0.5px); }
   .btn-cancel {
-    padding: 6px 14px;
+    padding: 7px 16px;
     background: transparent;
     color: var(--muted);
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius);
+    border-radius: 8px;
     cursor: pointer;
     font-size: 12px;
     font-family: var(--font);
@@ -372,8 +383,8 @@ export class QuoteDialogPanel {
   /* Drop zone & attachments */
   .drop-zone {
     border: 1.5px dashed var(--border);
-    border-radius: var(--radius);
-    padding: 10px;
+    border-radius: 8px;
+    padding: 12px;
     text-align: center;
     font-size: 11px;
     color: var(--muted);
@@ -384,6 +395,10 @@ export class QuoteDialogPanel {
     border-color: var(--accent);
     color: var(--fg);
     background: var(--accent-subtle);
+  }
+  .drop-zone:hover {
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+    color: var(--fg);
   }
   .attachment-list {
     display: flex;
@@ -477,21 +492,22 @@ export class QuoteDialogPanel {
   </div>
   ${optionBtns ? `<div class="options">${optionBtns}</div>` : ''}
   <div class="input-section">
-    <div class="input-label">回复内容 · Ctrl+Enter 发送 · 支持拖拽文件与图片</div>
-    <textarea id="reply" placeholder="输入回复…" autofocus></textarea>
+    <div class="input-label">回复内容 · ${this.enterToSend ? 'Enter' : 'Ctrl+Enter'} 发送 · 支持拖拽 / 粘贴文件与图片</div>
+    <textarea id="reply" placeholder="输入回复… (${this.enterToSend ? 'Enter 发送, Shift+Enter 换行' : 'Ctrl+Enter 发送'})" autofocus></textarea>
   </div>
-  <div id="dropZone" class="drop-zone">拖拽文件或图片到此处 · 支持 js / ts / md / json / txt 等</div>
+  <div id="dropZone" class="drop-zone">拖拽文件或图片到此处 · 支持 js / ts / md / json / txt 等常用文件</div>
   <div id="attachmentList" class="attachment-list"></div>
   <div class="actions">
     <button class="btn-primary" data-action="submitCustom">发送</button>
     <button class="btn-cancel" data-action="dismiss">取消</button>
     <span id="attachCount" class="attach-count"></span>
-    <span class="hint">Esc 取消 · Ctrl+Enter 发送</span>
+    <span class="hint">Esc 取消 · ${this.enterToSend ? 'Enter' : 'Ctrl+Enter'} 发送</span>
   </div>
 </div>
 <script>
 const vscode = acquireVsCodeApi();
 const SESSION_ID = ${sessionId};
+const ENTER_TO_SEND = ${this.enterToSend ? 'true' : 'false'};
 
 // Render timestamp
 document.getElementById('ts').textContent = new Date().toLocaleTimeString();
@@ -662,21 +678,43 @@ document.body.addEventListener('drop', function(e) {
   for (var i = 0; i < files.length; i++) { addFile(files[i]); }
 });
 
-// --- Paste (images) ---
+// --- Paste (images + files) ---
 document.getElementById('reply').addEventListener('paste', function(e) {
   var items = e.clipboardData ? e.clipboardData.items : [];
+  var handled = false;
   for (var i = 0; i < items.length; i++) {
-    if (items[i].type.indexOf('image') !== -1) {
+    if (items[i].kind === 'file') {
       var file = items[i].getAsFile();
-      if (file) addFile(file);
+      if (file) { addFile(file); handled = true; }
     }
   }
+  if (handled) e.preventDefault();
 });
 
-document.getElementById('reply').addEventListener('keydown', function(e) {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-    e.preventDefault();
-    submitCustom();
+// --- Textarea drag visual ---
+var replyEl = document.getElementById('reply');
+replyEl.addEventListener('dragenter', function(e) { e.preventDefault(); replyEl.classList.add('drag-active'); });
+replyEl.addEventListener('dragover', function(e) { e.preventDefault(); });
+replyEl.addEventListener('dragleave', function() { replyEl.classList.remove('drag-active'); });
+replyEl.addEventListener('drop', function(e) {
+  e.preventDefault(); e.stopPropagation();
+  replyEl.classList.remove('drag-active');
+  var files = e.dataTransfer ? e.dataTransfer.files : [];
+  for (var i = 0; i < files.length; i++) { addFile(files[i]); }
+});
+
+// --- Send key handler ---
+replyEl.addEventListener('keydown', function(e) {
+  if (ENTER_TO_SEND) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      submitCustom();
+    }
+  } else {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      submitCustom();
+    }
   }
   if (e.key === 'Escape') {
     e.preventDefault();

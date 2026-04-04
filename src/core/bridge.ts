@@ -1,6 +1,6 @@
-import * as http from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { createId } from '../utils/tool-name';
+import * as http from "node:http";
+import type { AddressInfo } from "node:net";
+import { createId } from "../utils/tool-name";
 import type {
   QuoteEvent,
   QuoteMessage,
@@ -10,44 +10,52 @@ import type {
   FirebaseLoginRequest,
   RemoteApiResponse,
   VerifyRequest,
-  VersionInfo
-} from './contracts';
-import type { LoggerLike } from './logger';
-import { fetchRemoteVersion, loginWithFirebase, verifyRemoteCode } from '../adapters/remote-api';
+  VersionInfo,
+} from "./contracts";
+import type { LoggerLike } from "./logger";
+import {
+  fetchRemoteVersion,
+  loginWithFirebase,
+  verifyRemoteCode,
+} from "../adapters/remote-api";
 
 async function readJsonBody<T>(request: http.IncomingMessage): Promise<T> {
   return new Promise((resolve, reject) => {
-    let raw = '';
-    request.on('data', chunk => {
+    let raw = "";
+    request.on("data", (chunk) => {
       raw += chunk;
     });
-    request.on('end', () => {
+    request.on("end", () => {
       try {
         resolve((raw ? JSON.parse(raw) : {}) as T);
       } catch (error) {
         reject(error);
       }
     });
-    request.on('error', reject);
+    request.on("error", reject);
   });
 }
 
-function writeJson(response: http.ServerResponse, statusCode: number, payload: unknown): void {
+function writeJson(
+  response: http.ServerResponse,
+  statusCode: number,
+  payload: unknown,
+): void {
   response.writeHead(statusCode, {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Auth-Token'
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Auth-Token",
   });
   response.end(JSON.stringify(payload));
 }
 
 function writeSseHeaders(response: http.ServerResponse): void {
   response.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-    'Access-Control-Allow-Origin': '*'
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "Access-Control-Allow-Origin": "*",
   });
 }
 
@@ -62,25 +70,35 @@ export class QuoteBridge {
   private pendingDialog?: McpDialogRequest;
   private dialogCallback?: DialogCallback;
   private dialogResolvedCallback?: () => void;
-  private pendingDialogResolvers = new Map<string, (response: string, images?: ImageAttachment[]) => void>();
+  private pendingDialogResolvers = new Map<
+    string,
+    (response: string, images?: ImageAttachment[]) => void
+  >();
 
   public constructor(
     private readonly logger: LoggerLike,
     private readonly requestedPort: number,
     private toolName: string,
     private readonly currentIde: string,
-    private readonly dialogTimeoutMs: number = 0
+    private readonly dialogTimeoutMs: number = 0,
   ) {}
 
   public async start(): Promise<number> {
     this.server = http.createServer((request, response) => {
       void this.handleRequest(request, response);
     });
+    // Disable server-level timeouts to support indefinite dialog waits
+    this.server.timeout = 0;
+    this.server.keepAliveTimeout = 0;
+    this.server.requestTimeout = 0;
 
     await this.listenWithFallback(this.requestedPort);
 
     const address = this.server.address() as AddressInfo;
-    this.logger.info('Quote bridge started.', { port: address.port, toolName: this.toolName });
+    this.logger.info("Quote bridge started.", {
+      port: address.port,
+      toolName: this.toolName,
+    });
     return address.port;
   }
 
@@ -101,15 +119,15 @@ export class QuoteBridge {
     this.pendingDialog = undefined;
     // Resolve all pending dialog awaits so handleMcpRequest coroutines can exit cleanly.
     for (const resolver of this.pendingDialogResolvers.values()) {
-      resolver('(bridge stopped)');
+      resolver("(bridge stopped)");
     }
     this.pendingDialogResolvers.clear();
 
     await new Promise<void>((resolve, reject) => {
-      this.server?.close(error => (error ? reject(error) : resolve()));
+      this.server?.close((error) => (error ? reject(error) : resolve()));
     });
     this.server = undefined;
-    this.logger.info('Quote bridge stopped.');
+    this.logger.info("Quote bridge stopped.");
   }
 
   public getPort(): number {
@@ -128,7 +146,7 @@ export class QuoteBridge {
 
   public updateToolName(newName: string): void {
     this.toolName = newName;
-    this.logger.info('Tool name updated.', { toolName: newName });
+    this.logger.info("Tool name updated.", { toolName: newName });
   }
 
   public getStatus(): QuoteStatus {
@@ -141,21 +159,21 @@ export class QuoteBridge {
       sseClientCount: this.clients.size,
       autoConfiguredPaths: this.configuredPaths,
       lastConfiguredAt: this.lastConfiguredAt,
-      pendingDialog: this.pendingDialog
+      pendingDialog: this.pendingDialog,
     };
   }
 
   public async injectTestFeedback(): Promise<QuoteMessage> {
     return this.pushMessage({
-      source: 'test',
-      text: 'Quote bridge test feedback event.',
-      metadata: { scenario: 'testFeedback' }
+      source: "test",
+      text: "Quote bridge test feedback event.",
+      metadata: { scenario: "testFeedback" },
     });
   }
 
   public registerDialogCallback(cb: DialogCallback): void {
     this.dialogCallback = cb;
-    this.logger.info('Dialog callback registered.');
+    this.logger.info("Dialog callback registered.");
   }
 
   /** Called after every dialog resolution (real MCP or test) to allow callers to refresh UI state. */
@@ -163,13 +181,19 @@ export class QuoteBridge {
     this.dialogResolvedCallback = cb;
   }
 
-  public resolvePendingDialog(sessionId: string, response: string, images?: ImageAttachment[]): void {
+  public resolvePendingDialog(
+    sessionId: string,
+    response: string,
+    images?: ImageAttachment[],
+  ): void {
     const resolver = this.pendingDialogResolvers.get(sessionId);
     if (resolver) {
       resolver(response, images);
       this.pendingDialogResolvers.delete(sessionId);
     } else {
-      this.logger.warn('resolvePendingDialog: no resolver for sessionId.', { sessionId });
+      this.logger.warn("resolvePendingDialog: no resolver for sessionId.", {
+        sessionId,
+      });
     }
     if (this.pendingDialog?.sessionId === sessionId) {
       this.pendingDialog = undefined;
@@ -180,13 +204,19 @@ export class QuoteBridge {
    * Programmatically inject a test dialog request (for debug panel / testDialog command).
    * Returns the unique sessionId so callers can resolve it via resolvePendingDialog().
    */
-  public injectTestDialogRequest(req: McpDialogRequest, onResponse: (r: string) => void): void {
+  public injectTestDialogRequest(
+    req: McpDialogRequest,
+    onResponse: (r: string) => void,
+  ): void {
     // Only clean up a previous TEST session (never resolve a real MCP session with a garbage string).
     // Real MCP sessions have sessionId like "sess_..." injected by attachSseClient.
-    if (this.pendingDialog && this.pendingDialog.sessionId.startsWith('test_')) {
+    if (
+      this.pendingDialog &&
+      this.pendingDialog.sessionId.startsWith("test_")
+    ) {
       const old = this.pendingDialog.sessionId;
       if (this.pendingDialogResolvers.has(old)) {
-        this.pendingDialogResolvers.get(old)?.('(replaced by new test)');
+        this.pendingDialogResolvers.get(old)?.("(replaced by new test)");
         this.pendingDialogResolvers.delete(old);
       }
     }
@@ -197,94 +227,118 @@ export class QuoteBridge {
         this.pendingDialog = undefined;
       }
     });
-    this.logger.info('Test dialog injected.', { sessionId: req.sessionId });
+    this.logger.info("Test dialog injected.", { sessionId: req.sessionId });
     // Notify extension to open dialog panel (same as real MCP calls)
     this.dialogCallback?.(req);
   }
 
-  private async handleRequest(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+  private async handleRequest(
+    request: http.IncomingMessage,
+    response: http.ServerResponse,
+  ): Promise<void> {
     try {
       await this.routeRequest(request, response);
     } catch (err) {
-      this.logger.error('Unhandled request error.', { error: String(err), url: request.url });
+      this.logger.error("Unhandled request error.", {
+        error: String(err),
+        url: request.url,
+      });
       if (!response.headersSent) {
-        writeJson(response, 500, { success: false, message: 'Internal server error' });
+        writeJson(response, 500, {
+          success: false,
+          message: "Internal server error",
+        });
       }
     }
   }
 
-  private async routeRequest(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
-    if (request.method === 'OPTIONS') {
+  private async routeRequest(
+    request: http.IncomingMessage,
+    response: http.ServerResponse,
+  ): Promise<void> {
+    if (request.method === "OPTIONS") {
       response.writeHead(204, {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Auth-Token'
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers":
+          "Content-Type, Authorization, X-Auth-Token",
       });
       response.end();
       return;
     }
 
-    const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
+    const url = new URL(
+      request.url ?? "/",
+      `http://${request.headers.host ?? "127.0.0.1"}`,
+    );
     const pathname = url.pathname;
 
-    const sessionId = url.searchParams.get('sessionId') ?? undefined;
+    const sessionId = url.searchParams.get("sessionId") ?? undefined;
 
-    if ((pathname === '/events' || pathname === '/sse') && request.method === 'GET') {
+    if (
+      (pathname === "/events" || pathname === "/sse") &&
+      request.method === "GET"
+    ) {
       this.attachSseClient(response);
       return;
     }
 
-    if (pathname === '/message' && request.method === 'POST') {
+    if (pathname === "/message" && request.method === "POST") {
       const body = await readJsonBody<Record<string, unknown>>(request);
 
-      if (body['jsonrpc'] === '2.0') {
+      if (body["jsonrpc"] === "2.0") {
         await this.handleMcpRequest(body, sessionId, response);
         return;
       }
 
       const payload = body as Partial<QuoteMessage>;
       const message = await this.pushMessage({
-        source: payload.source ?? 'bridge',
-        text: payload.text ?? '',
-        metadata: payload.metadata
+        source: payload.source ?? "bridge",
+        text: payload.text ?? "",
+        metadata: payload.metadata,
       });
       writeJson(response, 200, { success: true, data: message });
       return;
     }
 
-    if ((pathname === '/' || pathname === '/api/version' || pathname === '/mcp') && request.method === 'GET') {
+    if (
+      (pathname === "/" ||
+        pathname === "/api/version" ||
+        pathname === "/mcp") &&
+      request.method === "GET"
+    ) {
       const version = await this.getVersionInfo();
       writeJson(response, 200, version);
       return;
     }
 
-    if (pathname === '/api/verify' && request.method === 'POST') {
+    if (pathname === "/api/verify" && request.method === "POST") {
       const payload = await readJsonBody<VerifyRequest>(request);
       const verifyResult = await verifyRemoteCode(payload);
       writeJson(response, verifyResult.success ? 200 : 501, verifyResult);
       return;
     }
 
-    if (pathname === '/api/firebase/login' && request.method === 'POST') {
+    if (pathname === "/api/firebase/login" && request.method === "POST") {
       const payload = await readJsonBody<FirebaseLoginRequest>(request);
       const loginResult = await loginWithFirebase(payload);
       writeJson(response, loginResult.success ? 200 : 501, loginResult);
       return;
     }
 
-    if (pathname === '/status' && request.method === 'GET') {
+    if (pathname === "/status" && request.method === "GET") {
       writeJson(response, 200, this.getStatus());
       return;
     }
 
     writeJson(response, 404, {
       success: false,
-      message: `Unknown path: ${pathname}`
+      message: `Unknown path: ${pathname}`,
     });
   }
 
   private attachSseClient(response: http.ServerResponse): void {
-    const sid = createId('sess');
+    const sid = createId("sess");
     writeSseHeaders(response);
     this.clients.set(sid, response);
 
@@ -293,15 +347,18 @@ export class QuoteBridge {
     response.write(`data: /message?sessionId=${sid}\n\n`);
 
     // Also send our own status event for the webview
-    this.sendEvent({
-      type: 'status',
-      timestamp: new Date().toISOString(),
-      payload: this.getStatus()
-    }, response);
+    this.sendEvent(
+      {
+        type: "status",
+        timestamp: new Date().toISOString(),
+        payload: this.getStatus(),
+      },
+      response,
+    );
 
-    this.logger.info('SSE client connected.', { sessionId: sid });
+    this.logger.info("SSE client connected.", { sessionId: sid });
 
-    response.on('close', () => {
+    response.on("close", () => {
       this.clients.delete(sid);
       // B2 fix: silently discard pending dialog for this session.
       // Do NOT call the resolver (which would try to write to the closed SSE
@@ -312,35 +369,41 @@ export class QuoteBridge {
         if (this.pendingDialog?.sessionId === sid) {
           this.pendingDialog = undefined;
         }
-        this.logger.info('SSE disconnect: pending dialog discarded (no broadcast).', { sessionId: sid });
+        this.logger.info(
+          "SSE disconnect: pending dialog discarded (no broadcast).",
+          { sessionId: sid },
+        );
       }
-      this.logger.info('SSE client disconnected.', { sessionId: sid });
+      this.logger.info("SSE client disconnected.", { sessionId: sid });
     });
   }
 
   private async handleMcpRequest(
     body: Record<string, unknown>,
     sessionId: string | undefined,
-    httpResponse: http.ServerResponse
+    httpResponse: http.ServerResponse,
   ): Promise<void> {
-    const method = body['method'] as string | undefined;
-    const id = body['id'] as number | string | undefined;
+    const method = body["method"] as string | undefined;
+    const id = body["id"] as number | string | undefined;
 
-    this.logger.info('MCP request received.', { method, id, sessionId });
+    this.logger.info("MCP request received.", { method, id, sessionId });
 
     // Always ack immediately with 202
     httpResponse.writeHead(202, {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*'
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
     });
     httpResponse.end(JSON.stringify({ accepted: true }));
 
     // Find the SSE client for this session to push response
     const sseClient = sessionId ? this.clients.get(sessionId) : undefined;
     const pushJsonRpc = (result: unknown, error?: unknown): void => {
-      const rpcResponse: Record<string, unknown> = { jsonrpc: '2.0', id: id ?? null };
-      if (error) rpcResponse['error'] = error;
-      else rpcResponse['result'] = result;
+      const rpcResponse: Record<string, unknown> = {
+        jsonrpc: "2.0",
+        id: id ?? null,
+      };
+      if (error) rpcResponse["error"] = error;
+      else rpcResponse["result"] = result;
       const data = JSON.stringify(rpcResponse);
       if (sseClient && !sseClient.writableEnded) {
         sseClient.write(`data: ${data}\n\n`);
@@ -350,79 +413,102 @@ export class QuoteBridge {
           if (!client.writableEnded) client.write(`data: ${data}\n\n`);
         }
       }
-      this.logger.info('MCP response sent.', { method, id });
+      this.logger.info("MCP response sent.", { method, id });
     };
 
     switch (method) {
-      case 'initialize': {
+      case "initialize": {
         pushJsonRpc({
-          protocolVersion: '2024-11-05',
+          protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: this.toolName, version: '1.0.0' },
-          instructions: 'Use the available tool to deliver responses to the user.'
+          serverInfo: { name: this.toolName, version: "1.0.0" },
+          instructions:
+            "Use the available tool to deliver responses to the user.",
         });
         break;
       }
-      case 'notifications/initialized':
+      case "notifications/initialized":
         // No response needed for notifications
         break;
-      case 'tools/list':
-      case 'tools/list/': {
+      case "tools/list":
+      case "tools/list/": {
         pushJsonRpc({
-          tools: [this.buildToolDef()]
+          tools: [this.buildToolDef()],
         });
         break;
       }
-      case 'tools/call': {
-        const params = body['params'] as Record<string, unknown> | undefined;
-        const args = params?.['arguments'] as Record<string, unknown> | undefined;
-        const summary = (args?.['summary'] as string | undefined) ?? '';
-        const rawOptions = args?.['options'];
-        const options = Array.isArray(rawOptions) ? rawOptions as string[] : undefined;
-        const isMarkdown = (args?.['is_markdown'] as boolean | undefined) ?? true;
+      case "tools/call": {
+        const params = body["params"] as Record<string, unknown> | undefined;
+        const args = params?.["arguments"] as
+          | Record<string, unknown>
+          | undefined;
+        const summary = (args?.["summary"] as string | undefined) ?? "";
+        const rawOptions = args?.["options"];
+        const options = Array.isArray(rawOptions)
+          ? (rawOptions as string[])
+          : undefined;
+        const isMarkdown =
+          (args?.["is_markdown"] as boolean | undefined) ?? true;
 
         if (!sessionId) {
-          pushJsonRpc(undefined, { code: -32000, message: 'tools/call requires SSE session' });
+          pushJsonRpc(undefined, {
+            code: -32000,
+            message: "tools/call requires SSE session",
+          });
           break;
         }
 
         // B3: Validate tool name
-        const calledName = params?.['name'] as string | undefined;
+        const calledName = params?.["name"] as string | undefined;
         if (calledName && calledName !== this.toolName) {
-          pushJsonRpc(undefined, { code: -32601, message: `Tool not found: ${calledName}` });
-          this.logger.warn('tools/call: unknown tool name.', { calledName, expected: this.toolName });
+          pushJsonRpc(undefined, {
+            code: -32601,
+            message: `Tool not found: ${calledName}`,
+          });
+          this.logger.warn("tools/call: unknown tool name.", {
+            calledName,
+            expected: this.toolName,
+          });
           break;
         }
 
         // B1: Reject concurrent calls from same session
         if (this.pendingDialogResolvers.has(sessionId)) {
-          pushJsonRpc(undefined, { code: -32000, message: 'A dialog is already pending for this session' });
-          this.logger.warn('tools/call: concurrent call rejected.', { sessionId });
+          pushJsonRpc(undefined, {
+            code: -32000,
+            message: "A dialog is already pending for this session",
+          });
+          this.logger.warn("tools/call: concurrent call rejected.", {
+            sessionId,
+          });
           break;
         }
 
         const dialogReq: McpDialogRequest = {
-          id: id ?? createId('mcp'),
+          id: id ?? createId("mcp"),
           sessionId,
           summary,
           options,
           isMarkdown,
-          receivedAt: new Date().toISOString()
+          receivedAt: new Date().toISOString(),
         };
         this.pendingDialog = dialogReq;
-        this.logger.info('MCP tools/call: awaiting dialog response.', { sessionId, summaryLen: summary.length });
+        this.logger.info("MCP tools/call: awaiting dialog response.", {
+          sessionId,
+          summaryLen: summary.length,
+        });
 
         // Notify extension to show dialog
         if (this.dialogCallback) {
           this.dialogCallback(dialogReq);
         }
 
-        // Keep SSE connection alive while waiting (prevents Windsurf 1-min idle timeout)
+        // Keep SSE connection alive while waiting (prevents Windsurf MCP client idle timeout)
         const keepAlive = setInterval(() => {
           if (sseClient && !sseClient.writableEnded) {
             sseClient.write(': keepalive\n\n');
           }
-        }, 25_000);
+        }, 10_000);
 
         // Optional auto-timeout (0 = wait indefinitely)
         let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
@@ -432,38 +518,48 @@ export class QuoteBridge {
             if (resolver) {
               this.pendingDialogResolvers.delete(sessionId);
               this.pendingDialog = undefined;
-              this.logger.info('Dialog auto-dismissed due to timeout.', { sessionId, timeoutMs: this.dialogTimeoutMs });
-              resolver('(timeout)');
+              this.logger.info("Dialog auto-dismissed due to timeout.", {
+                sessionId,
+                timeoutMs: this.dialogTimeoutMs,
+              });
+              resolver("(timeout)");
             }
           }, this.dialogTimeoutMs);
         }
 
         // Wait for user response (stored in resolver map)
         await new Promise<void>((resolve) => {
-          this.pendingDialogResolvers.set(sessionId, (userResponse: string, images?: ImageAttachment[]) => {
-            this.pendingDialogResolvers.delete(sessionId);
-            this.pendingDialog = undefined;
-            clearInterval(keepAlive);
-            clearTimeout(timeoutHandle);
-            const content: Record<string, unknown>[] = [
-              { type: 'text', text: userResponse }
-            ];
-            if (images && images.length > 0) {
-              for (const img of images) {
-                content.push({
-                  type: 'image',
-                  source: {
-                    type: 'base64',
-                    media_type: img.media_type,
-                    data: img.data
-                  }
-                });
+          this.pendingDialogResolvers.set(
+            sessionId,
+            (userResponse: string, images?: ImageAttachment[]) => {
+              this.pendingDialogResolvers.delete(sessionId);
+              this.pendingDialog = undefined;
+              clearInterval(keepAlive);
+              clearTimeout(timeoutHandle);
+              const content: Record<string, unknown>[] = [
+                { type: "text", text: userResponse },
+              ];
+              if (images && images.length > 0) {
+                for (const img of images) {
+                  content.push({
+                    type: "image",
+                    source: {
+                      type: "base64",
+                      media_type: img.media_type,
+                      data: img.data,
+                    },
+                  });
+                }
               }
-            }
-            pushJsonRpc({ content, isError: false });
-            this.logger.info('MCP dialog response sent.', { sessionId, responseLen: userResponse.length, imageCount: images?.length ?? 0 });
-            resolve();
-          });
+              pushJsonRpc({ content, isError: false });
+              this.logger.info("MCP dialog response sent.", {
+                sessionId,
+                responseLen: userResponse.length,
+                imageCount: images?.length ?? 0,
+              });
+              resolve();
+            },
+          );
         });
         clearInterval(keepAlive);
         clearTimeout(timeoutHandle);
@@ -471,13 +567,13 @@ export class QuoteBridge {
         this.dialogResolvedCallback?.();
         break;
       }
-      case 'ping':
+      case "ping":
         pushJsonRpc({});
         break;
       default:
         pushJsonRpc(undefined, {
           code: -32601,
-          message: `Method not found: ${method ?? 'unknown'}`
+          message: `Method not found: ${method ?? "unknown"}`,
         });
     }
   }
@@ -485,26 +581,27 @@ export class QuoteBridge {
   private buildToolDef(): Record<string, unknown> {
     return {
       name: this.toolName,
-      description: 'Send a structured response to the user interface.',
+      description: "Send a structured response to the user interface.",
       inputSchema: {
-        type: 'object',
+        type: "object",
         properties: {
           summary: {
-            type: 'string',
-            description: 'Markdown content to display to the user.'
+            type: "string",
+            description: "Markdown content to display to the user.",
           },
           options: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Optional quick-reply options for the user.'
+            type: "array",
+            items: { type: "string" },
+            description: "Optional quick-reply options for the user.",
           },
           is_markdown: {
-            type: 'boolean',
-            description: 'Whether summary is Markdown formatted. Defaults to true.'
-          }
+            type: "boolean",
+            description:
+              "Whether summary is Markdown formatted. Defaults to true.",
+          },
         },
-        required: ['summary']
-      }
+        required: ["summary"],
+      },
     };
   }
 
@@ -512,14 +609,20 @@ export class QuoteBridge {
     try {
       await this.listen(preferredPort);
     } catch (error) {
-      const code = error instanceof Error && 'code' in error ? Reflect.get(error, 'code') : undefined;
-      if (code !== 'EADDRINUSE') {
+      const code =
+        error instanceof Error && "code" in error
+          ? Reflect.get(error, "code")
+          : undefined;
+      if (code !== "EADDRINUSE") {
         throw error;
       }
 
-      this.logger.warn('Preferred bridge port is in use. Falling back to a random port.', {
-        preferredPort
-      });
+      this.logger.warn(
+        "Preferred bridge port is in use. Falling back to a random port.",
+        {
+          preferredPort,
+        },
+      );
       await this.listen(0);
     }
   }
@@ -528,23 +631,23 @@ export class QuoteBridge {
     await new Promise<void>((resolve, reject) => {
       const server = this.server;
       if (!server) {
-        reject(new Error('Bridge server was not initialized.'));
+        reject(new Error("Bridge server was not initialized."));
         return;
       }
 
       const handleError = (error: Error): void => {
-        server.off('listening', handleListening);
+        server.off("listening", handleListening);
         reject(error);
       };
 
       const handleListening = (): void => {
-        server.off('error', handleError);
+        server.off("error", handleError);
         resolve();
       };
 
-      server.once('error', handleError);
-      server.once('listening', handleListening);
-      server.listen(port, '127.0.0.1');
+      server.once("error", handleError);
+      server.once("listening", handleListening);
+      server.listen(port, "127.0.0.1");
     });
   }
 
@@ -553,22 +656,27 @@ export class QuoteBridge {
     return remote;
   }
 
-  private async pushMessage(input: Pick<QuoteMessage, 'source' | 'text' | 'metadata'>): Promise<QuoteMessage> {
+  private async pushMessage(
+    input: Pick<QuoteMessage, "source" | "text" | "metadata">,
+  ): Promise<QuoteMessage> {
     const message: QuoteMessage = {
-      id: createId('msg'),
+      id: createId("msg"),
       source: input.source,
       text: input.text,
       createdAt: new Date().toISOString(),
-      metadata: input.metadata
+      metadata: input.metadata,
     };
     this.messages.unshift(message);
     this.messages.splice(20);
     this.broadcast({
-      type: 'message',
+      type: "message",
       timestamp: new Date().toISOString(),
-      payload: message
+      payload: message,
     });
-    this.logger.info('Bridge message stored.', { messageId: message.id, source: message.source });
+    this.logger.info("Bridge message stored.", {
+      messageId: message.id,
+      source: message.source,
+    });
     return message;
   }
 
