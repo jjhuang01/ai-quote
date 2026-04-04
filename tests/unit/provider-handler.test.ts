@@ -125,7 +125,14 @@ function setupProvider() {
   const dataManager = createMockDataManager();
   const extensionUri = { fsPath: '/tmp/ext' } as any;
 
-  const provider = new QuoteSidebarProvider(extensionUri, bridge, logger, dataManager);
+  const mockContext = {
+    globalState: {
+      get: vi.fn(() => []),
+      update: vi.fn(async () => undefined),
+    },
+  } as any;
+
+  const provider = new QuoteSidebarProvider(extensionUri, bridge, logger, dataManager, mockContext);
 
   const postMessage = vi.fn(async () => true);
   const mockWebviewView = {

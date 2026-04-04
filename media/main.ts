@@ -149,6 +149,7 @@ interface Bootstrap {
   currentAccountId?: string;
   quotaSnapshots: QuotaSnapshot[];
   quotaFetching?: boolean;
+  responseQueue?: string[];
 }
 
 declare global {
@@ -507,15 +508,16 @@ function renderStatusTab(bs: Bootstrap): string {
         </div>` : ''}
 
         ${!state.queueCollapsed ? `
-        <p class="hint">LLM 每次调用工具时，自动从队列头部取一条回复。</p>
+        <p class="hint">LLM 每次调用工具时，自动从队列头部取一条回复。用 <code>---</code> 分隔可批量添加。</p>
         <div class="queue-input-row">
-          <textarea class="text-area queue-input" id="queue-add-input" rows="2" placeholder="输入预设回复… (Ctrl+Enter 加入)">${escapeHtml(state.queueInput)}</textarea>
+          <textarea class="text-area queue-input" id="queue-add-input" rows="2" placeholder="输入预设回复… (Ctrl+Enter 加入，用 --- 分隔可批量添加)">${escapeHtml(state.queueInput)}</textarea>
           <button class="btn-grad btn-sm" data-action="queueAdd">+加入</button>
         </div>
         ${state.responseQueue.length > 0 ? `
         <ol class="queue-list">
           ${state.responseQueue.map((item, i) => {
             const isEditing = state.editingQueueIdx === i;
+            const total = state.responseQueue.length;
             if (isEditing) {
               return `
               <li class="queue-item queue-item-editing">
@@ -532,6 +534,8 @@ function renderStatusTab(bs: Bootstrap): string {
               <span class="queue-idx">#${i + 1}</span>
               <span class="queue-text">${escapeHtml(item.slice(0, 80))}${item.length > 80 ? '…' : ''}</span>
               <div class="queue-item-btns">
+                ${i > 0 ? `<button class="btn-xs" data-action="queueMoveUp" data-idx="${i}" title="上移">↑</button>` : ''}
+                ${i < total - 1 ? `<button class="btn-xs" data-action="queueMoveDown" data-idx="${i}" title="下移">↓</button>` : ''}
                 <button class="btn-xs" data-action="queueEdit" data-idx="${i}" title="编辑">✎</button>
                 <button class="btn-xs btn-danger-xs" data-action="queueRemove" data-idx="${i}" title="删除">×</button>
               </div>
@@ -1224,12 +1228,12 @@ function renderDialogCard(req: McpDialogRequest): string {
         ${callLabel ? `<span class="dialog-call-count">${callLabel}</span>` : ''}
         ${queueHint}
         <span class="dialog-ts">${ts}</span>
-        <button class="btn-xs dialog-close-btn" data-action="dialogDismiss" title="忽略 (Esc)">✕</button>
+        <button class="btn-xs dialog-close-btn" data-action="dialogDismiss" title="取消对话 (Esc)">✕</button>
       </div>
       <div class="dialog-summary${req.isMarkdown ? ' dialog-summary-md' : ''}">${req.isMarkdown ? renderMd(req.summary) : escapeHtml(req.summary)}</div>
       ${optionBtns ? `<div class="dialog-options">${optionBtns}</div>` : ''}
       <div class="dialog-input-row">
-        <textarea class="dialog-textarea" id="dialog-input" placeholder="输入回复… (Ctrl+Enter 发送, Esc 忽略)" rows="3">${escapeHtml(state.dialogInput)}</textarea>
+        <textarea class="dialog-textarea" id="dialog-input" placeholder="输入回复… (Ctrl+Enter 发送, Esc 取消)" rows="3">${escapeHtml(state.dialogInput)}</textarea>
         <span class="dialog-charcount">${charCount} 字</span>
       </div>
       <div class="dialog-actions">
@@ -1464,6 +1468,10 @@ function bindEvents(): void {
         }
       }
       if (e.key === "Escape") {
+        if (state.pendingDialog) {
+          const dismissSid = state.pendingDialog.sessionId;
+          vscode.postMessage({ type: "mcpDialogSubmit", value: { sessionId: dismissSid, response: "(cancelled)" } });
+        }
         state.pendingDialog = undefined;
         state.dialogInput = "";
         render();
@@ -1538,7 +1546,7 @@ function handleAction(el: HTMLElement): void {
     case "dialogDismiss": {
       if (state.pendingDialog) {
         const dismissSid = state.pendingDialog.sessionId;
-        vscode.postMessage({ type: "mcpDialogSubmit", value: { sessionId: dismissSid, response: "(dismissed)" } });
+        vscode.postMessage({ type: "mcpDialogSubmit", value: { sessionId: dismissSid, response: "(cancelled)" } });
       }
       state.pendingDialog = undefined;
       state.dialogInput = "";
@@ -1569,6 +1577,7 @@ function handleAction(el: HTMLElement): void {
       const newText = (editEl?.value ?? state.editingQueueText).trim();
       if (!isNaN(saveIdx) && newText && saveIdx < state.responseQueue.length) {
         state.responseQueue[saveIdx] = newText;
+        syncQueue();
       }
       state.editingQueueIdx = undefined;
       state.editingQueueText = "";
@@ -1586,9 +1595,17 @@ function handleAction(el: HTMLElement): void {
       const qInput = (document.getElementById("queue-add-input") as HTMLTextAreaElement | null)?.value.trim()
         ?? state.queueInput.trim();
       if (qInput) {
-        state.responseQueue.push(qInput);
+        // Batch add: split by "---" separator line
+        const items = qInput.split(/\n---\n/).map(s => s.trim()).filter(Boolean);
+        for (const item of items) {
+          state.responseQueue.push(item);
+        }
         state.queueInput = "";
+        syncQueue();
         render();
+        if (items.length > 1) {
+          showToast(`已批量添加 ${items.length} 条到队列`, "success");
+        }
       }
       break;
     }
@@ -1596,16 +1613,38 @@ function handleAction(el: HTMLElement): void {
       const idx = parseInt(el.dataset.idx ?? "", 10);
       if (!isNaN(idx) && idx >= 0 && idx < state.responseQueue.length) {
         state.responseQueue.splice(idx, 1);
+        syncQueue();
         render();
       }
       break;
     }
     case "queueClear":
-      if (state.responseQueue.length > 0) {
+      if (state.responseQueue.length > 0 && confirm("确定清空队列？")) {
         state.responseQueue = [];
+        syncQueue();
         render();
       }
       break;
+    case "queueMoveUp": {
+      const upIdx = parseInt(el.dataset.idx ?? "", 10);
+      if (!isNaN(upIdx) && upIdx > 0 && upIdx < state.responseQueue.length) {
+        [state.responseQueue[upIdx - 1], state.responseQueue[upIdx]] =
+          [state.responseQueue[upIdx], state.responseQueue[upIdx - 1]];
+        syncQueue();
+        render();
+      }
+      break;
+    }
+    case "queueMoveDown": {
+      const downIdx = parseInt(el.dataset.idx ?? "", 10);
+      if (!isNaN(downIdx) && downIdx >= 0 && downIdx < state.responseQueue.length - 1) {
+        [state.responseQueue[downIdx], state.responseQueue[downIdx + 1]] =
+          [state.responseQueue[downIdx + 1], state.responseQueue[downIdx]];
+        syncQueue();
+        render();
+      }
+      break;
+    }
 
     // Debug panel test dialog
     case "testDialog":
@@ -2035,6 +2074,10 @@ function showToast(
   }, dur);
 }
 
+function syncQueue(): void {
+  vscode.postMessage({ type: "queueSync", value: [...state.responseQueue] });
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -2077,6 +2120,11 @@ window.addEventListener("message", (event) => {
     const pending = (msg.value as Bootstrap).status?.pendingDialog;
     if (pending) state.pendingDialog = pending;
     else if (!state.pendingDialog) state.pendingDialog = undefined;
+    // Restore persisted queue (only if local queue is empty — avoid overwriting active edits)
+    const savedQueue = (msg.value as Bootstrap).responseQueue;
+    if (savedQueue && savedQueue.length > 0 && state.responseQueue.length === 0) {
+      state.responseQueue = savedQueue;
+    }
     render();
     return;
   }
@@ -2088,6 +2136,7 @@ window.addEventListener("message", (event) => {
     // Queue auto-reply: if there are queued responses, fire the first one immediately
     if (state.responseQueue.length > 0) {
       const autoReply = state.responseQueue.shift()!;
+      syncQueue();
       state.sentHistory.unshift({ text: autoReply, sentAt: new Date().toLocaleTimeString(), mode: 'queue' });
       if (state.sentHistory.length > 10) state.sentHistory.pop();
       vscode.postMessage({ type: "mcpDialogSubmit", value: { sessionId: req.sessionId, response: autoReply } });

@@ -60,6 +60,7 @@ export async function activate(
     bridge,
     logger,
     dataManager,
+    context,
   );
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
@@ -213,17 +214,16 @@ export async function activate(
 
   await updateStatusBar();
 
-  // 首次激活时自动显示 Activity Bar 图标（Cursor 默认隐藏新插件贡献）
-  const hasShownSidebar = context.globalState.get<boolean>(
-    "hasShownSidebar",
-    false,
+  // 每次激活时自动显示侧边栏，确保 SSE 状态实时推送
+  void vscode.commands.executeCommand(
+    "workbench.view.extension.quote-sidebar",
   );
-  if (!hasShownSidebar) {
-    await context.globalState.update("hasShownSidebar", true);
-    void vscode.commands.executeCommand(
-      "workbench.view.extension.quote-sidebar",
-    );
-  }
+
+  // 延迟刷新状态：等待 MCP 客户端连接后更新 SSE 计数
+  setTimeout(() => {
+    void updateStatusBar();
+    sidebarProvider.postBootstrap();
+  }, 3000);
 
   logger.info("Quote activated.", {
     currentIde: currentIde.name,

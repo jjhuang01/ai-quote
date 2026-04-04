@@ -10,13 +10,18 @@ import { WindsurfPatchService } from '../adapters/windsurf-patch';
 export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'quoteView';
   private view?: vscode.WebviewView;
+  private responseQueue: string[] = [];
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly bridge: QuoteBridge,
     private readonly logger: QuoteLogger,
-    private readonly dataManager: DataManager
-  ) {}
+    private readonly dataManager: DataManager,
+    private readonly context: vscode.ExtensionContext
+  ) {
+    // Restore persisted queue
+    this.responseQueue = this.context.globalState.get<string[]>('responseQueue', []);
+  }
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -103,7 +108,8 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
       autoSwitch: this.dataManager.windsurfAccounts.getAutoSwitchConfig(),
       currentAccountId: this.dataManager.windsurfAccounts.getCurrentAccountId(),
       quotaSnapshots: this.dataManager.windsurfAccounts.getQuotaSnapshots(),
-      quotaFetching: this.dataManager.windsurfAccounts.isQuotaFetching
+      quotaFetching: this.dataManager.windsurfAccounts.isQuotaFetching,
+      responseQueue: this.responseQueue
     };
   }
 
@@ -170,6 +176,12 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           this.postBootstrap();
         });
         // Sidebar receives dialog via dialogHandler → postPendingDialog; no need to duplicate
+        return true;
+      }
+      case 'queueSync': {
+        const queue = Array.isArray(value) ? value as string[] : [];
+        this.responseQueue = queue;
+        void this.context.globalState.update('responseQueue', queue);
         return true;
       }
       case 'mcpDialogSubmit': {

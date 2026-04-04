@@ -296,6 +296,7 @@ export interface WebviewBootstrap {
   licenseInfo?: LicenseInfo;
   quotaSnapshots: QuotaSnapshot[];
   quotaFetching?: boolean;
+  responseQueue?: string[];
 }
 
 export interface LicenseInfo {

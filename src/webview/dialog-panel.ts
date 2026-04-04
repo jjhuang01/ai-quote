@@ -214,26 +214,33 @@ export class QuoteDialogPanel {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:;">
 <title>Quote Dialog</title>
 <style>
   :root {
-    --bg: var(--vscode-editor-background);
-    --fg: var(--vscode-editor-foreground);
-    --border: var(--vscode-panel-border, #444);
-    --input-bg: var(--vscode-input-background);
-    --input-fg: var(--vscode-input-foreground);
+    --bg: var(--vscode-sideBar-background, var(--vscode-editor-background, #1a1a1a));
+    --fg: var(--vscode-foreground, #e6e6e6);
+    --muted: var(--vscode-descriptionForeground, #848484);
+    --border: var(--vscode-panel-border, #383838);
+    --border-subtle: color-mix(in srgb, var(--border) 48%, transparent);
+    --input-bg: var(--vscode-input-background, #2e2e2e);
+    --input-fg: var(--vscode-input-foreground, #e6e6e6);
     --input-border: var(--vscode-input-border, #555);
-    --btn-bg: var(--vscode-button-background);
-    --btn-fg: var(--vscode-button-foreground);
-    --btn-hover: var(--vscode-button-hoverBackground);
-    --opt-bg: var(--vscode-badge-background, #3a3d41);
-    --opt-fg: var(--vscode-badge-foreground, #fff);
-    --accent: var(--vscode-focusBorder, #007acc);
+    --btn-bg: var(--vscode-button-background, #0e639c);
+    --btn-fg: var(--vscode-button-foreground, #fff);
+    --btn-hover: var(--vscode-button-hoverBackground, #1177bb);
+    --card: var(--vscode-editorWidget-background, #252525);
+    --accent: var(--vscode-button-background, #0e639c);
+    --accent-subtle: color-mix(in srgb, var(--accent) 12%, transparent);
+    --surface: var(--vscode-input-background, #2e2e2e);
+    --surface-hover: color-mix(in srgb, var(--accent) 10%, var(--surface));
     --code-bg: var(--vscode-textCodeBlock-background, #1e1e1e);
+    --success: #22c55e;
+    --danger: #ef4444;
+    --danger-subtle: color-mix(in srgb, #ef4444 14%, transparent);
     --radius: 6px;
-    --font: var(--vscode-font-family, system-ui, sans-serif);
-    --mono: var(--vscode-editor-font-family, monospace);
+    --font: var(--vscode-font-family, system-ui, -apple-system, sans-serif);
+    --mono: var(--vscode-editor-font-family, 'SF Mono', Menlo, monospace);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -248,14 +255,21 @@ export class QuoteDialogPanel {
   .header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 12px 16px;
+    gap: 10px;
+    padding: 10px 16px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
+    background: var(--card);
   }
-  .header-icon { font-size: 16px; }
-  .header-title { font-weight: 600; font-size: 14px; flex: 1; }
-  .header-ts { font-size: 11px; opacity: 0.5; }
+  .header-icon {
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--accent-subtle);
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  .header-title { font-weight: 600; font-size: 13px; flex: 1; letter-spacing: -0.01em; }
+  .header-ts { font-size: 11px; color: var(--muted); }
   .body {
     flex: 1;
     overflow-y: auto;
@@ -265,16 +279,16 @@ export class QuoteDialogPanel {
     gap: 12px;
   }
   .summary {
-    line-height: 1.6;
-    max-height: 55vh;
+    line-height: 1.65;
+    max-height: 50vh;
     overflow-y: auto;
     padding: 12px 14px;
-    background: var(--code-bg);
+    background: var(--card);
     border-radius: var(--radius);
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-subtle);
+    font-size: 13px;
   }
   .summary pre { white-space: pre-wrap; word-break: break-word; }
-  /* basic markdown styles */
   .summary.md h1,.summary.md h2,.summary.md h3 { margin: 8px 0 4px; font-weight: 600; }
   .summary.md h1 { font-size: 1.3em; }
   .summary.md h2 { font-size: 1.15em; }
@@ -293,24 +307,24 @@ export class QuoteDialogPanel {
   .summary.md table { border-collapse: collapse; width: 100%; margin-bottom: 8px; }
   .summary.md th,.summary.md td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
   .summary.md th { background: rgba(255,255,255,0.05); }
-  .options { display: flex; flex-wrap: wrap; gap: 8px; }
+  .options { display: flex; flex-wrap: wrap; gap: 6px; }
   .opt-btn {
-    padding: 6px 14px;
-    background: var(--opt-bg);
-    color: var(--opt-fg);
+    padding: 5px 12px;
+    background: var(--surface);
+    color: var(--fg);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     cursor: pointer;
-    font-size: 13px;
+    font-size: 12px;
     font-family: var(--font);
-    transition: background 0.15s;
+    transition: all 0.15s ease;
   }
-  .opt-btn:hover { background: var(--btn-hover); color: var(--btn-fg); border-color: var(--accent); }
-  .input-section { display: flex; flex-direction: column; gap: 8px; }
-  .input-label { font-size: 11px; opacity: 0.6; }
+  .opt-btn:hover { background: var(--surface-hover); border-color: var(--accent); }
+  .input-section { display: flex; flex-direction: column; gap: 6px; }
+  .input-label { font-size: 11px; color: var(--muted); }
   textarea {
     width: 100%;
-    min-height: 80px;
+    min-height: 72px;
     resize: vertical;
     background: var(--input-bg);
     color: var(--input-fg);
@@ -321,113 +335,141 @@ export class QuoteDialogPanel {
     font-size: 13px;
     line-height: 1.5;
     outline: none;
+    transition: border-color 0.15s;
   }
-  textarea:focus { border-color: var(--accent); }
+  textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-subtle); }
   .actions {
     display: flex;
     gap: 8px;
     align-items: center;
   }
   .btn-primary {
-    padding: 7px 18px;
+    padding: 6px 16px;
     background: var(--btn-bg);
     color: var(--btn-fg);
     border: none;
     border-radius: var(--radius);
     cursor: pointer;
-    font-size: 13px;
+    font-size: 12px;
     font-family: var(--font);
     font-weight: 500;
+    transition: background 0.15s;
   }
   .btn-primary:hover { background: var(--btn-hover); }
-  .btn-secondary {
-    padding: 7px 14px;
+  .btn-cancel {
+    padding: 6px 14px;
     background: transparent;
-    color: var(--fg);
-    border: 1px solid var(--border);
+    color: var(--muted);
+    border: 1px solid var(--border-subtle);
     border-radius: var(--radius);
     cursor: pointer;
-    font-size: 13px;
-    font-family: var(--font);
-    opacity: 0.7;
-  }
-  .btn-secondary:hover { opacity: 1; border-color: var(--accent); }
-  .hint { font-size: 11px; opacity: 0.45; margin-left: auto; }
-  /* Image upload styles */
-  .drop-zone {
-    border: 2px dashed var(--border);
-    border-radius: var(--radius);
-    padding: 12px;
-    text-align: center;
     font-size: 12px;
-    opacity: 0.6;
-    transition: border-color 0.2s, opacity 0.2s;
+    font-family: var(--font);
+    transition: all 0.15s;
+  }
+  .btn-cancel:hover { color: var(--fg); border-color: var(--border); background: var(--danger-subtle); }
+  .hint { font-size: 11px; color: var(--muted); margin-left: auto; }
+  /* Drop zone & attachments */
+  .drop-zone {
+    border: 1.5px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 10px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--muted);
+    transition: all 0.2s;
     cursor: pointer;
   }
   .drop-zone.dragover {
     border-color: var(--accent);
-    opacity: 1;
-    background: rgba(0,122,204,0.08);
+    color: var(--fg);
+    background: var(--accent-subtle);
   }
-  .image-previews {
+  .attachment-list {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    flex-direction: column;
+    gap: 4px;
   }
-  .image-preview {
-    position: relative;
-    width: 80px;
-    height: 80px;
-    border-radius: 4px;
-    overflow: hidden;
-    border: 1px solid var(--border);
-  }
-  .image-preview img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .image-preview .remove-btn {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    width: 18px;
-    height: 18px;
-    background: rgba(0,0,0,0.7);
-    color: #fff;
-    border: none;
-    border-radius: 50%;
-    font-size: 11px;
-    cursor: pointer;
+  .attach-item {
     display: flex;
     align-items: center;
-    justify-content: center;
-    line-height: 1;
+    gap: 8px;
+    padding: 6px 8px;
+    background: var(--surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    font-size: 12px;
   }
-  .image-preview .remove-btn:hover { background: #c00; }
-  .image-count { font-size: 11px; opacity: 0.5; }
+  .attach-item.attach-image {
+    align-items: flex-start;
+  }
+  .attach-thumb {
+    width: 48px; height: 48px;
+    border-radius: 3px;
+    object-fit: cover;
+    flex-shrink: 0;
+    border: 1px solid var(--border-subtle);
+  }
+  .attach-icon {
+    width: 20px; height: 20px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; flex-shrink: 0;
+    opacity: 0.6;
+  }
+  .attach-info { flex: 1; min-width: 0; }
+  .attach-name {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .attach-meta { font-size: 10px; color: var(--muted); }
+  .attach-preview {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: var(--mono);
+    max-height: 42px;
+    overflow: hidden;
+    white-space: pre;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+    line-height: 1.4;
+  }
+  .attach-remove {
+    width: 20px; height: 20px;
+    background: none; border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 3px;
+    flex-shrink: 0;
+    transition: all 0.15s;
+  }
+  .attach-remove:hover { color: var(--danger); background: var(--danger-subtle); }
+  .attach-count { font-size: 11px; color: var(--muted); }
 </style>
 </head>
 <body>
 <div class="header">
   <span class="header-icon">⏸</span>
-  <span class="header-title">LLM 等待您的回复</span>
+  <span class="header-title">LLM 等待回复</span>
   <span class="header-ts" id="ts"></span>
 </div>
 <div class="body">
   ${summaryHtml}
   ${optionBtns ? `<div class="options">${optionBtns}</div>` : ''}
   <div class="input-section">
-    <div class="input-label">自定义回复（Ctrl+Enter 发送 · 可粘贴或拖拽图片）</div>
-    <textarea id="reply" placeholder="输入回复内容…" autofocus></textarea>
+    <div class="input-label">回复内容 · Ctrl+Enter 发送 · 支持拖拽文件与图片</div>
+    <textarea id="reply" placeholder="输入回复…" autofocus></textarea>
   </div>
-  <div id="dropZone" class="drop-zone">拖拽图片到此处，或在输入框中粘贴 (Ctrl+V)</div>
-  <div id="imagePreviews" class="image-previews"></div>
+  <div id="dropZone" class="drop-zone">拖拽文件或图片到此处 · 支持 js / ts / md / json / txt 等</div>
+  <div id="attachmentList" class="attachment-list"></div>
   <div class="actions">
-    <button class="btn-primary" data-action="submitCustom">✓ 发送</button>
-    <button class="btn-secondary" data-action="dismiss">忽略</button>
-    <span id="imageCount" class="image-count"></span>
-    <span class="hint">Ctrl+Enter 快速发送</span>
+    <button class="btn-primary" data-action="submitCustom">发送</button>
+    <button class="btn-cancel" data-action="dismiss">取消</button>
+    <span id="attachCount" class="attach-count"></span>
+    <span class="hint">Esc 取消 · Ctrl+Enter 发送</span>
   </div>
 </div>
 <script>
@@ -437,8 +479,29 @@ const SESSION_ID = ${sessionId};
 // Render timestamp
 document.getElementById('ts').textContent = new Date().toLocaleTimeString();
 
-// --- Image state ---
-const uploadedImages = []; // Array of { dataUri, data, media_type, filename }
+// --- Attachment state ---
+var attachments = []; // { kind:'image'|'file', dataUri?, data, media_type, filename, preview? }
+
+// Recognized text file extensions
+var TEXT_EXTS = ['js','ts','jsx','tsx','mjs','cjs','json','md','markdown','txt','css','scss','less','html','htm','xml','yaml','yml','toml','ini','cfg','conf','sh','bash','zsh','py','rb','go','rs','java','c','cpp','h','hpp','swift','kt','sql','graphql','gql','vue','svelte','astro','env','gitignore','dockerignore','dockerfile','makefile','csv','tsv','log','diff','patch'];
+
+function isTextFile(name) {
+  if (!name) return false;
+  var ext = name.split('.').pop().toLowerCase();
+  return TEXT_EXTS.indexOf(ext) !== -1;
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function fileExt(name) {
+  if (!name) return '';
+  var parts = name.split('.');
+  return parts.length > 1 ? parts.pop().toLowerCase() : '';
+}
 
 function submitOption(idx) {
   var opts = ${safeJsonEmbed(req.options ?? [])};
@@ -447,9 +510,18 @@ function submitOption(idx) {
 }
 
 function submitCustom() {
-  const text = document.getElementById('reply').value.trim();
-  if (!text && uploadedImages.length === 0) return;
-  send(text || '(image attachment)');
+  var text = document.getElementById('reply').value.trim();
+  if (!text && attachments.length === 0) return;
+  // Build file context string for text files
+  var fileCtx = '';
+  attachments.forEach(function(a) {
+    if (a.kind === 'file' && a.preview) {
+      fileCtx += '\n\n--- ' + (a.filename || 'file') + ' ---\n' + a.preview;
+    }
+  });
+  var response = (text || '') + fileCtx;
+  if (!response.trim()) response = '(attachment)';
+  send(response.trim());
 }
 
 function dismiss() {
@@ -457,14 +529,23 @@ function dismiss() {
 }
 
 function send(response) {
-  const images = uploadedImages.map(function(img) {
-    return { data: img.data, media_type: img.media_type, filename: img.filename || null };
+  var images = attachments.filter(function(a) { return a.kind === 'image'; }).map(function(a) {
+    return { data: a.data, media_type: a.media_type, filename: a.filename || null };
   });
-  vscode.postMessage({ type: 'dialogSubmit', value: { sessionId: SESSION_ID, response: response, images: images } });
+  vscode.postMessage({ type: 'dialogSubmit', value: { sessionId: SESSION_ID, response: response, images: images.length > 0 ? images : undefined } });
 }
 
-// --- Image handling ---
-function fileToBase64(file) {
+// --- File reading ---
+function readFileAsText(file) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function() { resolve(reader.result); };
+    reader.onerror = function() { reject(reader.error); };
+    reader.readAsText(file);
+  });
+}
+
+function readFileAsDataURL(file) {
   return new Promise(function(resolve, reject) {
     var reader = new FileReader();
     reader.onload = function() { resolve(reader.result); };
@@ -473,47 +554,75 @@ function fileToBase64(file) {
   });
 }
 
-function addImageFromFile(file) {
-  if (!file || !file.type.startsWith('image/')) return;
-  fileToBase64(file).then(function(dataUri) {
-    var parts = dataUri.split(',');
-    var meta = parts[0]; // data:image/png;base64
-    var base64 = parts[1];
-    var mediaMatch = meta.match(/data:([^;]+)/);
-    var mediaType = mediaMatch ? mediaMatch[1] : 'image/png';
-    uploadedImages.push({ dataUri: dataUri, data: base64, media_type: mediaType, filename: file.name || null });
-    renderImagePreviews();
-  });
+function addFile(file) {
+  if (!file) return;
+  var isImage = file.type && file.type.startsWith('image/');
+  var isText = isTextFile(file.name);
+
+  if (isImage) {
+    readFileAsDataURL(file).then(function(dataUri) {
+      var parts = dataUri.split(',');
+      var meta = parts[0];
+      var base64 = parts[1];
+      var mm = meta.match(/data:([^;]+)/);
+      var mediaType = mm ? mm[1] : 'image/png';
+      attachments.push({ kind: 'image', dataUri: dataUri, data: base64, media_type: mediaType, filename: file.name || 'image', size: file.size });
+      renderAttachments();
+    });
+  } else if (isText) {
+    readFileAsText(file).then(function(text) {
+      var preview = text.length > 2000 ? text.slice(0, 2000) + '\n... (truncated)' : text;
+      attachments.push({ kind: 'file', filename: file.name, size: file.size, preview: preview, media_type: 'text/plain', data: '' });
+      renderAttachments();
+    });
+  }
+  // Unsupported types silently ignored
 }
 
-function removeImage(idx) {
-  uploadedImages.splice(idx, 1);
-  renderImagePreviews();
+function removeAttachment(idx) {
+  attachments.splice(idx, 1);
+  renderAttachments();
 }
 
-function renderImagePreviews() {
-  var container = document.getElementById('imagePreviews');
-  var countEl = document.getElementById('imageCount');
-  container.innerHTML = '';
-  uploadedImages.forEach(function(img, i) {
-    var wrap = document.createElement('div');
-    wrap.className = 'image-preview';
-    var imgEl = document.createElement('img');
-    imgEl.src = img.dataUri;
-    imgEl.alt = img.filename || 'image';
-    wrap.appendChild(imgEl);
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function renderAttachments() {
+  var list = document.getElementById('attachmentList');
+  var countEl = document.getElementById('attachCount');
+  var dropEl = document.getElementById('dropZone');
+  list.innerHTML = '';
+  attachments.forEach(function(a, i) {
+    var div = document.createElement('div');
+    div.className = 'attach-item' + (a.kind === 'image' ? ' attach-image' : '');
+    var html = '';
+    if (a.kind === 'image' && a.dataUri) {
+      html += '<img class="attach-thumb" src="' + a.dataUri + '" alt="">';
+    } else {
+      html += '<span class="attach-icon">📄</span>';
+    }
+    html += '<div class="attach-info">';
+    html += '<div class="attach-name">' + esc(a.filename || 'file') + '</div>';
+    html += '<div class="attach-meta">' + (a.kind === 'image' ? a.media_type : fileExt(a.filename).toUpperCase()) + ' · ' + formatSize(a.size || 0) + '</div>';
+    if (a.kind === 'file' && a.preview) {
+      html += '<div class="attach-preview">' + esc(a.preview.slice(0, 200)) + '</div>';
+    }
+    html += '</div>';
+    div.innerHTML = html;
     var btn = document.createElement('button');
-    btn.className = 'remove-btn';
-    btn.textContent = 'x';
-    btn.onclick = function() { removeImage(i); };
-    wrap.appendChild(btn);
-    container.appendChild(wrap);
+    btn.className = 'attach-remove';
+    btn.textContent = '×';
+    btn.onclick = function() { removeAttachment(i); };
+    div.appendChild(btn);
+    list.appendChild(div);
   });
-  countEl.textContent = uploadedImages.length > 0 ? uploadedImages.length + ' image(s)' : '';
-  document.getElementById('dropZone').style.display = uploadedImages.length > 0 ? 'none' : '';
+  var n = attachments.length;
+  countEl.textContent = n > 0 ? n + ' 个附件' : '';
+  dropEl.style.display = n > 0 ? 'none' : '';
 }
 
-// Drag & drop
+// --- Drag & drop ---
 var dropZone = document.getElementById('dropZone');
 ['dragenter', 'dragover'].forEach(function(evt) {
   document.body.addEventListener(evt, function(e) {
@@ -528,27 +637,27 @@ var dropZone = document.getElementById('dropZone');
     e.preventDefault();
     e.stopPropagation();
     dropZone.classList.remove('dragover');
-    if (uploadedImages.length > 0) dropZone.style.display = 'none';
+    if (attachments.length > 0) dropZone.style.display = 'none';
   });
 });
 document.body.addEventListener('drop', function(e) {
   var files = e.dataTransfer ? e.dataTransfer.files : [];
-  for (var i = 0; i < files.length; i++) { addImageFromFile(files[i]); }
+  for (var i = 0; i < files.length; i++) { addFile(files[i]); }
 });
 
-// Paste
+// --- Paste (images) ---
 document.getElementById('reply').addEventListener('paste', function(e) {
   var items = e.clipboardData ? e.clipboardData.items : [];
   for (var i = 0; i < items.length; i++) {
     if (items[i].type.indexOf('image') !== -1) {
       var file = items[i].getAsFile();
-      if (file) addImageFromFile(file);
+      if (file) addFile(file);
     }
   }
 });
 
 document.getElementById('reply').addEventListener('keydown', function(e) {
-  if (e.ctrlKey && e.key === 'Enter') {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault();
     submitCustom();
   }
