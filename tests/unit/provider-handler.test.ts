@@ -251,21 +251,16 @@ describe('EchoSidebarProvider - handleMessage', () => {
     });
   });
 
-  // --- Maintenance: Clean MCP ---
+  // --- Maintenance: Clean MCP (disabled) ---
 
   describe('maintenanceCleanMcp', () => {
-    it('发送 loading → 结果 + VS Code 通知', async () => {
-      // cleanOldMcpConfigs is a private method, it will throw since IDE_TARGETS
-      // can't be imported in test env. We test that loading is sent and error is handled.
+    it('已禁用 - 不发送任何 loading 或结果消息', async () => {
       await ctx.send({ type: 'maintenanceCleanMcp' });
 
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
-      const loading = calls.find((m: any) => m.type === 'maintenanceLoading');
-      expect(loading?.value).toBe('cleanMcp');
-
-      // Should have either maintenanceResult or maintenanceError
-      const hasResult = calls.some((m: any) => m.type === 'maintenanceResult' || m.type === 'maintenanceError');
-      expect(hasResult).toBe(true);
+      // Handler is disabled; no maintenanceLoading message should be sent
+      const loading = calls.find((m: any) => m.type === 'maintenanceLoading' && m.value === 'cleanMcp');
+      expect(loading).toBeUndefined();
     });
   });
 

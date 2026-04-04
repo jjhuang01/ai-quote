@@ -107,7 +107,7 @@ export async function activate(
       sidebarProvider.postState();
       await updateStatusBar();
       vscode.window.showInformationMessage(
-        "AI Echo sidebar refreshed.",
+        "WindSurf Account Manager sidebar refreshed.",
       );
     }),
     vscode.commands.registerCommand("infiniteDialog.testFeedback", async () => {
@@ -170,7 +170,7 @@ export async function activate(
   });
 
   await updateStatusBar();
-  logger.info("AI Echo Rebuild activated.", {
+  logger.info("WindSurf Account Manager activated.", {
     currentIde: currentIde.name,
     requestedPort: config.serverPort,
     runningPort,

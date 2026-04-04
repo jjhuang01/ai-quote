@@ -25,7 +25,7 @@
 插件运行时日志写入 VS Code 扩展日志目录，路径格式：
 
 ```
-~/Library/Application Support/Cursor/User/logs/<timestamp>/exthost/out/windsurf-account-manager.log
+~/Library/Application Support/Cursor/User/logs/<timestamp>/exthost/windsurf-account-manager/windsurf-account-manager.log
 ```
 
 **获取日志路径**：

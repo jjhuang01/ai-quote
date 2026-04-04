@@ -12,11 +12,11 @@ export interface LoggerLike {
 }
 
 export class EchoLogger {
-  private readonly channel = vscode.window.createOutputChannel('AI Echo Rebuild');
+  private readonly channel = vscode.window.createOutputChannel('WindSurf Account Manager');
   private readonly logFilePath: string;
 
   public constructor(private readonly context: vscode.ExtensionContext) {
-    this.logFilePath = path.join(context.logUri.fsPath, 'ai-echo-rebuild.log');
+    this.logFilePath = path.join(context.logUri.fsPath, 'windsurf-account-manager.log');
   }
 
   public dispose(): void {
