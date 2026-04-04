@@ -1,4 +1,4 @@
-import './main.css';
+import "./main.css";
 
 declare function acquireVsCodeApi(): {
   postMessage(message: unknown): void;
@@ -19,7 +19,7 @@ interface BridgeStatus {
 
 interface HistoryItem {
   id: string;
-  type: 'conversation' | 'feedback' | 'event';
+  type: "conversation" | "feedback" | "event";
   title: string;
   content: string;
   createdAt: string;
@@ -28,10 +28,17 @@ interface HistoryItem {
 interface WindsurfAccount {
   id: string;
   email: string;
-  plan: 'Trial' | 'Pro' | 'Enterprise' | 'Free' | 'Max' | 'Teams';
+  plan: "Trial" | "Pro" | "Enterprise" | "Free" | "Max" | "Teams";
   creditsUsed: number;
   creditsTotal: number;
-  quota: { dailyUsed: number; dailyLimit: number; dailyResetAt: string; weeklyUsed: number; weeklyLimit: number; weeklyResetAt: string };
+  quota: {
+    dailyUsed: number;
+    dailyLimit: number;
+    dailyResetAt: string;
+    weeklyUsed: number;
+    weeklyLimit: number;
+    weeklyResetAt: string;
+  };
   expiresAt: string;
   isActive: boolean;
   addedAt: string;
@@ -53,7 +60,7 @@ interface RealQuotaInfo {
   overageBalanceMicros: number;
   planEndTimestamp?: number;
   fetchedAt: string;
-  source: 'local' | 'api' | 'apikey' | 'cache' | 'proto';
+  source: "local" | "api" | "apikey" | "cache" | "proto";
 }
 
 interface QuotaSnapshot {
@@ -68,7 +75,7 @@ interface QuotaSnapshot {
   weeklyLimit: number;
   weeklyRemaining: number;
   weeklyResetIn: string;
-  warningLevel: 'ok' | 'warn' | 'critical';
+  warningLevel: "ok" | "warn" | "critical";
   real?: RealQuotaInfo;
 }
 
@@ -86,8 +93,8 @@ interface TemplateItem {
 }
 
 interface PluginSettings {
-  theme: 'dark' | 'light' | 'auto';
-  panelPosition: 'right' | 'left' | 'bottom';
+  theme: "dark" | "light" | "auto";
+  panelPosition: "right" | "left" | "bottom";
   feedbackHeight: number;
   inputHeight: number;
   fontSize: number;
@@ -96,7 +103,7 @@ interface PluginSettings {
   enterToSend: boolean;
   showUserPrompt: boolean;
   historyLimit: number;
-  soundAlert: 'none' | 'tada' | 'ding' | 'pop' | 'chime';
+  soundAlert: "none" | "tada" | "ding" | "pop" | "chime";
   firebaseApiKey: string;
 }
 
@@ -144,84 +151,110 @@ declare global {
 
 const SVG_ICONS: Record<string, string> = {
   // Tab 导航
-  status:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
-  account:   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
-  history:   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
-  tools:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',
-  settings:  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 010 4h-.09c-.658.003-1.25.396-1.51 1z"/></svg>',
+  status:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
+  account:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  history:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+  tools:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',
+  settings:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 010 4h-.09c-.658.003-1.25.396-1.51 1z"/></svg>',
   // 操作图标
-  refresh:   '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>',
-  trash:     '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
-  plus:      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
-  upload:    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
-  switchIcon:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>',
-  edit:      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+  refresh:
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>',
+  trash:
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
+  plus: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  upload:
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
+  switchIcon:
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>',
+  edit: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
   // 维护区图标
-  broom:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h4l10-10-4-4L3 17v4z"/><path d="M14.5 5.5l4 4"/></svg>',
-  reset:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 2v6h6"/><path d="M2.5 8A10 10 0 0112 2a10 10 0 110 20 10 10 0 01-7.35-3.22"/></svg>',
-  fileText:  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
-  database:  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>',
-  wrench:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',
+  broom:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h4l10-10-4-4L3 17v4z"/><path d="M14.5 5.5l4 4"/></svg>',
+  reset:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 2v6h6"/><path d="M2.5 8A10 10 0 0112 2a10 10 0 110 20 10 10 0 01-7.35-3.22"/></svg>',
+  fileText:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
+  database:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>',
+  wrench:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',
   // Toast / 状态图标
-  check:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
-  alertCircle:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
-  info:      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
-  search:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-  inbox:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>',
+  check:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  alertCircle:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+  info: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  search:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  inbox:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>',
   // Plan 图标
-  crown:     '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M2 20h20l-2-12-5 5-3-7-3 7-5-5-2 12z"/></svg>',
-  star:      '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>',
-  zap:       '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>',
+  crown:
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M2 20h20l-2-12-5 5-3-7-3 7-5-5-2 12z"/></svg>',
+  star: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>',
+  zap: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>',
   // History type 图标
-  message:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>',
-  starOutline:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
-  radio:     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49m-8.48-.01a6 6 0 010-8.49m11.31-2.82a10 10 0 010 14.14m-14.14 0a10 10 0 010-14.14"/></svg>',
+  message:
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>',
+  starOutline:
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+  radio:
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49m-8.48-.01a6 6 0 010-8.49m11.31-2.82a10 10 0 010 14.14m-14.14 0a10 10 0 010-14.14"/></svg>',
   // Diagnose 状态图标
-  checkCircle:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
-  xCircle:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
-  copy:      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>',
+  checkCircle:
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+  xCircle:
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+  copy: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>',
 };
 
-function icon(name: string, cls = ''): string {
-  const svg = SVG_ICONS[name] ?? '';
-  return cls ? `<span class="svg-icon ${cls}">${svg}</span>` : `<span class="svg-icon">${svg}</span>`;
+function icon(name: string, cls = ""): string {
+  const svg = SVG_ICONS[name] ?? "";
+  return cls
+    ? `<span class="svg-icon ${cls}">${svg}</span>`
+    : `<span class="svg-icon">${svg}</span>`;
 }
 
 // ---- State ----
 
-type TabId = 'status' | 'account' | 'history' | 'tools' | 'settings' | 'debug';
+type TabId = "status" | "account" | "history" | "tools" | "settings" | "debug";
 
 const vscode = acquireVsCodeApi();
 
 let state = {
-  activeTab: 'status' as TabId,
-  historySearch: '',
+  activeTab: "status" as TabId,
+  historySearch: "",
   isWaiting: false,
   expandedHistoryId: undefined as string | undefined,
   historyMenuId: undefined as string | undefined,
   // Account
   showAddAccount: false,
   showImportAccount: false,
-  importText: '',
-  addEmail: '',
-  addPassword: '',
+  importText: "",
+  addEmail: "",
+  addPassword: "",
   // Shortcut
   editingShortcutId: undefined as string | undefined,
-  editingShortcutText: '',
-  newShortcutText: '',
+  editingShortcutText: "",
+  newShortcutText: "",
   // Template
   editingTemplateId: undefined as string | undefined,
-  editingTemplateName: '',
-  editingTemplateContent: '',
-  newTemplateName: '',
-  newTemplateContent: '',
+  editingTemplateName: "",
+  editingTemplateContent: "",
+  newTemplateName: "",
+  newTemplateContent: "",
   // Quota editor
   editingQuotaAccountId: undefined as string | undefined,
   quotaDailyLimit: 0,
   quotaWeeklyLimit: 0,
   // Notification
   notification: undefined as string | undefined,
-  notificationType: 'info' as 'info' | 'success' | 'error',
+  notificationType: "info" as "info" | "success" | "error",
   // Quota fetching
   quotaFetching: false,
   // Per-account quota fetching id (single-account refresh)
@@ -231,16 +264,29 @@ let state = {
   // Switch loading
   switchLoadingId: undefined as string | undefined,
   // Diagnose result
-  diagnoseResult: undefined as { checks: Array<{ name: string; ok: boolean; detail: string }>; repaired?: number } | undefined,
+  diagnoseResult: undefined as
+    | {
+        checks: Array<{ name: string; ok: boolean; detail: string }>;
+        repaired?: number;
+      }
+    | undefined,
   // Debug panel
-  debugInfo: undefined as { logPath: string; logContent: string; patchApplied: boolean; patchExtensionPath: string | null; patchError: string | null } | undefined,
+  debugInfo: undefined as
+    | {
+        logPath: string;
+        logContent: string;
+        patchApplied: boolean;
+        patchExtensionPath: string | null;
+        patchError: string | null;
+      }
+    | undefined,
   debugLoading: false,
 };
 
 // ---- Render Root ----
 
 function render(): void {
-  const root = document.querySelector<HTMLDivElement>('#app');
+  const root = document.querySelector<HTMLDivElement>("#app");
   if (!root) return;
   const bs = window.__AI_ECHO_BOOTSTRAP__;
   root.innerHTML = `
@@ -248,13 +294,15 @@ function render(): void {
       ${renderHeader(bs)}
       ${renderTabNav()}
       ${renderActiveTab(bs)}
-      ${state.notification ? `<div class="toast toast-${state.notificationType}">${state.notificationType === 'success' ? icon('check') : state.notificationType === 'error' ? icon('alertCircle') : icon('info')} ${escapeHtml(state.notification)}</div>` : ''}
+      ${state.notification ? `<div class="toast toast-${state.notificationType}">${state.notificationType === "success" ? icon("check") : state.notificationType === "error" ? icon("alertCircle") : icon("info")} ${escapeHtml(state.notification)}</div>` : ""}
     </main>`;
   bindEvents();
   // JS 程序化设置进度条宽度（绕过 CSP 对 inline style 的限制）
-  root.querySelectorAll<HTMLElement>('.quota-bar-fill[data-pct]').forEach(el => {
-    el.style.width = `${el.dataset.pct}%`;
-  });
+  root
+    .querySelectorAll<HTMLElement>(".quota-bar-fill[data-pct]")
+    .forEach((el) => {
+      el.style.width = `${el.dataset.pct}%`;
+    });
 }
 
 // ---- Header ----
@@ -266,9 +314,9 @@ function renderHeader(bs: Bootstrap): string {
         <span class="header-title">AI Echo</span>
         <span class="header-sub">:${bs.status.port} · ${escapeHtml(bs.status.currentIde)}</span>
       </div>
-      <span class="status-pill ${bs.status.running ? 'online' : 'offline'}">
+      <span class="status-pill ${bs.status.running ? "online" : "offline"}">
         <span class="pill-dot"></span>
-        ${bs.status.running ? '在线' : '离线'}
+        ${bs.status.running ? "在线" : "离线"}
       </span>
     </header>`;
 }
@@ -277,30 +325,40 @@ function renderHeader(bs: Bootstrap): string {
 
 function renderTabNav(): string {
   const tabs: { id: TabId; label: string; icon: string }[] = [
-    { id: 'status', label: '状态', icon: 'status' },
-    { id: 'account', label: '账号', icon: 'account' },
-    { id: 'history', label: '历史', icon: 'history' },
-    { id: 'tools', label: '工具', icon: 'tools' },
-    { id: 'settings', label: '设置', icon: 'settings' },
-    { id: 'debug', label: '调试', icon: 'wrench' },
+    { id: "status", label: "状态", icon: "status" },
+    { id: "account", label: "账号", icon: "account" },
+    { id: "history", label: "历史", icon: "history" },
+    { id: "tools", label: "工具", icon: "tools" },
+    { id: "settings", label: "设置", icon: "settings" },
+    { id: "debug", label: "调试", icon: "wrench" },
   ];
   return `
     <nav class="tab-nav">
-      ${tabs.map(t => `
-        <button class="tab-btn ${state.activeTab === t.id ? 'active' : ''}" data-tab="${t.id}">
-          ${icon(t.icon)} ${t.label}
-        </button>`).join('')}
+      ${tabs
+        .map(
+          (t) => `
+        <button class="tab-btn ${state.activeTab === t.id ? "active" : ""}" data-tab="${t.id}" title="${t.label}">
+          ${t.label}
+        </button>`,
+        )
+        .join("")}
     </nav>`;
 }
 
 function renderActiveTab(bs: Bootstrap): string {
   switch (state.activeTab) {
-    case 'status': return renderStatusTab(bs);
-    case 'account': return renderAccountTab(bs);
-    case 'history': return renderHistoryTab(bs);
-    case 'tools': return renderToolsTab(bs);
-    case 'settings': return renderSettingsTab(bs);
-    case 'debug': return renderDebugTab(bs);
+    case "status":
+      return renderStatusTab(bs);
+    case "account":
+      return renderAccountTab(bs);
+    case "history":
+      return renderHistoryTab(bs);
+    case "tools":
+      return renderToolsTab(bs);
+    case "settings":
+      return renderSettingsTab(bs);
+    case "debug":
+      return renderDebugTab(bs);
   }
 }
 
@@ -314,18 +372,22 @@ function renderStatusTab(bs: Bootstrap): string {
 
   return `
     <div class="tab-content">
-      ${state.isWaiting ? `
+      ${
+        state.isWaiting
+          ? `
         <div class="waiting-card">
           <div class="waiting-gl"><div class="waiting-spinner"></div></div>
           <span class="waiting-text">等待 AI 响应...</span>
-        </div>` : ''}
+        </div>`
+          : ""
+      }
 
       <section class="card">
         <div class="section-header"><h2>桥接服务</h2></div>
         <div class="service-status-row">
-          <div class="service-indicator ${status.running ? 'running' : 'stopped'}">
+          <div class="service-indicator ${status.running ? "running" : "stopped"}">
             <span class="indicator-dot"></span>
-            <span>${status.running ? '运行中' : '已停止'}</span>
+            <span>${status.running ? "运行中" : "已停止"}</span>
           </div>
           <div class="service-meta">
             <span>SSE <b>${status.sseClientCount}</b></span>
@@ -388,9 +450,13 @@ function renderStatusTab(bs: Bootstrap): string {
       <section class="card">
         <div class="section-header"><h2>已配置路径</h2></div>
         <ul class="paths">
-          ${status.autoConfiguredPaths.length > 0
-            ? status.autoConfiguredPaths.map(p => `<li class="config-item">${escapeHtml(p)}</li>`).join('')
-            : `<li class="empty-state">${icon('inbox', 'empty-icon')} 暂无自动配置路径</li>`}
+          ${
+            status.autoConfiguredPaths.length > 0
+              ? status.autoConfiguredPaths
+                  .map((p) => `<li class="config-item">${escapeHtml(p)}</li>`)
+                  .join("")
+              : `<li class="empty-state">${icon("inbox", "empty-icon")} 暂无自动配置路径</li>`
+          }
         </ul>
       </section>
     </div>`;
@@ -400,7 +466,7 @@ function renderStatusTab(bs: Bootstrap): string {
 
 function renderAccountTab(bs: Bootstrap): string {
   const { accounts, autoSwitch, quotaSnapshots } = bs;
-  const snapshotMap = new Map(quotaSnapshots.map(s => [s.accountId, s]));
+  const snapshotMap = new Map(quotaSnapshots.map((s) => [s.accountId, s]));
   const isFetching = bs.quotaFetching || state.quotaFetching;
 
   return `
@@ -409,14 +475,16 @@ function renderAccountTab(bs: Bootstrap): string {
         <div class="section-header">
           <h2>账号 (${accounts.length})</h2>
           <div class="btn-group">
-            <button class="btn-xs btn-icon ${isFetching ? 'disabled' : ''}" data-action="fetchAllQuotas" ${isFetching ? 'disabled' : ''} title="刷新全部配额">${isFetching ? `${icon('refresh')} …` : `${icon('refresh')} 配额`}</button>
-            <button class="btn-xs btn-icon" data-action="toggleAddAccount">${icon('plus')} 添加</button>
-            <button class="btn-xs btn-icon" data-action="toggleImportAccount">${icon('upload')} 批量</button>
-            ${accounts.length > 0 ? `<button class="btn-xs btn-danger-xs" data-action="accountClear">清空</button>` : ''}
+            <button class="btn-xs btn-icon ${isFetching ? "disabled" : ""}" data-action="fetchAllQuotas" ${isFetching ? "disabled" : ""} title="刷新全部配额">${isFetching ? `${icon("refresh")} …` : `${icon("refresh")} 配额`}</button>
+            <button class="btn-xs btn-icon" data-action="toggleAddAccount">${icon("plus")} 添加</button>
+            <button class="btn-xs btn-icon" data-action="toggleImportAccount">${icon("upload")} 批量</button>
+            ${accounts.length > 0 ? `<button class="btn-xs btn-danger-xs" data-action="accountClear">清空</button>` : ""}
           </div>
         </div>
 
-        ${state.showAddAccount ? `
+        ${
+          state.showAddAccount
+            ? `
           <div class="inline-form">
             <p class="hint">格式: 邮箱 密码（空格分隔）</p>
             <input class="text-input" id="addAccountLine" type="text" placeholder="user@mail.com password123" value="${escapeHtml(state.addEmail)}">
@@ -424,26 +492,42 @@ function renderAccountTab(bs: Bootstrap): string {
               <button class="btn-grad btn-sm" data-action="accountAdd">确认添加</button>
               <button class="btn-secondary btn-sm" data-action="toggleAddAccount">取消</button>
             </div>
-          </div>` : ''}
+          </div>`
+            : ""
+        }
 
-        ${state.showImportAccount ? `
+        ${
+          state.showImportAccount
+            ? `
           <div class="inline-form">
-            <p class="hint">${icon('upload')} 批量导入 (每行: 邮箱 密码)</p>
+            <p class="hint">${icon("upload")} 批量导入 (每行: 邮箱 密码)</p>
             <textarea class="text-area" id="importText" rows="5" placeholder="user1@mail.com pass123\nuser2@mail.com pass456">${escapeHtml(state.importText)}</textarea>
             <div class="btn-group">
               <button class="btn-grad btn-sm" data-action="accountImport">导入</button>
               <button class="btn-secondary btn-sm" data-action="toggleImportAccount">取消</button>
             </div>
-          </div>` : ''}
+          </div>`
+            : ""
+        }
 
         <div class="account-list">
-          ${accounts.length > 0
-            ? accounts.map(a => renderAccountItem(a, bs.currentAccountId, snapshotMap.get(a.id))).join('')
-            : `<div class="empty-state">${icon('inbox', 'empty-icon')} <p>暂无账号，点击“添加”或“批量导入”</p></div>`}
+          ${
+            accounts.length > 0
+              ? accounts
+                  .map((a) =>
+                    renderAccountItem(
+                      a,
+                      bs.currentAccountId,
+                      snapshotMap.get(a.id),
+                    ),
+                  )
+                  .join("")
+              : `<div class="empty-state">${icon("inbox", "empty-icon")} <p>暂无账号，点击“添加”或“批量导入”</p></div>`
+          }
         </div>
       </section>
 
-      ${state.editingQuotaAccountId ? renderQuotaEditor(bs) : ''}
+      ${state.editingQuotaAccountId ? renderQuotaEditor(bs) : ""}
 
       <section class="card">
         <div class="section-header"><h2>自动切换</h2></div>
@@ -451,21 +535,21 @@ function renderAccountTab(bs: Bootstrap): string {
           <div class="setting-row">
             <span class="setting-label">启用自动切换</span>
             <label class="toggle">
-              <input type="checkbox" id="autoSwitchEnabled" ${autoSwitch.enabled ? 'checked' : ''}>
+              <input type="checkbox" id="autoSwitchEnabled" ${autoSwitch.enabled ? "checked" : ""}>
               <span class="toggle-track"></span>
             </label>
           </div>
           <div class="setting-row">
             <span class="setting-label">日配额触顶时切换</span>
             <label class="toggle">
-              <input type="checkbox" id="autoSwitchOnDaily" ${autoSwitch.switchOnDaily ? 'checked' : ''}>
+              <input type="checkbox" id="autoSwitchOnDaily" ${autoSwitch.switchOnDaily ? "checked" : ""}>
               <span class="toggle-track"></span>
             </label>
           </div>
           <div class="setting-row">
             <span class="setting-label">周配额触顶时切换</span>
             <label class="toggle">
-              <input type="checkbox" id="autoSwitchOnWeekly" ${autoSwitch.switchOnWeekly ? 'checked' : ''}>
+              <input type="checkbox" id="autoSwitchOnWeekly" ${autoSwitch.switchOnWeekly ? "checked" : ""}>
               <span class="toggle-track"></span>
             </label>
           </div>
@@ -493,42 +577,60 @@ function renderAccountTab(bs: Bootstrap): string {
     </div>`;
 }
 
-function renderAccountItem(a: WindsurfAccount, currentId?: string, snapshot?: QuotaSnapshot): string {
+function renderAccountItem(
+  a: WindsurfAccount,
+  currentId?: string,
+  snapshot?: QuotaSnapshot,
+): string {
   const isCurrent = a.id === currentId || a.isActive;
   const planColors: Record<string, string> = {
-    Pro: 'var(--accent)', Max: '#8b5cf6', Enterprise: '#a855f7', Teams: '#06b6d4'
+    Pro: "var(--accent)",
+    Max: "#8b5cf6",
+    Enterprise: "#a855f7",
+    Teams: "#06b6d4",
   };
-  const planColor = planColors[a.plan] ?? 'var(--muted)';
+  const planColor = planColors[a.plan] ?? "var(--muted)";
   const q = snapshot;
   const rq = q?.real;
 
-  let dailyFillPct: number | null = null;   // 已用% (0=未用, 100=耗尽), null = 无数据
+  let dailyFillPct: number | null = null; // 已用% (0=未用, 100=耗尽), null = 无数据
   let weeklyFillPct: number | null = null;
-  let dailyText = '';
-  let weeklyText = '';
-  let dailyResetText = '';
-  let weeklyResetText = '';
-  let planEndText = '';
+  let dailyText = "";
+  let weeklyText = "";
+  let dailyResetText = "";
+  let weeklyResetText = "";
+  let planEndText = "";
 
   if (rq) {
     // -1 = API 未返回此字段（无数据），显示 "—"；否则 bar fill = 已用% (与 Windsurf 一致)
-    dailyFillPct  = rq.dailyRemainingPercent  >= 0 ? Math.max(0, Math.min(100, 100 - rq.dailyRemainingPercent))  : null;
-    weeklyFillPct = rq.weeklyRemainingPercent >= 0 ? Math.max(0, Math.min(100, 100 - rq.weeklyRemainingPercent)) : null;
-    dailyText  = dailyFillPct  !== null ? `${Math.floor(dailyFillPct)}%`  : '';
-    weeklyText = weeklyFillPct !== null ? `${Math.floor(weeklyFillPct)}%` : '';
-    if (rq.dailyResetAtUnix)  dailyResetText  = formatResetDateTime(rq.dailyResetAtUnix  * 1000);
-    if (rq.weeklyResetAtUnix) weeklyResetText = formatResetDateTime(rq.weeklyResetAtUnix * 1000);
+    dailyFillPct =
+      rq.dailyRemainingPercent >= 0
+        ? Math.max(0, Math.min(100, 100 - rq.dailyRemainingPercent))
+        : null;
+    weeklyFillPct =
+      rq.weeklyRemainingPercent >= 0
+        ? Math.max(0, Math.min(100, 100 - rq.weeklyRemainingPercent))
+        : null;
+    dailyText = dailyFillPct !== null ? `${Math.floor(dailyFillPct)}%` : "";
+    weeklyText = weeklyFillPct !== null ? `${Math.floor(weeklyFillPct)}%` : "";
+    if (rq.dailyResetAtUnix)
+      dailyResetText = formatResetDateTime(rq.dailyResetAtUnix * 1000);
+    if (rq.weeklyResetAtUnix)
+      weeklyResetText = formatResetDateTime(rq.weeklyResetAtUnix * 1000);
     if (rq.planEndTimestamp && rq.planEndTimestamp > 0) {
       const endDate = new Date(rq.planEndTimestamp);
-      planEndText = endDate.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+      planEndText = endDate.toLocaleDateString("zh-CN", {
+        month: "short",
+        day: "numeric",
+      });
     }
   } else if (q && q.dailyLimit > 0) {
     // 旧配额字段: 计算剩余%
-    dailyFillPct  = pct(q.dailyUsed, q.dailyLimit);
+    dailyFillPct = pct(q.dailyUsed, q.dailyLimit);
     weeklyFillPct = q.weeklyLimit > 0 ? pct(q.weeklyUsed, q.weeklyLimit) : null;
-    dailyText  = `${Math.round(dailyFillPct)}%`;
-    weeklyText = weeklyFillPct !== null ? `${Math.round(weeklyFillPct)}%` : '';
-    dailyResetText  = q.dailyResetIn;
+    dailyText = `${Math.round(dailyFillPct)}%`;
+    weeklyText = weeklyFillPct !== null ? `${Math.round(weeklyFillPct)}%` : "";
+    dailyResetText = q.dailyResetIn;
     weeklyResetText = q.weeklyResetIn;
   } else if (a.creditsTotal > 0) {
     dailyFillPct = pct(a.creditsUsed, a.creditsTotal);
@@ -537,21 +639,21 @@ function renderAccountItem(a: WindsurfAccount, currentId?: string, snapshot?: Qu
 
   // fillClass based on usage% (low usage = ok, high usage = danger)
   const fillClass = (usedPct: number | null): string => {
-    if (usedPct === null) return '';
-    if (usedPct < 50) return 'quota-fill-ok';
-    if (usedPct < 80) return 'quota-fill-warn';
-    return 'quota-fill-danger';
+    if (usedPct === null) return "";
+    if (usedPct < 50) return "quota-fill-ok";
+    if (usedPct < 80) return "quota-fill-warn";
+    return "quota-fill-danger";
   };
 
   const refreshing = state.quotaFetching || state.quotaFetchingId === a.id;
   return `
-    <div class="ac-card ${isCurrent ? 'ac-active' : ''} ${q?.warningLevel === 'critical' ? 'ac-crit' : q?.warningLevel === 'warn' ? 'ac-warn' : ''}">
+    <div class="ac-card ${isCurrent ? "ac-active" : ""} ${q?.warningLevel === "critical" ? "ac-crit" : q?.warningLevel === "warn" ? "ac-warn" : ""}">
       <div class="ac-head">
         <span class="ac-email" title="${escapeHtml(a.email)}">${escapeHtml(a.email)}</span>
         <div class="ac-tags">
           <span class="plan-badge plan-${a.plan.toLowerCase()}">${planIcon(a.plan)} ${a.plan}</span>
-          ${isCurrent ? '<span class="badge-active">当前</span>' : ''}
-          ${planEndText ? `<span class="ac-end">${planEndText}</span>` : ''}
+          ${isCurrent ? '<span class="badge-active">当前</span>' : ""}
+          ${planEndText ? `<span class="ac-end">${planEndText}</span>` : ""}
         </div>
       </div>
       <div class="ac-foot">
@@ -559,19 +661,19 @@ function renderAccountItem(a: WindsurfAccount, currentId?: string, snapshot?: Qu
           <div class="ac-bar-row">
             <span class="ac-lbl">周</span>
             <div class="ac-track"><div class="ac-fill ${fillClass(weeklyFillPct)}" style="width:${weeklyFillPct ?? 0}%"></div></div>
-            <span class="ac-pct${weeklyFillPct === null ? ' ac-nodata' : ''}">${weeklyText || '—'}</span>
+            <span class="ac-pct${weeklyFillPct === null ? " ac-nodata" : ""}">${weeklyText || "—"}</span>
             ${weeklyResetText ? `<span class="ac-rt">${weeklyResetText}</span>` : '<span class="ac-rt"></span>'}
           </div>
           <div class="ac-bar-row">
             <span class="ac-lbl">日</span>
             <div class="ac-track"><div class="ac-fill ${fillClass(dailyFillPct)}" style="width:${dailyFillPct ?? 0}%"></div></div>
-            <span class="ac-pct${dailyFillPct === null ? ' ac-nodata' : ''}">${dailyText || '—'}</span>
+            <span class="ac-pct${dailyFillPct === null ? " ac-nodata" : ""}">${dailyText || "—"}</span>
             ${dailyResetText ? `<span class="ac-rt">${dailyResetText}</span>` : '<span class="ac-rt"></span>'}
           </div>
         </div>
         <div class="ac-acts">
-          <button class="ac-btn ac-btn-refresh ${refreshing ? 'ac-loading' : ''}" data-action="fetchQuota" data-id="${a.id}" title="刷新配额" ${refreshing ? 'disabled' : ''}><span class="ac-refresh-ico">${SVG_ICONS['refresh']}</span></button>
-          ${!isCurrent ? `<button class="ac-btn ${state.switchLoadingId === a.id ? 'ac-btn-loading' : ''}" data-action="accountSwitch" data-id="${a.id}" ${state.switchLoadingId === a.id ? 'disabled' : ''}>${state.switchLoadingId === a.id ? '…' : '切换'}</button>` : ''}
+          <button class="ac-btn ac-btn-refresh ${refreshing ? "ac-loading" : ""}" data-action="fetchQuota" data-id="${a.id}" title="刷新配额" ${refreshing ? "disabled" : ""}><span class="ac-refresh-ico">${SVG_ICONS["refresh"]}</span></button>
+          ${!isCurrent ? `<button class="ac-btn ${state.switchLoadingId === a.id ? "ac-btn-loading" : ""}" data-action="accountSwitch" data-id="${a.id}" ${state.switchLoadingId === a.id ? "disabled" : ""}>${state.switchLoadingId === a.id ? "…" : "切换"}</button>` : ""}
           <button class="ac-btn ac-btn-del" data-action="accountDelete" data-id="${a.id}">删除</button>
         </div>
       </div>
@@ -579,8 +681,8 @@ function renderAccountItem(a: WindsurfAccount, currentId?: string, snapshot?: Qu
 }
 
 function renderQuotaEditor(bs: Bootstrap): string {
-  const account = bs.accounts.find(a => a.id === state.editingQuotaAccountId);
-  if (!account) return '';
+  const account = bs.accounts.find((a) => a.id === state.editingQuotaAccountId);
+  if (!account) return "";
   return `
     <section class="card">
       <div class="section-header"><h2>配额限额 · ${escapeHtml(account.email)}</h2></div>
@@ -603,11 +705,17 @@ function renderQuotaEditor(bs: Bootstrap): string {
 
 function planIcon(plan: string): string {
   switch (plan) {
-    case 'Pro': return icon('crown', 'plan-icon-pro');
-    case 'Max': return icon('zap', 'plan-icon-max');
-    case 'Enterprise': case 'Teams': return icon('star', 'plan-icon-teams');
-    case 'Trial': return icon('zap', 'plan-icon-trial');
-    default: return '';
+    case "Pro":
+      return icon("crown", "plan-icon-pro");
+    case "Max":
+      return icon("zap", "plan-icon-max");
+    case "Enterprise":
+    case "Teams":
+      return icon("star", "plan-icon-teams");
+    case "Trial":
+      return icon("zap", "plan-icon-trial");
+    default:
+      return "";
   }
 }
 
@@ -619,8 +727,8 @@ function formatResetDateTime(ms: number): string {
   const d = new Date(ms);
   const M = d.getMonth() + 1;
   const D = d.getDate();
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
   return `${M}/${D} ${hh}:${mm}`;
 }
 
@@ -628,15 +736,17 @@ function formatResetDateTime(ms: number): string {
 
 function renderHistoryTab(bs: Bootstrap): string {
   const items = state.historySearch
-    ? bs.history.filter(h =>
-        h.title.toLowerCase().includes(state.historySearch.toLowerCase()) ||
-        h.content.toLowerCase().includes(state.historySearch.toLowerCase()))
+    ? bs.history.filter(
+        (h) =>
+          h.title.toLowerCase().includes(state.historySearch.toLowerCase()) ||
+          h.content.toLowerCase().includes(state.historySearch.toLowerCase()),
+      )
     : bs.history;
 
   return `
     <div class="tab-content">
       <div class="search-bar">
-        ${icon('search')}
+        ${icon("search")}
         <input class="search-hi" type="text" placeholder="搜索历史记录..." value="${escapeHtml(state.historySearch)}" data-action="historySearch">
       </div>
       <section class="card">
@@ -645,18 +755,25 @@ function renderHistoryTab(bs: Bootstrap): string {
           <button class="btn-xs btn-danger-xs" data-action="clearHistory">清空</button>
         </div>
         <div class="history-section">
-          ${items.length > 0
-            ? items.map(h => renderHistoryItem(h)).join('')
-            : `<div class="empty-state">${icon('inbox', 'empty-icon')} <p>暂无历史记录</p></div>`}
+          ${
+            items.length > 0
+              ? items.map((h) => renderHistoryItem(h)).join("")
+              : `<div class="empty-state">${icon("inbox", "empty-icon")} <p>暂无历史记录</p></div>`
+          }
         </div>
       </section>
     </div>`;
 }
 
 function renderHistoryItem(item: HistoryItem): string {
-  const hIconName = item.type === 'conversation' ? 'message' : item.type === 'feedback' ? 'starOutline' : 'radio';
+  const hIconName =
+    item.type === "conversation"
+      ? "message"
+      : item.type === "feedback"
+        ? "starOutline"
+        : "radio";
   const hIcon = icon(hIconName);
-  const time = new Date(item.createdAt).toLocaleString('zh-CN');
+  const time = new Date(item.createdAt).toLocaleString("zh-CN");
   const isExpanded = state.expandedHistoryId === item.id;
   const showMenu = state.historyMenuId === item.id;
 
@@ -668,12 +785,16 @@ function renderHistoryItem(item: HistoryItem): string {
         <p class="history-meta">${item.type} · ${time}</p>
       </div>
       <div class="history-menu-trigger" data-menu-id="${item.id}">⋮</div>
-      ${showMenu ? `
+      ${
+        showMenu
+          ? `
         <div class="history-menu">
           <button class="history-menu-item" data-action="deleteHistory" data-id="${item.id}">删除</button>
-        </div>` : ''}
+        </div>`
+          : ""
+      }
     </div>
-    <div class="history-detail ${isExpanded ? 'open' : ''}">
+    <div class="history-detail ${isExpanded ? "open" : ""}">
       <div class="detail-label">内容</div>
       <div class="detail-content">${escapeHtml(item.content)}</div>
     </div>`;
@@ -690,9 +811,11 @@ function renderShortcutTab(bs: Bootstrap): string {
           <button class="btn-grad btn-sm" data-action="shortcutAdd">添加</button>
         </div>
         <div class="shortcut-list" style="margin-top:8px">
-          ${bs.shortcuts.length > 0
-            ? bs.shortcuts.map(s => renderShortcutItem(s)).join('')
-            : `<div class="empty-state">${icon('inbox', 'empty-icon')} <p>暂无快捷短语</p></div>`}
+          ${
+            bs.shortcuts.length > 0
+              ? bs.shortcuts.map((s) => renderShortcutItem(s)).join("")
+              : `<div class="empty-state">${icon("inbox", "empty-icon")} <p>暂无快捷短语</p></div>`
+          }
         </div>
       </section>`;
 }
@@ -701,17 +824,21 @@ function renderShortcutItem(s: ShortcutItem): string {
   const isEditing = state.editingShortcutId === s.id;
   return `
     <div class="shortcut-item">
-      ${isEditing ? `
+      ${
+        isEditing
+          ? `
         <textarea class="text-area" id="editShortcutText" rows="2">${escapeHtml(state.editingShortcutText)}</textarea>
         <div class="btn-group">
           <button class="btn-grad btn-xs" data-action="shortcutSaveEdit" data-id="${s.id}">保存</button>
           <button class="btn-secondary btn-xs" data-action="shortcutCancelEdit">取消</button>
-        </div>` : `
+        </div>`
+          : `
         <p class="shortcut-text">${escapeHtml(s.content)}</p>
         <div class="item-actions">
           <button class="btn-xs" data-action="shortcutEdit" data-id="${s.id}" data-content="${escapeHtml(s.content)}">编辑</button>
           <button class="btn-xs btn-danger-xs" data-action="shortcutDelete" data-id="${s.id}">删除</button>
-        </div>`}
+        </div>`
+      }
     </div>`;
 }
 
@@ -727,9 +854,11 @@ function renderTemplateTab(bs: Bootstrap): string {
           <button class="btn-grad btn-sm" data-action="templateAdd">添加模板</button>
         </div>
         <div class="template-list" style="margin-top:8px">
-          ${bs.templates.length > 0
-            ? bs.templates.map(t => renderTemplateItem(t)).join('')
-            : `<div class="empty-state">${icon('inbox', 'empty-icon')} <p>暂无模板</p></div>`}
+          ${
+            bs.templates.length > 0
+              ? bs.templates.map((t) => renderTemplateItem(t)).join("")
+              : `<div class="empty-state">${icon("inbox", "empty-icon")} <p>暂无模板</p></div>`
+          }
         </div>
       </section>`;
 }
@@ -738,13 +867,16 @@ function renderTemplateItem(t: TemplateItem): string {
   const isEditing = state.editingTemplateId === t.id;
   return `
     <div class="template-item">
-      ${isEditing ? `
+      ${
+        isEditing
+          ? `
         <input class="text-input" id="editTemplateName" type="text" value="${escapeHtml(state.editingTemplateName)}">
         <textarea class="text-area" id="editTemplateContent" rows="3">${escapeHtml(state.editingTemplateContent)}</textarea>
         <div class="btn-group">
           <button class="btn-grad btn-xs" data-action="templateSaveEdit" data-id="${t.id}">保存</button>
           <button class="btn-secondary btn-xs" data-action="templateCancelEdit">取消</button>
-        </div>` : `
+        </div>`
+          : `
         <div class="template-header">
           <p class="template-name">${escapeHtml(t.name)}</p>
           <div class="item-actions">
@@ -752,7 +884,8 @@ function renderTemplateItem(t: TemplateItem): string {
             <button class="btn-xs btn-danger-xs" data-action="templateDelete" data-id="${t.id}">删除</button>
           </div>
         </div>
-        <p class="template-preview">${escapeHtml(t.content.slice(0, 80))}${t.content.length > 80 ? '...' : ''}</p>`}
+        <p class="template-preview">${escapeHtml(t.content.slice(0, 80))}${t.content.length > 80 ? "..." : ""}</p>`
+      }
     </div>`;
 }
 
@@ -778,9 +911,9 @@ function renderSettingsTab(bs: Bootstrap): string {
           <div class="setting-row">
             <span class="setting-label">主题</span>
             <select class="select-input" id="settingTheme">
-              <option value="dark" ${settings.theme === 'dark' ? 'selected' : ''}>深色</option>
-              <option value="light" ${settings.theme === 'light' ? 'selected' : ''}>浅色</option>
-              <option value="auto" ${settings.theme === 'auto' ? 'selected' : ''}>自动</option>
+              <option value="dark" ${settings.theme === "dark" ? "selected" : ""}>深色</option>
+              <option value="light" ${settings.theme === "light" ? "selected" : ""}>浅色</option>
+              <option value="auto" ${settings.theme === "auto" ? "selected" : ""}>自动</option>
             </select>
           </div>
           <div class="setting-row">
@@ -810,25 +943,25 @@ function renderSettingsTab(bs: Bootstrap): string {
           <div class="setting-row">
             <span class="setting-label">Enter 发送</span>
             <label class="toggle">
-              <input type="checkbox" id="settingEnterToSend" ${settings.enterToSend ? 'checked' : ''}>
+              <input type="checkbox" id="settingEnterToSend" ${settings.enterToSend ? "checked" : ""}>
               <span class="toggle-track"></span>
             </label>
           </div>
           <div class="setting-row">
             <span class="setting-label">显示用户 Prompt</span>
             <label class="toggle">
-              <input type="checkbox" id="settingShowUserPrompt" ${settings.showUserPrompt ? 'checked' : ''}>
+              <input type="checkbox" id="settingShowUserPrompt" ${settings.showUserPrompt ? "checked" : ""}>
               <span class="toggle-track"></span>
             </label>
           </div>
           <div class="setting-row">
             <span class="setting-label">提示音</span>
             <select class="select-input" id="settingSoundAlert">
-              <option value="none" ${settings.soundAlert === 'none' ? 'selected' : ''}>关闭</option>
-              <option value="tada" ${settings.soundAlert === 'tada' ? 'selected' : ''}>Tada</option>
-              <option value="ding" ${settings.soundAlert === 'ding' ? 'selected' : ''}>Ding</option>
-              <option value="pop" ${settings.soundAlert === 'pop' ? 'selected' : ''}>Pop</option>
-              <option value="chime" ${settings.soundAlert === 'chime' ? 'selected' : ''}>Chime</option>
+              <option value="none" ${settings.soundAlert === "none" ? "selected" : ""}>关闭</option>
+              <option value="tada" ${settings.soundAlert === "tada" ? "selected" : ""}>Tada</option>
+              <option value="ding" ${settings.soundAlert === "ding" ? "selected" : ""}>Ding</option>
+              <option value="pop" ${settings.soundAlert === "pop" ? "selected" : ""}>Pop</option>
+              <option value="chime" ${settings.soundAlert === "chime" ? "selected" : ""}>Chime</option>
             </select>
           </div>
         </div>
@@ -855,7 +988,7 @@ function renderSettingsTab(bs: Bootstrap): string {
             <span class="setting-label">Firebase API Key <span class="hint">(通道B: 多账号配额，可选)</span></span>
             <input class="text-input" id="settingFirebaseApiKey" type="password"
               placeholder="AIzaSy..."
-              value="${escapeHtml(settings.firebaseApiKey ?? '')}">
+              value="${escapeHtml(settings.firebaseApiKey ?? "")}">
             <p class="hint" style="margin:0">从 Codeium/Windsurf 抓包获取，或留空仅用本地通道</p>
           </div>
         </div>
@@ -885,17 +1018,17 @@ function renderSettingsTab(bs: Bootstrap): string {
       <section class="card">
         <div class="section-header"><h2>维护</h2></div>
         <div class="maintenance-grid">
-          ${renderMaintenanceBtn('maintenanceCleanMcp', `${icon('broom')} 清理旧MCP配置`, 'cleanMcp')}
+          ${renderMaintenanceBtn("maintenanceCleanMcp", `${icon("broom")} 清理旧MCP配置`, "cleanMcp")}
           <p class="hint">清理MCP配置文件中的旧端口记录</p>
-          ${renderMaintenanceBtn('maintenanceResetSettings', `${icon('reset')} 重置所有设置`, 'resetSettings')}
+          ${renderMaintenanceBtn("maintenanceResetSettings", `${icon("reset")} 重置所有设置`, "resetSettings")}
           <p class="hint">恢复默认设置（清空快捷回复、模板等）</p>
-          ${renderMaintenanceBtn('maintenanceRewriteRules', `${icon('fileText')} 重写规则文件`, 'rewriteRules')}
+          ${renderMaintenanceBtn("maintenanceRewriteRules", `${icon("fileText")} 重写规则文件`, "rewriteRules")}
           <p class="hint">重新写入AI反馈规则到工作区</p>
-          ${renderMaintenanceBtn('maintenanceClearCache', `${icon('database')} 清理插件缓存`, 'clearCache')}
+          ${renderMaintenanceBtn("maintenanceClearCache", `${icon("database")} 清理插件缓存`, "clearCache")}
           <p class="hint">清理历史记录、日志等缓存数据</p>
-          ${renderMaintenanceBtn('maintenanceDiagnose', `${icon('wrench')} 诊断并修复`, 'diagnose', true)}
+          ${renderMaintenanceBtn("maintenanceDiagnose", `${icon("wrench")} 诊断并修复`, "diagnose", true)}
           <p class="hint">检测服务器状态、MCP配置并自动修复</p>
-          ${state.diagnoseResult ? renderDiagnoseCard(state.diagnoseResult) : ''}
+          ${state.diagnoseResult ? renderDiagnoseCard(state.diagnoseResult) : ""}
         </div>
       </section>
 
@@ -908,7 +1041,7 @@ function renderSettingsTab(bs: Bootstrap): string {
           </div>
           <div class="setting-row">
             <span class="setting-label">服务状态</span>
-            <span class="setting-value ${bs.status.running ? 'text-ok' : 'text-warn'}">${bs.status.running ? '正常运行' : '已停止'}</span>
+            <span class="setting-value ${bs.status.running ? "text-ok" : "text-warn"}">${bs.status.running ? "正常运行" : "已停止"}</span>
           </div>
         </div>
         <div class="actions">
@@ -921,29 +1054,41 @@ function renderSettingsTab(bs: Bootstrap): string {
 
 // ---- Update Tab ----
 
-function renderMaintenanceBtn(action: string, label: string, loadingKey: string, isGrad = false): string {
+function renderMaintenanceBtn(
+  action: string,
+  label: string,
+  loadingKey: string,
+  isGrad = false,
+): string {
   const isLoading = state.maintenanceLoadingAction === loadingKey;
-  const cls = isGrad ? 'btn-maintenance btn-grad' : 'btn-maintenance';
-  return `<button class="${cls} ${isLoading ? 'btn-loading' : ''}" data-action="${action}" ${isLoading ? 'disabled' : ''}>${isLoading ? `<span class="btn-spinner"></span> 处理中...` : label}</button>`;
+  const cls = isGrad ? "btn-maintenance btn-grad" : "btn-maintenance";
+  return `<button class="${cls} ${isLoading ? "btn-loading" : ""}" data-action="${action}" ${isLoading ? "disabled" : ""}>${isLoading ? `<span class="btn-spinner"></span> 处理中...` : label}</button>`;
 }
 
-function renderDiagnoseCard(result: { checks: Array<{ name: string; ok: boolean; detail: string }>; repaired?: number }): string {
-  const ok = result.checks.filter(c => c.ok).length;
-  const fail = result.checks.filter(c => !c.ok).length;
+function renderDiagnoseCard(result: {
+  checks: Array<{ name: string; ok: boolean; detail: string }>;
+  repaired?: number;
+}): string {
+  const ok = result.checks.filter((c) => c.ok).length;
+  const fail = result.checks.filter((c) => !c.ok).length;
   return `
     <div class="diagnose-card">
       <div class="diagnose-header">
         <span class="diagnose-title">诊断报告</span>
-        <span class="diagnose-summary">${ok} 通过${fail > 0 ? `, ${fail} 异常` : ''}${result.repaired ? `, ${result.repaired} 已修复` : ''}</span>
+        <span class="diagnose-summary">${ok} 通过${fail > 0 ? `, ${fail} 异常` : ""}${result.repaired ? `, ${result.repaired} 已修复` : ""}</span>
         <button class="btn-xs" data-action="dismissDiagnose">关闭</button>
       </div>
       <div class="diagnose-checks">
-        ${result.checks.map(c => `
-          <div class="diagnose-check ${c.ok ? 'check-ok' : 'check-fail'}">
-            <span class="check-icon ${c.ok ? 'text-ok' : 'text-warn'}">${icon(c.ok ? 'checkCircle' : 'xCircle')}</span>
+        ${result.checks
+          .map(
+            (c) => `
+          <div class="diagnose-check ${c.ok ? "check-ok" : "check-fail"}">
+            <span class="check-icon ${c.ok ? "text-ok" : "text-warn"}">${icon(c.ok ? "checkCircle" : "xCircle")}</span>
             <span class="check-name">${escapeHtml(c.name)}</span>
             <span class="check-detail">${escapeHtml(c.detail)}</span>
-          </div>`).join('')}
+          </div>`,
+          )
+          .join("")}
       </div>
     </div>`;
 }
@@ -960,8 +1105,8 @@ function renderUpdateTab(bs: Bootstrap): string {
           </div>
           <div class="setting-row">
             <span class="setting-label">服务状态</span>
-            <span class="setting-value ${bs.status.running ? 'text-success' : 'text-danger'}">
-              ${bs.status.running ? '正常运行' : '未运行'}
+            <span class="setting-value ${bs.status.running ? "text-success" : "text-danger"}">
+              ${bs.status.running ? "正常运行" : "未运行"}
             </span>
           </div>
         </div>
@@ -979,23 +1124,47 @@ function renderDebugTab(_bs: Bootstrap): string {
   const info = state.debugInfo;
   const loading = state.debugLoading;
 
-  const patchBadge = !info ? '' : info.patchApplied
-    ? `<span class="badge badge-ok">已打补丁</span>`
-    : `<span class="badge badge-warn">未打补丁</span>`;
+  const patchBadge = !info
+    ? ""
+    : info.patchApplied
+      ? `<span class="badge badge-ok">已打补丁</span>`
+      : `<span class="badge badge-warn">未打补丁</span>`;
 
   const logLines = info?.logContent
-    ? info.logContent.split('\n').map(line => {
-        try {
-          const r = JSON.parse(line) as { level: string; timestamp: string; message: string; extra?: Record<string, unknown> };
-          const lvlClass = r.level === 'error' ? 'log-error' : r.level === 'warn' ? 'log-warn' : r.level === 'debug' ? 'log-debug' : 'log-info';
-          const ts = r.timestamp ? r.timestamp.replace('T', ' ').replace(/\.\d+Z$/, '') : '';
-          const extraStr = r.extra && Object.keys(r.extra).length > 0 ? ' ' + JSON.stringify(r.extra) : '';
-          return `<span class="${lvlClass}">[${r.level?.toUpperCase() ?? '?'}] ${ts} ${escapeHtml(r.message)}${escapeHtml(extraStr)}</span>`;
-        } catch {
-          return `<span class="log-debug">${escapeHtml(line)}</span>`;
-        }
-      }).join('\n')
-    : (loading ? '加载中…' : '暂无日志，请点击"刷新"');
+    ? info.logContent
+        .split("\n")
+        .map((line) => {
+          try {
+            const r = JSON.parse(line) as {
+              level: string;
+              timestamp: string;
+              message: string;
+              extra?: Record<string, unknown>;
+            };
+            const lvlClass =
+              r.level === "error"
+                ? "log-error"
+                : r.level === "warn"
+                  ? "log-warn"
+                  : r.level === "debug"
+                    ? "log-debug"
+                    : "log-info";
+            const ts = r.timestamp
+              ? r.timestamp.replace("T", " ").replace(/\.\d+Z$/, "")
+              : "";
+            const extraStr =
+              r.extra && Object.keys(r.extra).length > 0
+                ? " " + JSON.stringify(r.extra)
+                : "";
+            return `<span class="${lvlClass}">[${r.level?.toUpperCase() ?? "?"}] ${ts} ${escapeHtml(r.message)}${escapeHtml(extraStr)}</span>`;
+          } catch {
+            return `<span class="log-debug">${escapeHtml(line)}</span>`;
+          }
+        })
+        .join("\n")
+    : loading
+      ? "加载中…"
+      : '暂无日志，请点击"刷新"';
 
   return `
     <div class="tab-content">
@@ -1003,41 +1172,49 @@ function renderDebugTab(_bs: Bootstrap): string {
         <div class="section-header">
           <h2>调试面板</h2>
           <div class="btn-group">
-            <button class="btn-xs btn-icon ${loading ? 'disabled' : ''}" data-action="debugRefresh" ${loading ? 'disabled' : ''}>${icon('refresh')} 刷新</button>
+            <button class="btn-xs btn-icon ${loading ? "disabled" : ""}" data-action="debugRefresh" ${loading ? "disabled" : ""}>${icon("refresh")} 刷新</button>
           </div>
         </div>
 
         <div class="dbg-section">
           <div class="dbg-row">
-            <span class="dbg-label">${icon('fileText')} 日志文件</span>
+            <span class="dbg-label">${icon("fileText")} 日志文件</span>
             <div class="dbg-value-row">
-              <span class="dbg-path">${info ? escapeHtml(info.logPath) : '—'}</span>
-              ${info ? `<button class="btn-xs" data-action="debugCopyPath" title="复制路径">${icon('copy')} 复制路径</button>` : ''}
+              <span class="dbg-path">${info ? escapeHtml(info.logPath) : "—"}</span>
+              ${info ? `<button class="btn-xs" data-action="debugCopyPath" title="复制路径">${icon("copy")} 复制路径</button>` : ""}
             </div>
           </div>
         </div>
 
         <div class="dbg-section">
           <div class="dbg-row">
-            <span class="dbg-label">${icon('wrench')} Windsurf 补丁状态</span>
+            <span class="dbg-label">${icon("wrench")} Windsurf 补丁状态</span>
             <div class="dbg-value-row">
               ${patchBadge}
-              ${info?.patchError ? `<span class="dbg-err">${escapeHtml(info.patchError)}</span>` : ''}
+              ${info?.patchError ? `<span class="dbg-err">${escapeHtml(info.patchError)}</span>` : ""}
             </div>
           </div>
-          ${info?.patchExtensionPath ? `
+          ${
+            info?.patchExtensionPath
+              ? `
           <div class="dbg-row">
             <span class="dbg-label">extension.js 路径</span>
             <span class="dbg-path">${escapeHtml(info.patchExtensionPath)}</span>
-          </div>` : ''}
-          ${!info?.patchApplied && !loading ? `
-          <p class="hint">补丁未应用时，切换账号会失败并显示"版本不匹配"。请点击账号页的"切换"按钮，插件会自动尝试打补丁。</p>` : ''}
+          </div>`
+              : ""
+          }
+          ${
+            !info?.patchApplied && !loading
+              ? `
+          <p class="hint">补丁未应用时，切换账号会失败并显示"版本不匹配"。请点击账号页的"切换"按钮，插件会自动尝试打补丁。</p>`
+              : ""
+          }
         </div>
 
         <div class="dbg-section">
           <div class="dbg-row-header">
-            <span class="dbg-label">${icon('fileText')} 最近 200 条日志</span>
-            ${info?.logContent ? `<button class="btn-xs" data-action="debugCopyLogs">${icon('copy')} 复制给 AI</button>` : ''}
+            <span class="dbg-label">${icon("fileText")} 最近 200 条日志</span>
+            ${info?.logContent ? `<button class="btn-xs" data-action="debugCopyLogs">${icon("copy")} 复制给 AI</button>` : ""}
           </div>
           <pre class="dbg-log-area">${logLines}</pre>
         </div>
@@ -1049,14 +1226,14 @@ function renderDebugTab(_bs: Bootstrap): string {
 
 function bindEvents(): void {
   // Tab navigation
-  document.querySelectorAll<HTMLButtonElement>('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+  document.querySelectorAll<HTMLButtonElement>(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
       const tab = btn.dataset.tab as TabId | undefined;
       if (tab) {
         state.activeTab = tab;
-        if (tab === 'debug' && !state.debugInfo && !state.debugLoading) {
+        if (tab === "debug" && !state.debugInfo && !state.debugLoading) {
           state.debugLoading = true;
-          vscode.postMessage({ type: 'getDebugInfo' });
+          vscode.postMessage({ type: "getDebugInfo" });
         }
         render();
       }
@@ -1064,19 +1241,26 @@ function bindEvents(): void {
   });
 
   // History search
-  document.querySelector<HTMLInputElement>('[data-action="historySearch"]')
-    ?.addEventListener('input', e => {
+  document
+    .querySelector<HTMLInputElement>('[data-action="historySearch"]')
+    ?.addEventListener("input", (e) => {
       state.historySearch = (e.target as HTMLInputElement).value;
       render();
     });
 
   // History item expand
-  document.querySelectorAll<HTMLElement>('.history-item').forEach(item => {
-    item.addEventListener('click', e => {
-      if ((e.target as HTMLElement).closest('.history-menu-trigger, .history-menu')) return;
+  document.querySelectorAll<HTMLElement>(".history-item").forEach((item) => {
+    item.addEventListener("click", (e) => {
+      if (
+        (e.target as HTMLElement).closest(
+          ".history-menu-trigger, .history-menu",
+        )
+      )
+        return;
       const id = item.dataset.historyId;
       if (id) {
-        state.expandedHistoryId = state.expandedHistoryId === id ? undefined : id;
+        state.expandedHistoryId =
+          state.expandedHistoryId === id ? undefined : id;
         state.historyMenuId = undefined;
         render();
       }
@@ -1084,28 +1268,36 @@ function bindEvents(): void {
   });
 
   // History menu trigger
-  document.querySelectorAll<HTMLElement>('.history-menu-trigger').forEach(t => {
-    t.addEventListener('click', e => {
-      e.stopPropagation();
-      const id = t.dataset.menuId;
-      if (id) { state.historyMenuId = state.historyMenuId === id ? undefined : id; render(); }
+  document
+    .querySelectorAll<HTMLElement>(".history-menu-trigger")
+    .forEach((t) => {
+      t.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = t.dataset.menuId;
+        if (id) {
+          state.historyMenuId = state.historyMenuId === id ? undefined : id;
+          render();
+        }
+      });
     });
-  });
 
   // Slider live preview
-  document.querySelectorAll<HTMLInputElement>('.slider').forEach(slider => {
-    slider.addEventListener('input', () => {
+  document.querySelectorAll<HTMLInputElement>(".slider").forEach((slider) => {
+    slider.addEventListener("input", () => {
       const valEl = slider.nextElementSibling as HTMLElement | null;
       if (valEl) {
-        valEl.textContent = slider.id === 'settingFontSize' ? `${slider.value}px` : `${slider.value}%`;
+        valEl.textContent =
+          slider.id === "settingFontSize"
+            ? `${slider.value}px`
+            : `${slider.value}%`;
       }
     });
   });
 
   // All data-action buttons
-  document.querySelectorAll<HTMLElement>('[data-action]').forEach(el => {
-    if (el.tagName === 'INPUT' || el.tagName === 'SELECT') return;
-    el.addEventListener('click', e => {
+  document.querySelectorAll<HTMLElement>("[data-action]").forEach((el) => {
+    if (el.tagName === "INPUT" || el.tagName === "SELECT") return;
+    el.addEventListener("click", (e) => {
       e.stopPropagation();
       handleAction(el);
     });
@@ -1118,98 +1310,131 @@ function handleAction(el: HTMLElement): void {
 
   switch (action) {
     // General
-    case 'refresh':
-      vscode.postMessage({ type: 'refresh' });
+    case "refresh":
+      vscode.postMessage({ type: "refresh" });
       break;
-    case 'testFeedback':
-      vscode.postMessage({ type: 'testFeedback' });
+    case "testFeedback":
+      vscode.postMessage({ type: "testFeedback" });
       break;
 
     // Session
-    case 'sessionContinue':
-      vscode.postMessage({ type: 'sessionContinue' });
+    case "sessionContinue":
+      vscode.postMessage({ type: "sessionContinue" });
       break;
-    case 'sessionEnd':
-      vscode.postMessage({ type: 'sessionEnd' });
+    case "sessionEnd":
+      vscode.postMessage({ type: "sessionEnd" });
       break;
 
     // History
-    case 'clearHistory':
-      if (confirm('确定要清空所有历史记录吗？')) {
-        vscode.postMessage({ type: 'clearHistory' });
+    case "clearHistory":
+      if (confirm("确定要清空所有历史记录吗？")) {
+        vscode.postMessage({ type: "clearHistory" });
       }
       break;
-    case 'deleteHistory':
-      if (id) vscode.postMessage({ type: 'deleteHistory', value: id });
+    case "deleteHistory":
+      if (id) vscode.postMessage({ type: "deleteHistory", value: id });
       break;
 
     // Account
-    case 'toggleAddAccount':
+    case "toggleAddAccount":
       state.showAddAccount = !state.showAddAccount;
       state.showImportAccount = false;
       render();
       break;
-    case 'toggleImportAccount':
+    case "toggleImportAccount":
       state.showImportAccount = !state.showImportAccount;
       state.showAddAccount = false;
       render();
       break;
-    case 'accountAdd': {
-      const line = (document.getElementById('addAccountLine') as HTMLInputElement)?.value.trim() ?? '';
-      const spaceIdx = line.indexOf(' ');
+    case "accountAdd": {
+      const line =
+        (
+          document.getElementById("addAccountLine") as HTMLInputElement
+        )?.value.trim() ?? "";
+      const spaceIdx = line.indexOf(" ");
       if (spaceIdx > 0) {
         const email = line.slice(0, spaceIdx).trim();
         const password = line.slice(spaceIdx + 1).trim();
         if (email && password) {
-          vscode.postMessage({ type: 'accountAdd', payload: { email, password } });
-          state.addEmail = '';
-          state.addPassword = '';
+          vscode.postMessage({
+            type: "accountAdd",
+            payload: { email, password },
+          });
+          state.addEmail = "";
+          state.addPassword = "";
           state.showAddAccount = false;
         }
       }
       break;
     }
-    case 'accountImport': {
-      const text = (document.getElementById('importText') as HTMLTextAreaElement)?.value ?? '';
+    case "accountImport": {
+      const text =
+        (document.getElementById("importText") as HTMLTextAreaElement)?.value ??
+        "";
       if (text.trim()) {
-        vscode.postMessage({ type: 'accountImport', value: text });
-        state.importText = '';
+        vscode.postMessage({ type: "accountImport", value: text });
+        state.importText = "";
         state.showImportAccount = false;
       }
       break;
     }
-    case 'accountSwitch':
+    case "accountSwitch":
       if (id) {
         state.switchLoadingId = id;
         render();
-        vscode.postMessage({ type: 'accountSwitch', value: id });
+        vscode.postMessage({ type: "accountSwitch", value: id });
       }
       break;
-    case 'accountDelete':
-      if (id && confirm('确定要删除该账号吗？')) {
-        vscode.postMessage({ type: 'accountDelete', value: id });
+    case "accountDelete":
+      if (id && confirm("确定要删除该账号吗？")) {
+        vscode.postMessage({ type: "accountDelete", value: id });
       }
       break;
-    case 'accountClear':
-      if (confirm('确定要清空所有账号吗？此操作不可撤销。')) {
-        vscode.postMessage({ type: 'accountClear' });
+    case "accountClear":
+      if (confirm("确定要清空所有账号吗？此操作不可撤销。")) {
+        vscode.postMessage({ type: "accountClear" });
       }
       break;
-    case 'autoSwitchSave': {
-      const enabled = (document.getElementById('autoSwitchEnabled') as HTMLInputElement)?.checked ?? false;
-      const switchOnDaily = (document.getElementById('autoSwitchOnDaily') as HTMLInputElement)?.checked ?? true;
-      const switchOnWeekly = (document.getElementById('autoSwitchOnWeekly') as HTMLInputElement)?.checked ?? true;
-      const threshold = parseInt((document.getElementById('autoSwitchThreshold') as HTMLInputElement)?.value ?? '5', 10);
-      const creditWarning = parseInt((document.getElementById('autoSwitchCreditWarning') as HTMLInputElement)?.value ?? '3', 10);
-      vscode.postMessage({ type: 'autoSwitchUpdate', payload: { enabled, switchOnDaily, switchOnWeekly, threshold, creditWarning } });
-      showToast('自动切换设置已保存');
+    case "autoSwitchSave": {
+      const enabled =
+        (document.getElementById("autoSwitchEnabled") as HTMLInputElement)
+          ?.checked ?? false;
+      const switchOnDaily =
+        (document.getElementById("autoSwitchOnDaily") as HTMLInputElement)
+          ?.checked ?? true;
+      const switchOnWeekly =
+        (document.getElementById("autoSwitchOnWeekly") as HTMLInputElement)
+          ?.checked ?? true;
+      const threshold = parseInt(
+        (document.getElementById("autoSwitchThreshold") as HTMLInputElement)
+          ?.value ?? "5",
+        10,
+      );
+      const creditWarning = parseInt(
+        (document.getElementById("autoSwitchCreditWarning") as HTMLInputElement)
+          ?.value ?? "3",
+        10,
+      );
+      vscode.postMessage({
+        type: "autoSwitchUpdate",
+        payload: {
+          enabled,
+          switchOnDaily,
+          switchOnWeekly,
+          threshold,
+          creditWarning,
+        },
+      });
+      showToast("自动切换设置已保存");
       break;
     }
-    case 'resetMachineId':
-      vscode.postMessage({ type: 'resetMachineId' });
+    case "resetMachineId":
+      vscode.postMessage({ type: "resetMachineId" });
       break;
-    case 'quotaEditLimits': {
-      const account = window.__AI_ECHO_BOOTSTRAP__.accounts.find(a => a.id === id);
+    case "quotaEditLimits": {
+      const account = window.__AI_ECHO_BOOTSTRAP__.accounts.find(
+        (a) => a.id === id,
+      );
       if (account) {
         state.editingQuotaAccountId = id;
         state.quotaDailyLimit = account.quota.dailyLimit;
@@ -1218,175 +1443,250 @@ function handleAction(el: HTMLElement): void {
       }
       break;
     }
-    case 'quotaSaveLimits': {
-      const dailyLimit = parseInt((document.getElementById('quotaDailyLimit') as HTMLInputElement)?.value ?? '0', 10);
-      const weeklyLimit = parseInt((document.getElementById('quotaWeeklyLimit') as HTMLInputElement)?.value ?? '0', 10);
+    case "quotaSaveLimits": {
+      const dailyLimit = parseInt(
+        (document.getElementById("quotaDailyLimit") as HTMLInputElement)
+          ?.value ?? "0",
+        10,
+      );
+      const weeklyLimit = parseInt(
+        (document.getElementById("quotaWeeklyLimit") as HTMLInputElement)
+          ?.value ?? "0",
+        10,
+      );
       if (id) {
-        vscode.postMessage({ type: 'quotaSetLimits', payload: { id, dailyLimit, weeklyLimit } });
+        vscode.postMessage({
+          type: "quotaSetLimits",
+          payload: { id, dailyLimit, weeklyLimit },
+        });
         state.editingQuotaAccountId = undefined;
-        showToast('配额限额已保存');
+        showToast("配额限额已保存");
       }
       break;
     }
-    case 'quotaCancelEdit':
+    case "quotaCancelEdit":
       state.editingQuotaAccountId = undefined;
       render();
       break;
 
     // Shortcuts
-    case 'shortcutAdd': {
-      const content = (document.getElementById('newShortcutText') as HTMLTextAreaElement)?.value.trim() ?? '';
+    case "shortcutAdd": {
+      const content =
+        (
+          document.getElementById("newShortcutText") as HTMLTextAreaElement
+        )?.value.trim() ?? "";
       if (content) {
-        vscode.postMessage({ type: 'shortcutAdd', value: content });
-        state.newShortcutText = '';
+        vscode.postMessage({ type: "shortcutAdd", value: content });
+        state.newShortcutText = "";
       }
       break;
     }
-    case 'shortcutEdit':
+    case "shortcutEdit":
       state.editingShortcutId = id;
-      state.editingShortcutText = el.dataset.content ?? '';
+      state.editingShortcutText = el.dataset.content ?? "";
       render();
       break;
-    case 'shortcutSaveEdit': {
-      const content = (document.getElementById('editShortcutText') as HTMLTextAreaElement)?.value.trim() ?? '';
+    case "shortcutSaveEdit": {
+      const content =
+        (
+          document.getElementById("editShortcutText") as HTMLTextAreaElement
+        )?.value.trim() ?? "";
       if (id && content) {
-        vscode.postMessage({ type: 'shortcutUpdate', payload: { id, content } });
+        vscode.postMessage({
+          type: "shortcutUpdate",
+          payload: { id, content },
+        });
         state.editingShortcutId = undefined;
       }
       break;
     }
-    case 'shortcutCancelEdit':
+    case "shortcutCancelEdit":
       state.editingShortcutId = undefined;
       render();
       break;
-    case 'shortcutDelete':
-      if (id) vscode.postMessage({ type: 'shortcutDelete', value: id });
+    case "shortcutDelete":
+      if (id) vscode.postMessage({ type: "shortcutDelete", value: id });
       break;
 
     // Templates
-    case 'templateAdd': {
-      const name = (document.getElementById('newTemplateName') as HTMLInputElement)?.value.trim() ?? '';
-      const content = (document.getElementById('newTemplateContent') as HTMLTextAreaElement)?.value.trim() ?? '';
+    case "templateAdd": {
+      const name =
+        (
+          document.getElementById("newTemplateName") as HTMLInputElement
+        )?.value.trim() ?? "";
+      const content =
+        (
+          document.getElementById("newTemplateContent") as HTMLTextAreaElement
+        )?.value.trim() ?? "";
       if (name && content) {
-        vscode.postMessage({ type: 'templateAdd', payload: { name, content } });
-        state.newTemplateName = '';
-        state.newTemplateContent = '';
+        vscode.postMessage({ type: "templateAdd", payload: { name, content } });
+        state.newTemplateName = "";
+        state.newTemplateContent = "";
       }
       break;
     }
-    case 'templateEdit':
+    case "templateEdit":
       state.editingTemplateId = id;
-      state.editingTemplateName = el.dataset.name ?? '';
-      state.editingTemplateContent = el.dataset.content ?? '';
+      state.editingTemplateName = el.dataset.name ?? "";
+      state.editingTemplateContent = el.dataset.content ?? "";
       render();
       break;
-    case 'templateSaveEdit': {
-      const name = (document.getElementById('editTemplateName') as HTMLInputElement)?.value.trim() ?? '';
-      const content = (document.getElementById('editTemplateContent') as HTMLTextAreaElement)?.value.trim() ?? '';
+    case "templateSaveEdit": {
+      const name =
+        (
+          document.getElementById("editTemplateName") as HTMLInputElement
+        )?.value.trim() ?? "";
+      const content =
+        (
+          document.getElementById("editTemplateContent") as HTMLTextAreaElement
+        )?.value.trim() ?? "";
       if (id && name && content) {
-        vscode.postMessage({ type: 'templateUpdate', payload: { id, name, content } });
+        vscode.postMessage({
+          type: "templateUpdate",
+          payload: { id, name, content },
+        });
         state.editingTemplateId = undefined;
       }
       break;
     }
-    case 'templateCancelEdit':
+    case "templateCancelEdit":
       state.editingTemplateId = undefined;
       render();
       break;
-    case 'templateDelete':
-      if (id) vscode.postMessage({ type: 'templateDelete', value: id });
+    case "templateDelete":
+      if (id) vscode.postMessage({ type: "templateDelete", value: id });
       break;
 
     // Settings
-    case 'settingsSave': {
-      const theme = (document.getElementById('settingTheme') as HTMLSelectElement)?.value ?? 'dark';
-      const fontSize = parseInt((document.getElementById('settingFontSize') as HTMLInputElement)?.value ?? '14', 10);
-      const cardOpacity = parseInt((document.getElementById('settingCardOpacity') as HTMLInputElement)?.value ?? '80', 10);
-      const breathingLightColor = (document.getElementById('settingBreathColor') as HTMLInputElement)?.value ?? '#00ff88';
-      const enterToSend = (document.getElementById('settingEnterToSend') as HTMLInputElement)?.checked ?? false;
-      const showUserPrompt = (document.getElementById('settingShowUserPrompt') as HTMLInputElement)?.checked ?? false;
-      const soundAlert = (document.getElementById('settingSoundAlert') as HTMLSelectElement)?.value ?? 'none';
-      const historyLimit = parseInt((document.getElementById('settingHistoryLimit') as HTMLInputElement)?.value ?? '30', 10);
-      const firebaseApiKey = (document.getElementById('settingFirebaseApiKey') as HTMLInputElement)?.value?.trim() ?? '';
-      vscode.postMessage({ type: 'settingsUpdate', payload: { theme, fontSize, cardOpacity, breathingLightColor, enterToSend, showUserPrompt, soundAlert, historyLimit, firebaseApiKey } });
-      showToast('设置已保存');
+    case "settingsSave": {
+      const theme =
+        (document.getElementById("settingTheme") as HTMLSelectElement)?.value ??
+        "dark";
+      const fontSize = parseInt(
+        (document.getElementById("settingFontSize") as HTMLInputElement)
+          ?.value ?? "14",
+        10,
+      );
+      const cardOpacity = parseInt(
+        (document.getElementById("settingCardOpacity") as HTMLInputElement)
+          ?.value ?? "80",
+        10,
+      );
+      const breathingLightColor =
+        (document.getElementById("settingBreathColor") as HTMLInputElement)
+          ?.value ?? "#00ff88";
+      const enterToSend =
+        (document.getElementById("settingEnterToSend") as HTMLInputElement)
+          ?.checked ?? false;
+      const showUserPrompt =
+        (document.getElementById("settingShowUserPrompt") as HTMLInputElement)
+          ?.checked ?? false;
+      const soundAlert =
+        (document.getElementById("settingSoundAlert") as HTMLSelectElement)
+          ?.value ?? "none";
+      const historyLimit = parseInt(
+        (document.getElementById("settingHistoryLimit") as HTMLInputElement)
+          ?.value ?? "30",
+        10,
+      );
+      const firebaseApiKey =
+        (
+          document.getElementById("settingFirebaseApiKey") as HTMLInputElement
+        )?.value?.trim() ?? "";
+      vscode.postMessage({
+        type: "settingsUpdate",
+        payload: {
+          theme,
+          fontSize,
+          cardOpacity,
+          breathingLightColor,
+          enterToSend,
+          showUserPrompt,
+          soundAlert,
+          historyLimit,
+          firebaseApiKey,
+        },
+      });
+      showToast("设置已保存");
       break;
     }
-    case 'settingsReset':
-      if (confirm('确定要恢复默认设置吗？')) {
-        vscode.postMessage({ type: 'settingsReset' });
+    case "settingsReset":
+      if (confirm("确定要恢复默认设置吗？")) {
+        vscode.postMessage({ type: "settingsReset" });
       }
       break;
 
     // Quota fetch
-    case 'fetchAllQuotas':
+    case "fetchAllQuotas":
       state.quotaFetching = true;
       render();
-      vscode.postMessage({ type: 'fetchAllQuotas' });
+      vscode.postMessage({ type: "fetchAllQuotas" });
       break;
-    case 'fetchQuota':
+    case "fetchQuota":
       if (id) {
         state.quotaFetchingId = id;
         render();
-        vscode.postMessage({ type: 'fetchQuota', value: id });
+        vscode.postMessage({ type: "fetchQuota", value: id });
       }
       break;
 
     // Maintenance
-    case 'maintenanceClearHistory':
-      if (confirm('确定要清空历史记录吗？')) {
-        vscode.postMessage({ type: 'maintenanceClearHistory' });
+    case "maintenanceClearHistory":
+      if (confirm("确定要清空历史记录吗？")) {
+        vscode.postMessage({ type: "maintenanceClearHistory" });
       }
       break;
-    case 'maintenanceResetStats':
-      vscode.postMessage({ type: 'maintenanceResetStats' });
-      showToast('统计已重置', 'success');
+    case "maintenanceResetStats":
+      vscode.postMessage({ type: "maintenanceResetStats" });
+      showToast("统计已重置", "success");
       break;
-    case 'maintenanceCleanMcp':
-      vscode.postMessage({ type: 'maintenanceCleanMcp' });
+    case "maintenanceCleanMcp":
+      vscode.postMessage({ type: "maintenanceCleanMcp" });
       break;
-    case 'maintenanceResetSettings':
-      if (confirm('确定要重置所有设置吗？快捷短语和模板也会被清空。')) {
-        vscode.postMessage({ type: 'maintenanceResetSettings' });
+    case "maintenanceResetSettings":
+      if (confirm("确定要重置所有设置吗？快捷短语和模板也会被清空。")) {
+        vscode.postMessage({ type: "maintenanceResetSettings" });
       }
       break;
-    case 'maintenanceRewriteRules':
-      vscode.postMessage({ type: 'maintenanceRewriteRules' });
+    case "maintenanceRewriteRules":
+      vscode.postMessage({ type: "maintenanceRewriteRules" });
       break;
-    case 'maintenanceClearCache':
-      if (confirm('确定要清理插件缓存吗？历史记录和统计数据将被清除。')) {
-        vscode.postMessage({ type: 'maintenanceClearCache' });
+    case "maintenanceClearCache":
+      if (confirm("确定要清理插件缓存吗？历史记录和统计数据将被清除。")) {
+        vscode.postMessage({ type: "maintenanceClearCache" });
       }
       break;
-    case 'maintenanceDiagnose':
+    case "maintenanceDiagnose":
       state.diagnoseResult = undefined;
-      vscode.postMessage({ type: 'maintenanceDiagnose' });
+      vscode.postMessage({ type: "maintenanceDiagnose" });
       break;
-    case 'dismissDiagnose':
+    case "dismissDiagnose":
       state.diagnoseResult = undefined;
       render();
       break;
 
     // Debug
-    case 'debugRefresh':
+    case "debugRefresh":
       state.debugLoading = true;
       state.debugInfo = undefined;
       render();
-      vscode.postMessage({ type: 'getDebugInfo' });
+      vscode.postMessage({ type: "getDebugInfo" });
       break;
-    case 'debugCopyPath':
+    case "debugCopyPath":
       if (state.debugInfo?.logPath) {
         void navigator.clipboard.writeText(state.debugInfo.logPath).then(() => {
-          showToast('路径已复制', 'success');
+          showToast("路径已复制", "success");
         });
       }
       break;
-    case 'debugCopyLogs': {
+    case "debugCopyLogs": {
       if (state.debugInfo) {
-        const header = `=== AI Echo Debug Report ===\n日志路径: ${state.debugInfo.logPath}\nWindsurf 补丁: ${state.debugInfo.patchApplied ? '已应用' : '未应用'}${state.debugInfo.patchExtensionPath ? `\nextension.js: ${state.debugInfo.patchExtensionPath}` : ''}${state.debugInfo.patchError ? `\n补丁错误: ${state.debugInfo.patchError}` : ''}\n时间: ${new Date().toISOString()}\n\n=== 最近日志 ===\n`;
-        void navigator.clipboard.writeText(header + state.debugInfo.logContent).then(() => {
-          showToast('日志已复制，可直接粘贴给 AI', 'success', 4000);
-        });
+        const header = `=== AI Echo Debug Report ===\n日志路径: ${state.debugInfo.logPath}\nWindsurf 补丁: ${state.debugInfo.patchApplied ? "已应用" : "未应用"}${state.debugInfo.patchExtensionPath ? `\nextension.js: ${state.debugInfo.patchExtensionPath}` : ""}${state.debugInfo.patchError ? `\n补丁错误: ${state.debugInfo.patchError}` : ""}\n时间: ${new Date().toISOString()}\n\n=== 最近日志 ===\n`;
+        void navigator.clipboard
+          .writeText(header + state.debugInfo.logContent)
+          .then(() => {
+            showToast("日志已复制，可直接粘贴给 AI", "success", 4000);
+          });
       }
       break;
     }
@@ -1397,48 +1697,60 @@ function handleAction(el: HTMLElement): void {
 
 let _toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-function showToast(msg: string, type: 'info' | 'success' | 'error' = 'info', duration?: number): void {
-  if (_toastTimer !== undefined) { clearTimeout(_toastTimer); _toastTimer = undefined; }
+function showToast(
+  msg: string,
+  type: "info" | "success" | "error" = "info",
+  duration?: number,
+): void {
+  if (_toastTimer !== undefined) {
+    clearTimeout(_toastTimer);
+    _toastTimer = undefined;
+  }
   state.notification = msg;
   state.notificationType = type;
   render();
-  const dur = duration ?? (type === 'error' ? 5000 : msg.length > 30 ? 4000 : 2500);
-  _toastTimer = setTimeout(() => { _toastTimer = undefined; state.notification = undefined; render(); }, dur);
+  const dur =
+    duration ?? (type === "error" ? 5000 : msg.length > 30 ? 4000 : 2500);
+  _toastTimer = setTimeout(() => {
+    _toastTimer = undefined;
+    state.notification = undefined;
+    render();
+  }, dur);
 }
 
 function escapeHtml(value: string): string {
   return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 // ---- Message Handler ----
 
-window.addEventListener('message', event => {
+window.addEventListener("message", (event) => {
   const msg = event.data as { type: string; value: unknown };
 
-  if (msg.type === 'bootstrap') {
+  if (msg.type === "bootstrap") {
     window.__AI_ECHO_BOOTSTRAP__ = msg.value as Bootstrap;
     render();
     return;
   }
 
-  if (msg.type === 'status') {
+  if (msg.type === "status") {
     window.__AI_ECHO_BOOTSTRAP__.status = msg.value as BridgeStatus;
     render();
     return;
   }
 
-  if (msg.type === 'waiting') {
+  if (msg.type === "waiting") {
     state.isWaiting = msg.value as boolean;
     render();
     return;
   }
 
-  if (msg.type === 'switchLoading') {
+  if (msg.type === "switchLoading") {
     if (!(msg.value as boolean)) {
       state.switchLoadingId = undefined;
     }
@@ -1446,89 +1758,127 @@ window.addEventListener('message', event => {
     return;
   }
 
-  if (msg.type === 'switchResult') {
+  if (msg.type === "switchResult") {
     state.switchLoadingId = undefined;
-    const r = msg.value as { success: boolean; needsRestart?: boolean; message: string };
-    showToast(r.message, r.success ? 'success' : r.needsRestart ? 'info' : 'error');
+    const r = msg.value as {
+      success: boolean;
+      needsRestart?: boolean;
+      message: string;
+    };
+    showToast(
+      r.message,
+      r.success ? "success" : r.needsRestart ? "info" : "error",
+    );
     return;
   }
 
-  if (msg.type === 'opResult') {
+  if (msg.type === "opResult") {
     const r = msg.value as { message: string };
-    showToast(r.message, 'success');
+    showToast(r.message, "success");
     return;
   }
 
-  if (msg.type === 'importResult') {
+  if (msg.type === "importResult") {
     const r = msg.value as { added: number; skipped: number };
-    showToast(`导入完成：${r.added} 个成功，${r.skipped} 个跳过`, 'success');
+    showToast(`导入完成：${r.added} 个成功，${r.skipped} 个跳过`, "success");
     return;
   }
 
-  if (msg.type === 'machineIdResult') {
+  if (msg.type === "machineIdResult") {
     const r = msg.value as { success: boolean; message: string };
-    showToast(r.message, r.success ? 'success' : 'error');
+    showToast(r.message, r.success ? "success" : "error");
     return;
   }
 
-  if (msg.type === 'quotaFetchResult') {
+  if (msg.type === "quotaFetchResult") {
     state.quotaFetching = false;
     state.quotaFetchingId = undefined;
     const r = msg.value as { success: boolean; error?: string };
-    showToast(r.success ? '配额已更新' : `配额获取失败: ${r.error ?? '未知错误'}`, r.success ? 'success' : 'error');
+    showToast(
+      r.success ? "配额已更新" : `配额获取失败: ${r.error ?? "未知错误"}`,
+      r.success ? "success" : "error",
+    );
     return;
   }
 
-  if (msg.type === 'quotaFetchAllResult') {
+  if (msg.type === "quotaFetchAllResult") {
     state.quotaFetching = false;
-    const r = msg.value as { success: number; failed: number; errors: string[] };
-    showToast(`配额刷新完成: ${r.success} 成功, ${r.failed} 失败`, r.failed > 0 ? 'error' : 'success');
+    const r = msg.value as {
+      success: number;
+      failed: number;
+      errors: string[];
+    };
+    showToast(
+      `配额刷新完成: ${r.success} 成功, ${r.failed} 失败`,
+      r.failed > 0 ? "error" : "success",
+    );
     return;
   }
 
-  if (msg.type === 'maintenanceLoading') {
+  if (msg.type === "maintenanceLoading") {
     state.maintenanceLoadingAction = msg.value as string;
     render();
     return;
   }
 
-  if (msg.type === 'maintenanceResult') {
+  if (msg.type === "maintenanceResult") {
     state.maintenanceLoadingAction = undefined;
-    const r = msg.value as { action?: string; cleaned?: number; details?: string[]; written?: string[]; failed?: string[] };
+    const r = msg.value as {
+      action?: string;
+      cleaned?: number;
+      details?: string[];
+      written?: string[];
+      failed?: string[];
+    };
     if (r.cleaned !== undefined) {
-      showToast(`清理完成: ${r.cleaned} 条旧配置已删除`, 'success');
+      showToast(`清理完成: ${r.cleaned} 条旧配置已删除`, "success");
     } else if (r.written) {
-      showToast(`规则写入完成: ${r.written.length} 个文件`, r.failed && r.failed.length > 0 ? 'error' : 'success');
-    } else if (r.action === 'resetSettings') {
-      showToast('所有设置已恢复默认', 'success');
-    } else if (r.action === 'clearCache') {
-      showToast('插件缓存已清理', 'success');
+      showToast(
+        `规则写入完成: ${r.written.length} 个文件`,
+        r.failed && r.failed.length > 0 ? "error" : "success",
+      );
+    } else if (r.action === "resetSettings") {
+      showToast("所有设置已恢复默认", "success");
+    } else if (r.action === "clearCache") {
+      showToast("插件缓存已清理", "success");
     }
     return;
   }
 
-  if (msg.type === 'maintenanceError') {
+  if (msg.type === "maintenanceError") {
     state.maintenanceLoadingAction = undefined;
     const r = msg.value as { action: string; error: string };
-    showToast(`操作失败: ${r.error}`, 'error', 5000);
+    showToast(`操作失败: ${r.error}`, "error", 5000);
     return;
   }
 
-  if (msg.type === 'debugInfo') {
+  if (msg.type === "debugInfo") {
     state.debugLoading = false;
-    state.debugInfo = msg.value as { logPath: string; logContent: string; patchApplied: boolean; patchExtensionPath: string | null; patchError: string | null };
+    state.debugInfo = msg.value as {
+      logPath: string;
+      logContent: string;
+      patchApplied: boolean;
+      patchExtensionPath: string | null;
+      patchError: string | null;
+    };
     render();
     return;
   }
 
-  if (msg.type === 'diagnoseResult') {
+  if (msg.type === "diagnoseResult") {
     state.maintenanceLoadingAction = undefined;
-    const r = msg.value as { checks: Array<{ name: string; ok: boolean; detail: string }>; repaired?: number };
+    const r = msg.value as {
+      checks: Array<{ name: string; ok: boolean; detail: string }>;
+      repaired?: number;
+    };
     state.diagnoseResult = r;
-    const ok = r.checks.filter(c => c.ok).length;
-    const fail = r.checks.filter(c => !c.ok).length;
-    const repairText = r.repaired ? `, ${r.repaired} 项已修复` : '';
-    showToast(`诊断完成: ${ok} 通过, ${fail} 异常${repairText}`, fail > 0 ? 'error' : 'success');
+    const ok = r.checks.filter((c) => c.ok).length;
+    const fail = r.checks.filter((c) => !c.ok).length;
+    const repairText = r.repaired ? `, ${r.repaired} 项已修复` : "";
+    showToast(
+      `诊断完成: ${ok} 通过, ${fail} 异常${repairText}`,
+      fail > 0 ? "error" : "success",
+    );
     return;
   }
 });

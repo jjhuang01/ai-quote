@@ -123,6 +123,10 @@ export interface WindsurfAccount {
   id: string;
   email: string;
   password: string;
+  // Codeium API Key（通过 RegisterUser RPC 获取，用于无感切号注入）
+  apiKey?: string;
+  // Codeium API Server URL（默认 https://server.codeium.com）
+  apiServerUrl?: string;
   plan: 'Trial' | 'Pro' | 'Enterprise' | 'Free' | 'Max' | 'Teams';
   // 旧字段 (向后兼容)
   creditsUsed: number;

@@ -7,7 +7,7 @@ import { buildWebviewHtml } from './view-html';
 import { WindsurfPatchService } from '../adapters/windsurf-patch';
 
 export class EchoSidebarProvider implements vscode.WebviewViewProvider {
-  public static readonly viewId = 'infiniteDialogView';
+  public static readonly viewId = 'quoteView';
   private view?: vscode.WebviewView;
 
   public constructor(
@@ -142,21 +142,11 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
         return true;
       case 'rotateName': {
         const { rotateToolName } = await import('../utils/tool-name');
-        const { detectCurrentIde, writeMcpConfig } = await import('../adapters/mcp-config');
-        const { configureGlobalRules } = await import('../adapters/rules');
         const storagePath = this.dataManager.globalStoragePath;
         const newName = await rotateToolName(storagePath);
-        const ide = detectCurrentIde();
-        const sseUrl = this.bridge.getSseUrl();
-        await writeMcpConfig(ide, newName, sseUrl);
         this.bridge.updateToolName(newName);
-        const ruleResults = await configureGlobalRules(newName);
-        this.bridge.setConfiguredPaths([
-          ide.configPath,
-          ...ruleResults.filter((r) => r.written).map((r) => r.path),
-        ]);
         this.postBootstrap();
-        void this.view?.webview.postMessage({ type: 'opResult', value: { message: `MCP 工具名已旋转为: ${newName}` } });
+        void this.view?.webview.postMessage({ type: 'opResult', value: { message: `工具名已旋转为: ${newName}` } });
         return true;
       }
       case 'clearHistory':
@@ -567,8 +557,8 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
       detail: status.running ? `端口 ${status.port} 运行中` : '服务器未启动'
     });
 
-    // 2. MCP 配置检查 + 自动修复
-    const { IDE_TARGETS, writeMcpConfig } = await import('../adapters/mcp-config');
+    // 2. MCP 配置检查（只读，不自动写入）
+    const { IDE_TARGETS } = await import('../adapters/mcp-config');
     const currentIde = IDE_TARGETS.find(t => t.name === status.currentIde) ?? IDE_TARGETS[4];
     let mcpOk = false;
     try {
@@ -578,25 +568,11 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
     } catch {
       mcpOk = false;
     }
-
-    if (!mcpOk && status.running) {
-      // 自动修复: 写入 MCP 配置
-      try {
-        const sseUrl = `http://127.0.0.1:${status.port}/sse`;
-        await writeMcpConfig(currentIde, status.toolName, sseUrl);
-        mcpOk = true;
-        repaired++;
-        checks.push({ name: 'MCP 配置', ok: true, detail: `${currentIde.name}: 已自动修复` });
-      } catch (err) {
-        checks.push({ name: 'MCP 配置', ok: false, detail: `自动修复失败: ${String(err)}` });
-      }
-    } else {
-      checks.push({
-        name: 'MCP 配置',
-        ok: mcpOk,
-        detail: mcpOk ? `${currentIde.name}: ${status.toolName} 已配置` : `${currentIde.configPath} 中未找到 ${status.toolName}`
-      });
-    }
+    checks.push({
+      name: 'MCP 配置',
+      ok: mcpOk,
+      detail: mcpOk ? `${currentIde.name}: ${status.toolName} 已配置` : `${currentIde.configPath} 中未找到 ${status.toolName}`
+    });
 
     // 3. 账号数据
     const accounts = this.dataManager.windsurfAccounts.getAll();
@@ -607,26 +583,13 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
       detail: `${accounts.length} 个账号, ${withPassword.length} 个有密码`
     });
 
-    // 4. 规则文件检查 + 自动修复
+    // 4. 规则文件检查（只读，不自动写入）
     const workspaceFolder = (await import('vscode')).workspace.workspaceFolders?.[0];
     if (workspaceFolder) {
       const rulePath = pathMod.join(workspaceFolder.uri.fsPath, 'AI_FEEDBACK_RULES.md');
       let ruleExists = false;
       try { await fs.access(rulePath); ruleExists = true; } catch { /* */ }
-
-      if (!ruleExists) {
-        try {
-          const { configureGlobalRules } = await import('../adapters/rules');
-          await configureGlobalRules(status.toolName);
-          ruleExists = true;
-          repaired++;
-          checks.push({ name: '规则文件', ok: true, detail: '已自动写入 AI_FEEDBACK_RULES.md' });
-        } catch (err) {
-          checks.push({ name: '规则文件', ok: false, detail: `自动修复失败: ${String(err)}` });
-        }
-      } else {
-        checks.push({ name: '规则文件', ok: true, detail: '已存在' });
-      }
+      checks.push({ name: '规则文件', ok: ruleExists, detail: ruleExists ? '已存在' : '未找到 AI_FEEDBACK_RULES.md' });
     } else {
       checks.push({ name: '规则文件', ok: false, detail: '无打开的工作区' });
     }

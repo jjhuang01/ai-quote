@@ -408,16 +408,18 @@ button:focus-visible {
 .tab-btn {
   background: transparent;
   color: var(--muted);
-  padding: 5px 4px;
+  padding: 5px 6px;
   border-radius: var(--radius-md);
   font-size: var(--fs-xs);
   min-height: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 0;
   flex: 1;
   position: relative;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
   transition:
     color var(--t-fast),
     background var(--t-fast),

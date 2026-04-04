@@ -6,7 +6,7 @@ export interface EchoExtensionConfig {
 }
 
 export function getExtensionConfig(): EchoExtensionConfig {
-  const config = vscode.workspace.getConfiguration('infiniteDialog');
+  const config = vscode.workspace.getConfiguration('quote');
   return {
     serverPort: config.get<number>('serverPort', 3456),
     autoConfigureRules: config.get<boolean>('autoConfigureRules', true)

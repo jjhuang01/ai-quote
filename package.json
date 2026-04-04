@@ -1,6 +1,7 @@
 {
-  "name": "windsurf-account-manager",
-  "displayName": "WindSurf Account Manager",
+  "name": "ai-quote",
+  "displayName": "Quote",
+  "icon": "resources/icon.png",
   "description": "",
   "version": "2.1.4",
   "publisher": "opensource",
@@ -29,75 +30,75 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "infinite-dialog-sidebar",
-          "title": "WindSurf Account Manager",
+          "id": "quote-sidebar",
+          "title": "Quote",
           "icon": "resources/icon.svg"
         }
       ]
     },
     "views": {
-      "infinite-dialog-sidebar": [
+      "quote-sidebar": [
         {
           "type": "webview",
-          "id": "infiniteDialogView",
-          "name": "WindSurf Account Manager",
+          "id": "quoteView",
+          "name": "Quote",
           "icon": "resources/icon.svg"
         }
       ]
     },
     "commands": [
       {
-        "command": "infiniteDialog.openPanel",
-        "title": "WindSurf Account Manager: Open Panel",
+        "command": "quote.openPanel",
+        "title": "Quote: Open Panel",
         "icon": "$(window)"
       },
       {
-        "command": "infiniteDialog.refresh",
-        "title": "WindSurf Account Manager: Refresh",
+        "command": "quote.refresh",
+        "title": "Quote: Refresh",
         "icon": "$(refresh)"
       },
       {
-        "command": "infiniteDialog.testFeedback",
-        "title": "WindSurf Account Manager: Test Feedback"
+        "command": "quote.testFeedback",
+        "title": "Quote: Test Feedback"
       },
       {
-        "command": "infiniteDialog.showStatus",
-        "title": "WindSurf Account Manager: Show Status"
+        "command": "quote.showStatus",
+        "title": "Quote: Show Status"
       },
       {
-        "command": "infiniteDialog.copyPort",
-        "title": "WindSurf Account Manager: Copy Port"
+        "command": "quote.copyPort",
+        "title": "Quote: Copy Port"
       },
       {
-        "command": "infiniteDialog.rotateName",
-        "title": "WindSurf Account Manager: Rotate MCP Name"
+        "command": "quote.rotateName",
+        "title": "Quote: Rotate MCP Name"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "infiniteDialog.refresh",
-          "when": "view == infiniteDialogView",
+          "command": "quote.refresh",
+          "when": "view == quoteView",
           "group": "navigation"
         },
         {
-          "command": "infiniteDialog.openPanel",
-          "when": "view == infiniteDialogView",
+          "command": "quote.openPanel",
+          "when": "view == quoteView",
           "group": "navigation"
         }
       ]
     },
     "configuration": {
-      "title": "WindSurf Account Manager",
+      "title": "Quote",
       "properties": {
-        "infiniteDialog.serverPort": {
+        "quote.serverPort": {
           "type": "number",
           "default": 3456,
           "description": "服务端口"
         },
-        "infiniteDialog.autoConfigureRules": {
+        "quote.autoConfigureRules": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "自动配置全局规则"
         }
       }

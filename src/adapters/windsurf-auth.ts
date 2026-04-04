@@ -62,7 +62,7 @@ export class WindsurfAuth {
    */
   public async signIn(email: string, password: string, accountId?: string): Promise<FirebaseAuthResult> {
     if (!this.firebaseApiKey) {
-      throw new Error('Firebase API Key 未配置。请在设置中填写 infiniteDialog.firebaseApiKey');
+      throw new Error('Firebase API Key 未配置。请在设置中填写 quote.firebaseApiKey');
     }
 
     // 检查缓存
@@ -150,6 +150,47 @@ export class WindsurfAuth {
     }
   }
 
+  /**
+   * 用 Firebase idToken 向 Windsurf 注册/获取真实 API Key
+   * 新版 (Windsurf 最新) 调用 SeatManagementService.RegisterUser on register.windsurf.com
+   * 旧版回退: api.codeium.com / server.codeium.com
+   */
+  public async registerUser(idToken: string): Promise<{ apiKey: string; name: string; apiServerUrl: string }> {
+    const body = JSON.stringify({ firebase_id_token: idToken });
+
+    // 新端点（当前 Windsurf 版本）
+    try {
+      const url = 'https://register.windsurf.com/exa.seat_management_pb.SeatManagementService/RegisterUser';
+      const result = await this.httpsPost<{ api_key?: string; name?: string; api_server_url?: string }>(url, body);
+      if (result.api_key) {
+        this.logger.info('RegisterUser success (new endpoint).', { url });
+        return { apiKey: result.api_key, name: result.name ?? '', apiServerUrl: result.api_server_url ?? '' };
+      }
+    } catch (err) {
+      this.logger.warn('RegisterUser new endpoint failed, trying fallback.', { error: String(err) });
+    }
+
+    // 旧端点回退（兼容旧版 Windsurf）
+    const fallbacks = [
+      'https://api.codeium.com/exa.language_server_pb.LanguageServerService/RegisterUser',
+      'https://server.codeium.com/exa.language_server_pb.LanguageServerService/RegisterUser',
+    ];
+    let lastError = '';
+    for (const url of fallbacks) {
+      try {
+        const result = await this.httpsPost<{ api_key?: string; name?: string }>(url, body);
+        if (result.api_key) {
+          this.logger.info('RegisterUser success (fallback endpoint).', { url });
+          return { apiKey: result.api_key, name: result.name ?? '', apiServerUrl: '' };
+        }
+      } catch (err) {
+        lastError = String(err);
+        this.logger.warn('RegisterUser fallback failed.', { url, error: lastError });
+      }
+    }
+    throw new Error(`RegisterUser 失败，无法获取 Windsurf API Key: ${lastError}`);
+  }
+
   private httpsPostForm<T>(urlString: string, formBody: string): Promise<T> {
     return new Promise((resolve, reject) => {
       const url = new URL(urlString);
@@ -173,7 +214,7 @@ export class WindsurfAuth {
               const parsed = JSON.parse(chunks);
               if (res.statusCode && res.statusCode >= 400) {
                 const errMsg = parsed?.error?.message ?? `HTTP ${res.statusCode}`;
-                reject(new Error(`Firebase Token Refresh 错误: ${errMsg}`));
+                reject(new Error(`请求失败: ${errMsg}`));
               } else {
                 resolve(parsed as T);
               }
@@ -213,7 +254,7 @@ export class WindsurfAuth {
               const parsed = JSON.parse(chunks);
               if (res.statusCode && res.statusCode >= 400) {
                 const errMsg = parsed?.error?.message ?? `HTTP ${res.statusCode}`;
-                reject(new Error(`Firebase Auth 错误: ${errMsg}`));
+                reject(new Error(`请求失败: ${errMsg}`));
               } else {
                 resolve(parsed as T);
               }

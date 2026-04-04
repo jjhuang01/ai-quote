@@ -9,10 +9,21 @@ import { WindsurfAuth } from '../adapters/windsurf-auth';
 import { WindsurfQuotaFetcher } from '../adapters/quota-fetcher';
 import type { WindsurfPlanInfo } from '../adapters/quota-fetcher';
 
+const WINDSURF_API_SERVER = 'https://server.codeium.com';
+const PATCHED_COMMAND = 'windsurf.provideAuthTokenToAuthProviderWithShit';
+
+export interface SwitchResult {
+  success: boolean;
+  needsRestart?: boolean;
+  error?: string;
+  permissionHint?: string;
+}
+
 export class WindsurfAccountManager {
   private readonly filePath: string;
   private accounts: WindsurfAccount[] = [];
   private currentAccountId?: string;
+  private pendingSwitchId?: string;
   private autoSwitch: AutoSwitchConfig = { ...DEFAULT_AUTO_SWITCH };
   private readonly logger: LoggerLike;
   private readonly auth: WindsurfAuth;
@@ -150,14 +161,56 @@ export class WindsurfAccountManager {
 
   // --- Switch ---
 
-  public async switchTo(id: string): Promise<boolean> {
+  /**
+   * 切换到指定账号，执行真实的 Windsurf session 注入
+   * 流程: 获取 apiKey → 验证命令 → 注入 session（补丁已在 activate 时应用）
+   */
+  public async switchTo(id: string): Promise<SwitchResult> {
     const account = this.accounts.find(a => a.id === id);
-    if (!account) return false;
+    if (!account) return { success: false, error: '账号不存在' };
+
+    // ── 步骤1: 获取/刷新该账号的 Windsurf API Key ────────────────────────
+    if (!account.apiKey) {
+      try {
+        const auth = await this.auth.signIn(account.email, account.password, account.id);
+        const reg  = await this.auth.registerUser(auth.idToken);
+        account.apiKey       = reg.apiKey;
+        account.apiServerUrl = reg.apiServerUrl || WINDSURF_API_SERVER;
+        await this.save();
+        this.logger.info('RegisterUser OK, apiKey cached.', { email: account.email });
+      } catch (err) {
+        return { success: false, error: `获取 API Key 失败: ${String(err)}` };
+      }
+    }
+
+    // ── 步骤2: 验证补丁命令已注册 + 注入 session ────────────────────────
+    const registeredCmds = await vscode.commands.getCommands(true);
+    if (!registeredCmds.includes(PATCHED_COMMAND)) {
+      return {
+        success: false,
+        error: '切号功能尚未就绪，请稍候再试（等待 Windsurf 完全加载）。'
+      };
+    }
+
+    try {
+      try { await vscode.commands.executeCommand('windsurf.logout'); } catch { /* ignore */ }
+      await vscode.commands.executeCommand(PATCHED_COMMAND, {
+        apiKey:       account.apiKey,
+        name:         account.email,
+        apiServerUrl: account.apiServerUrl ?? WINDSURF_API_SERVER
+      });
+    } catch (err) {
+      account.apiKey = undefined;
+      await this.save();
+      return { success: false, error: `Session 注入失败: ${String(err)}` };
+    }
+
+    // ── 步骤3: 更新内部状态 ──────────────────────────────────────────────
     this.accounts.forEach(a => { a.isActive = a.id === id; });
     this.currentAccountId = id;
     await this.save();
     this.logger.info('Switched to account.', { id, email: account.email });
-    return true;
+    return { success: true };
   }
 
   public async autoSwitchIfNeeded(): Promise<boolean> {
@@ -193,7 +246,11 @@ export class WindsurfAccountManager {
       return false;
     }
 
-    await this.switchTo(next.id);
+    const switchResult = await this.switchTo(next.id);
+    if (!switchResult.success) {
+      this.logger.warn('Auto-switch failed.', { error: switchResult.error });
+      return false;
+    }
     this.logger.info('Auto-switched account.', { from: current.id, to: next.id });
     return true;
   }
@@ -496,6 +553,17 @@ export class WindsurfAccountManager {
 
   // --- Persistence ---
 
+  // --- Pending Switch (无感切换：reload 后自动恢复) ---
+
+  public getPendingSwitchId(): string | undefined {
+    return this.pendingSwitchId;
+  }
+
+  public async clearPendingSwitchId(): Promise<void> {
+    this.pendingSwitchId = undefined;
+    await this.save();
+  }
+
   private async load(): Promise<void> {
     try {
       const raw = await fs.readFile(this.filePath, 'utf8');
@@ -503,6 +571,7 @@ export class WindsurfAccountManager {
         accounts: WindsurfAccount[];
         currentId?: string;
         autoSwitch?: AutoSwitchConfig;
+        pendingSwitchId?: string;
       };
       this.accounts = (data.accounts ?? []).map(a => ({
         ...a,
@@ -510,6 +579,7 @@ export class WindsurfAccountManager {
       }));
       this.currentAccountId = data.currentId;
       this.autoSwitch = { ...DEFAULT_AUTO_SWITCH, ...(data.autoSwitch ?? {}) };
+      this.pendingSwitchId = data.pendingSwitchId;
     } catch {
       this.accounts = [];
     }
@@ -517,10 +587,14 @@ export class WindsurfAccountManager {
 
   private async save(): Promise<void> {
     await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    await fs.writeFile(this.filePath, JSON.stringify({
+    const payload: Record<string, unknown> = {
       accounts: this.accounts,
       currentId: this.currentAccountId,
       autoSwitch: this.autoSwitch
-    }, null, 2), 'utf8');
+    };
+    if (this.pendingSwitchId) {
+      payload.pendingSwitchId = this.pendingSwitchId;
+    }
+    await fs.writeFile(this.filePath, JSON.stringify(payload, null, 2), 'utf8');
   }
 }

@@ -13,3 +13,6 @@ esbuild.mjs
 logs/**
 debug/**
 _evidence/**
+tmp/**
+scripts/**
+*.vsix
