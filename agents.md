@@ -20,6 +20,27 @@
 - Inferred bridge endpoints：`/events` `/message` `/api/version` `/api/verify` `/api/firebase/login` `/sse`
 - Inferred config targets：Windsurf / Cursor / Kiro / Trae / VS Code
 
+## 日志文件位置
+
+插件运行时日志写入 VS Code 扩展日志目录，路径格式：
+
+```
+~/Library/Application Support/Cursor/User/logs/<timestamp>/exthost/out/windsurf-account-manager.log
+```
+
+**获取日志路径**：
+
+1. 打开插件侧边栏 → 切换到"调试" tab
+2. 点击"复制路径"按钮获取完整路径
+3. 或点击"复制给 AI"获取带诊断信息的完整日志
+
+**日志内容**：
+
+- 账号切换流程（补丁检查、Firebase 登录、API Key 获取、Session 注入）
+- 配额获取（Channel E 本地 proto、Channel B GetPlanStatus）
+- 错误详情（版本不匹配、权限问题、网络异常）
+- MCP 配置写入、规则文件操作
+
 ## Delivery Standard
 
 - `npm run check-types`

@@ -1,6 +1,6 @@
 {
-  "name": "ai-echo",
-  "displayName": "Echo",
+  "name": "windsurf-account-manager",
+  "displayName": "WindSurf Account Manager",
   "description": "",
   "version": "2.1.4",
   "publisher": "opensource",
@@ -30,7 +30,7 @@
       "activitybar": [
         {
           "id": "infinite-dialog-sidebar",
-          "title": "AI Echo",
+          "title": "WindSurf Account Manager",
           "icon": "resources/icon.svg"
         }
       ]
@@ -40,7 +40,7 @@
         {
           "type": "webview",
           "id": "infiniteDialogView",
-          "name": "AI Echo",
+          "name": "WindSurf Account Manager",
           "icon": "resources/icon.svg"
         }
       ]
@@ -48,29 +48,29 @@
     "commands": [
       {
         "command": "infiniteDialog.openPanel",
-        "title": "AI Echo: Open Panel",
+        "title": "WindSurf Account Manager: Open Panel",
         "icon": "$(window)"
       },
       {
         "command": "infiniteDialog.refresh",
-        "title": "AI Echo: Refresh",
+        "title": "WindSurf Account Manager: Refresh",
         "icon": "$(refresh)"
       },
       {
         "command": "infiniteDialog.testFeedback",
-        "title": "AI Echo: Test Feedback"
+        "title": "WindSurf Account Manager: Test Feedback"
       },
       {
         "command": "infiniteDialog.showStatus",
-        "title": "AI Echo: Show Status"
+        "title": "WindSurf Account Manager: Show Status"
       },
       {
         "command": "infiniteDialog.copyPort",
-        "title": "AI Echo: Copy Port"
+        "title": "WindSurf Account Manager: Copy Port"
       },
       {
         "command": "infiniteDialog.rotateName",
-        "title": "AI Echo: Rotate MCP Name"
+        "title": "WindSurf Account Manager: Rotate MCP Name"
       }
     ],
     "menus": {
@@ -88,7 +88,7 @@
       ]
     },
     "configuration": {
-      "title": "AI Echo",
+      "title": "WindSurf Account Manager",
       "properties": {
         "infiniteDialog.serverPort": {
           "type": "number",
