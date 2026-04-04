@@ -51,6 +51,7 @@ interface RealQuotaInfo {
   usedFlowActions: number;
   remainingFlowActions: number;
   overageBalanceMicros: number;
+  planEndTimestamp?: number;
   fetchedAt: string;
   source: 'local' | 'api' | 'apikey' | 'cache' | 'proto';
 }
@@ -171,6 +172,14 @@ const SVG_ICONS: Record<string, string> = {
   crown:     '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M2 20h20l-2-12-5 5-3-7-3 7-5-5-2 12z"/></svg>',
   star:      '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>',
   zap:       '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>',
+  // History type 图标
+  message:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>',
+  starOutline:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+  radio:     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49m-8.48-.01a6 6 0 010-8.49m11.31-2.82a10 10 0 010 14.14m-14.14 0a10 10 0 010-14.14"/></svg>',
+  // Diagnose 状态图标
+  checkCircle:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+  xCircle:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+  copy:      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>',
 };
 
 function icon(name: string, cls = ''): string {
@@ -180,7 +189,7 @@ function icon(name: string, cls = ''): string {
 
 // ---- State ----
 
-type TabId = 'status' | 'account' | 'history' | 'tools' | 'settings';
+type TabId = 'status' | 'account' | 'history' | 'tools' | 'settings' | 'debug';
 
 const vscode = acquireVsCodeApi();
 
@@ -215,12 +224,17 @@ let state = {
   notificationType: 'info' as 'info' | 'success' | 'error',
   // Quota fetching
   quotaFetching: false,
+  // Per-account quota fetching id (single-account refresh)
+  quotaFetchingId: undefined as string | undefined,
   // Maintenance loading
   maintenanceLoadingAction: undefined as string | undefined,
   // Switch loading
   switchLoadingId: undefined as string | undefined,
   // Diagnose result
   diagnoseResult: undefined as { checks: Array<{ name: string; ok: boolean; detail: string }>; repaired?: number } | undefined,
+  // Debug panel
+  debugInfo: undefined as { logPath: string; logContent: string; patchApplied: boolean; patchExtensionPath: string | null; patchError: string | null } | undefined,
+  debugLoading: false,
 };
 
 // ---- Render Root ----
@@ -268,6 +282,7 @@ function renderTabNav(): string {
     { id: 'history', label: '历史', icon: 'history' },
     { id: 'tools', label: '工具', icon: 'tools' },
     { id: 'settings', label: '设置', icon: 'settings' },
+    { id: 'debug', label: '调试', icon: 'wrench' },
   ];
   return `
     <nav class="tab-nav">
@@ -285,6 +300,7 @@ function renderActiveTab(bs: Bootstrap): string {
     case 'history': return renderHistoryTab(bs);
     case 'tools': return renderToolsTab(bs);
     case 'settings': return renderSettingsTab(bs);
+    case 'debug': return renderDebugTab(bs);
   }
 }
 
@@ -317,7 +333,7 @@ function renderStatusTab(bs: Bootstrap): string {
             <span>配置 <b>${status.autoConfiguredPaths.length}</b></span>
           </div>
         </div>
-        <div class="actions" style="margin-top:12px">
+        <div class="actions" style="margin-top:8px">
           <button class="btn-grad" data-action="refresh">刷新</button>
           <button class="btn-secondary" data-action="testFeedback">测试反馈</button>
         </div>
@@ -486,39 +502,40 @@ function renderAccountItem(a: WindsurfAccount, currentId?: string, snapshot?: Qu
   const q = snapshot;
   const rq = q?.real;
 
-  let dailyFillPct: number | null = null;
+  let dailyFillPct: number | null = null;   // 已用% (0=未用, 100=耗尽), null = 无数据
   let weeklyFillPct: number | null = null;
   let dailyText = '';
   let weeklyText = '';
   let dailyResetText = '';
   let weeklyResetText = '';
+  let planEndText = '';
 
   if (rq) {
-    dailyFillPct = 100 - rq.dailyRemainingPercent;
-    weeklyFillPct = 100 - rq.weeklyRemainingPercent;
-    dailyText = `${Math.round(dailyFillPct)}%`;
-    weeklyText = `${Math.round(weeklyFillPct)}%`;
-    const now = Date.now();
-    if (rq.dailyResetAtUnix) {
-      const diff = rq.dailyResetAtUnix * 1000 - now;
-      if (diff > 0) dailyResetText = formatResetTime(diff);
-    }
-    if (rq.weeklyResetAtUnix) {
-      const diff = rq.weeklyResetAtUnix * 1000 - now;
-      if (diff > 0) weeklyResetText = formatResetTime(diff);
+    // -1 = API 未返回此字段（无数据），显示 "—"；否则 bar fill = 已用% (与 Windsurf 一致)
+    dailyFillPct  = rq.dailyRemainingPercent  >= 0 ? Math.max(0, Math.min(100, 100 - rq.dailyRemainingPercent))  : null;
+    weeklyFillPct = rq.weeklyRemainingPercent >= 0 ? Math.max(0, Math.min(100, 100 - rq.weeklyRemainingPercent)) : null;
+    dailyText  = dailyFillPct  !== null ? `${Math.floor(dailyFillPct)}%`  : '';
+    weeklyText = weeklyFillPct !== null ? `${Math.floor(weeklyFillPct)}%` : '';
+    if (rq.dailyResetAtUnix)  dailyResetText  = formatResetDateTime(rq.dailyResetAtUnix  * 1000);
+    if (rq.weeklyResetAtUnix) weeklyResetText = formatResetDateTime(rq.weeklyResetAtUnix * 1000);
+    if (rq.planEndTimestamp && rq.planEndTimestamp > 0) {
+      const endDate = new Date(rq.planEndTimestamp);
+      planEndText = endDate.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
     }
   } else if (q && q.dailyLimit > 0) {
-    dailyFillPct = pct(q.dailyUsed, q.dailyLimit);
+    // 旧配额字段: 计算剩余%
+    dailyFillPct  = pct(q.dailyUsed, q.dailyLimit);
     weeklyFillPct = q.weeklyLimit > 0 ? pct(q.weeklyUsed, q.weeklyLimit) : null;
-    dailyText = `${Math.round(dailyFillPct)}%`;
+    dailyText  = `${Math.round(dailyFillPct)}%`;
     weeklyText = weeklyFillPct !== null ? `${Math.round(weeklyFillPct)}%` : '';
-    dailyResetText = q.dailyResetIn;
+    dailyResetText  = q.dailyResetIn;
     weeklyResetText = q.weeklyResetIn;
   } else if (a.creditsTotal > 0) {
     dailyFillPct = pct(a.creditsUsed, a.creditsTotal);
     dailyText = `${Math.round(dailyFillPct)}%`;
   }
 
+  // fillClass based on usage% (low usage = ok, high usage = danger)
   const fillClass = (usedPct: number | null): string => {
     if (usedPct === null) return '';
     if (usedPct < 50) return 'quota-fill-ok';
@@ -526,40 +543,36 @@ function renderAccountItem(a: WindsurfAccount, currentId?: string, snapshot?: Qu
     return 'quota-fill-danger';
   };
 
+  const refreshing = state.quotaFetching || state.quotaFetchingId === a.id;
   return `
-    <div class="account-item ${isCurrent ? 'active' : ''} ${q?.warningLevel === 'critical' ? 'quota-critical' : q?.warningLevel === 'warn' ? 'quota-warn' : ''}">
-      <div class="account-header-row">
-        <div class="account-avatar" style="background: linear-gradient(135deg, ${planColor}, #6366f1)">
-          ${a.email[0].toUpperCase()}
-        </div>
-        <div class="account-info">
-          <p class="account-name">${escapeHtml(a.email)}</p>
-          <p class="account-meta">
-            <span class="plan-badge plan-${a.plan.toLowerCase()}">${planIcon(a.plan)} ${a.plan}</span>
-            ${isCurrent ? ' · <span class="badge-active">当前</span>' : ''}
-          </p>
-        </div>
-        <div class="account-actions">
-          ${!isCurrent ? `<button class="btn-xs btn-icon ${state.switchLoadingId === a.id ? 'btn-loading' : ''}" data-action="accountSwitch" data-id="${a.id}" ${state.switchLoadingId === a.id ? 'disabled' : ''}>${state.switchLoadingId === a.id ? '<span class="btn-spinner"></span>' : `${icon('switchIcon')} 切换`}</button>` : ''}
-          <button class="btn-xs btn-danger-xs btn-icon" data-action="accountDelete" data-id="${a.id}">${icon('trash')} 删除</button>
+    <div class="ac-card ${isCurrent ? 'ac-active' : ''} ${q?.warningLevel === 'critical' ? 'ac-crit' : q?.warningLevel === 'warn' ? 'ac-warn' : ''}">
+      <div class="ac-head">
+        <span class="ac-email" title="${escapeHtml(a.email)}">${escapeHtml(a.email)}</span>
+        <div class="ac-tags">
+          <span class="plan-badge plan-${a.plan.toLowerCase()}">${planIcon(a.plan)} ${a.plan}</span>
+          ${isCurrent ? '<span class="badge-active">当前</span>' : ''}
+          ${planEndText ? `<span class="ac-end">${planEndText}</span>` : ''}
         </div>
       </div>
-      <div class="quota-section">
-        <div class="quota-bar-row">
-          <span class="quota-bar-label">日</span>
-          <div class="quota-bar-track">
-            <div class="quota-bar-fill ${fillClass(dailyFillPct)}" data-pct="${dailyFillPct ?? 0}" style="width:${dailyFillPct ?? 0}%"></div>
+      <div class="ac-foot">
+        <div class="ac-bars">
+          <div class="ac-bar-row">
+            <span class="ac-lbl">周</span>
+            <div class="ac-track"><div class="ac-fill ${fillClass(weeklyFillPct)}" style="width:${weeklyFillPct ?? 0}%"></div></div>
+            <span class="ac-pct${weeklyFillPct === null ? ' ac-nodata' : ''}">${weeklyText || '—'}</span>
+            ${weeklyResetText ? `<span class="ac-rt">${weeklyResetText}</span>` : '<span class="ac-rt"></span>'}
           </div>
-          <span class="quota-bar-pct${dailyFillPct === null ? ' quota-pct-empty' : ''}">${dailyText || '—'}</span>
-          ${dailyResetText ? `<span class="quota-bar-reset">${dailyResetText}</span>` : ''}
+          <div class="ac-bar-row">
+            <span class="ac-lbl">日</span>
+            <div class="ac-track"><div class="ac-fill ${fillClass(dailyFillPct)}" style="width:${dailyFillPct ?? 0}%"></div></div>
+            <span class="ac-pct${dailyFillPct === null ? ' ac-nodata' : ''}">${dailyText || '—'}</span>
+            ${dailyResetText ? `<span class="ac-rt">${dailyResetText}</span>` : '<span class="ac-rt"></span>'}
+          </div>
         </div>
-        <div class="quota-bar-row">
-          <span class="quota-bar-label">周</span>
-          <div class="quota-bar-track">
-            <div class="quota-bar-fill ${fillClass(weeklyFillPct)}" data-pct="${weeklyFillPct ?? 0}" style="width:${weeklyFillPct ?? 0}%"></div>
-          </div>
-          <span class="quota-bar-pct${weeklyFillPct === null ? ' quota-pct-empty' : ''}">${weeklyText || '—'}</span>
-          ${weeklyResetText ? `<span class="quota-bar-reset">${weeklyResetText}</span>` : ''}
+        <div class="ac-acts">
+          <button class="ac-btn ac-btn-refresh ${refreshing ? 'ac-loading' : ''}" data-action="fetchQuota" data-id="${a.id}" title="刷新配额" ${refreshing ? 'disabled' : ''}><span class="ac-refresh-ico">${SVG_ICONS['refresh']}</span></button>
+          ${!isCurrent ? `<button class="ac-btn ${state.switchLoadingId === a.id ? 'ac-btn-loading' : ''}" data-action="accountSwitch" data-id="${a.id}" ${state.switchLoadingId === a.id ? 'disabled' : ''}>${state.switchLoadingId === a.id ? '…' : '切换'}</button>` : ''}
+          <button class="ac-btn ac-btn-del" data-action="accountDelete" data-id="${a.id}">删除</button>
         </div>
       </div>
     </div>`;
@@ -602,11 +615,13 @@ function pct(used: number, total: number): number {
   return total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
 }
 
-function formatResetTime(ms: number): string {
-  const h = Math.floor(ms / 3600000);
-  if (h >= 48) return `${Math.floor(h / 24)}d`;
-  if (h >= 1) return `${h}h`;
-  return `${Math.floor(ms / 60000)}m`;
+function formatResetDateTime(ms: number): string {
+  const d = new Date(ms);
+  const M = d.getMonth() + 1;
+  const D = d.getDate();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${M}/${D} ${hh}:${mm}`;
 }
 
 // ---- History Tab ----
@@ -639,7 +654,8 @@ function renderHistoryTab(bs: Bootstrap): string {
 }
 
 function renderHistoryItem(item: HistoryItem): string {
-  const hIcon = item.type === 'conversation' ? '💬' : item.type === 'feedback' ? '⭐' : '📡';
+  const hIconName = item.type === 'conversation' ? 'message' : item.type === 'feedback' ? 'starOutline' : 'radio';
+  const hIcon = icon(hIconName);
   const time = new Date(item.createdAt).toLocaleString('zh-CN');
   const isExpanded = state.expandedHistoryId === item.id;
   const showMenu = state.historyMenuId === item.id;
@@ -673,7 +689,7 @@ function renderShortcutTab(bs: Bootstrap): string {
           <textarea class="text-area" id="newShortcutText" rows="2" placeholder="输入快捷短语...">${escapeHtml(state.newShortcutText)}</textarea>
           <button class="btn-grad btn-sm" data-action="shortcutAdd">添加</button>
         </div>
-        <div class="shortcut-list" style="margin-top:12px">
+        <div class="shortcut-list" style="margin-top:8px">
           ${bs.shortcuts.length > 0
             ? bs.shortcuts.map(s => renderShortcutItem(s)).join('')
             : `<div class="empty-state">${icon('inbox', 'empty-icon')} <p>暂无快捷短语</p></div>`}
@@ -710,7 +726,7 @@ function renderTemplateTab(bs: Bootstrap): string {
           <textarea class="text-area" id="newTemplateContent" rows="3" placeholder="模板内容...">${escapeHtml(state.newTemplateContent)}</textarea>
           <button class="btn-grad btn-sm" data-action="templateAdd">添加模板</button>
         </div>
-        <div class="template-list" style="margin-top:12px">
+        <div class="template-list" style="margin-top:8px">
           ${bs.templates.length > 0
             ? bs.templates.map(t => renderTemplateItem(t)).join('')
             : `<div class="empty-state">${icon('inbox', 'empty-icon')} <p>暂无模板</p></div>`}
@@ -835,12 +851,12 @@ function renderSettingsTab(bs: Bootstrap): string {
       <section class="card">
         <div class="section-header"><h2>配额获取</h2></div>
         <div class="settings-section">
-          <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:6px">
-            <span class="setting-label">Firebase API Key <span class="hint" style="font-size:11px">(通道B: 多账号配额，可选)</span></span>
+          <div class="setting-row setting-row-col">
+            <span class="setting-label">Firebase API Key <span class="hint">(通道B: 多账号配额，可选)</span></span>
             <input class="text-input" id="settingFirebaseApiKey" type="password"
               placeholder="AIzaSy..."
               value="${escapeHtml(settings.firebaseApiKey ?? '')}">
-            <p class="hint" style="font-size:11px;margin:0">从 Codeium/Windsurf 抓包获取，或留空仅用本地通道</p>
+            <p class="hint" style="margin:0">从 Codeium/Windsurf 抓包获取，或留空仅用本地通道</p>
           </div>
         </div>
         <div class="actions">
@@ -924,7 +940,7 @@ function renderDiagnoseCard(result: { checks: Array<{ name: string; ok: boolean;
       <div class="diagnose-checks">
         ${result.checks.map(c => `
           <div class="diagnose-check ${c.ok ? 'check-ok' : 'check-fail'}">
-            <span class="check-icon">${c.ok ? '✅' : '❌'}</span>
+            <span class="check-icon ${c.ok ? 'text-ok' : 'text-warn'}">${icon(c.ok ? 'checkCircle' : 'xCircle')}</span>
             <span class="check-name">${escapeHtml(c.name)}</span>
             <span class="check-detail">${escapeHtml(c.detail)}</span>
           </div>`).join('')}
@@ -957,6 +973,78 @@ function renderUpdateTab(bs: Bootstrap): string {
     </div>`;
 }
 
+// ---- Debug Tab ----
+
+function renderDebugTab(_bs: Bootstrap): string {
+  const info = state.debugInfo;
+  const loading = state.debugLoading;
+
+  const patchBadge = !info ? '' : info.patchApplied
+    ? `<span class="badge badge-ok">已打补丁</span>`
+    : `<span class="badge badge-warn">未打补丁</span>`;
+
+  const logLines = info?.logContent
+    ? info.logContent.split('\n').map(line => {
+        try {
+          const r = JSON.parse(line) as { level: string; timestamp: string; message: string; extra?: Record<string, unknown> };
+          const lvlClass = r.level === 'error' ? 'log-error' : r.level === 'warn' ? 'log-warn' : r.level === 'debug' ? 'log-debug' : 'log-info';
+          const ts = r.timestamp ? r.timestamp.replace('T', ' ').replace(/\.\d+Z$/, '') : '';
+          const extraStr = r.extra && Object.keys(r.extra).length > 0 ? ' ' + JSON.stringify(r.extra) : '';
+          return `<span class="${lvlClass}">[${r.level?.toUpperCase() ?? '?'}] ${ts} ${escapeHtml(r.message)}${escapeHtml(extraStr)}</span>`;
+        } catch {
+          return `<span class="log-debug">${escapeHtml(line)}</span>`;
+        }
+      }).join('\n')
+    : (loading ? '加载中…' : '暂无日志，请点击"刷新"');
+
+  return `
+    <div class="tab-content">
+      <section class="card dbg-card">
+        <div class="section-header">
+          <h2>调试面板</h2>
+          <div class="btn-group">
+            <button class="btn-xs btn-icon ${loading ? 'disabled' : ''}" data-action="debugRefresh" ${loading ? 'disabled' : ''}>${icon('refresh')} 刷新</button>
+          </div>
+        </div>
+
+        <div class="dbg-section">
+          <div class="dbg-row">
+            <span class="dbg-label">${icon('fileText')} 日志文件</span>
+            <div class="dbg-value-row">
+              <span class="dbg-path">${info ? escapeHtml(info.logPath) : '—'}</span>
+              ${info ? `<button class="btn-xs" data-action="debugCopyPath" title="复制路径">${icon('copy')} 复制路径</button>` : ''}
+            </div>
+          </div>
+        </div>
+
+        <div class="dbg-section">
+          <div class="dbg-row">
+            <span class="dbg-label">${icon('wrench')} Windsurf 补丁状态</span>
+            <div class="dbg-value-row">
+              ${patchBadge}
+              ${info?.patchError ? `<span class="dbg-err">${escapeHtml(info.patchError)}</span>` : ''}
+            </div>
+          </div>
+          ${info?.patchExtensionPath ? `
+          <div class="dbg-row">
+            <span class="dbg-label">extension.js 路径</span>
+            <span class="dbg-path">${escapeHtml(info.patchExtensionPath)}</span>
+          </div>` : ''}
+          ${!info?.patchApplied && !loading ? `
+          <p class="hint">补丁未应用时，切换账号会失败并显示"版本不匹配"。请点击账号页的"切换"按钮，插件会自动尝试打补丁。</p>` : ''}
+        </div>
+
+        <div class="dbg-section">
+          <div class="dbg-row-header">
+            <span class="dbg-label">${icon('fileText')} 最近 200 条日志</span>
+            ${info?.logContent ? `<button class="btn-xs" data-action="debugCopyLogs">${icon('copy')} 复制给 AI</button>` : ''}
+          </div>
+          <pre class="dbg-log-area">${logLines}</pre>
+        </div>
+      </section>
+    </div>`;
+}
+
 // ---- Bind Events ----
 
 function bindEvents(): void {
@@ -964,7 +1052,14 @@ function bindEvents(): void {
   document.querySelectorAll<HTMLButtonElement>('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const tab = btn.dataset.tab as TabId | undefined;
-      if (tab) { state.activeTab = tab; render(); }
+      if (tab) {
+        state.activeTab = tab;
+        if (tab === 'debug' && !state.debugInfo && !state.debugLoading) {
+          state.debugLoading = true;
+          vscode.postMessage({ type: 'getDebugInfo' });
+        }
+        render();
+      }
     });
   });
 
@@ -1231,7 +1326,7 @@ function handleAction(el: HTMLElement): void {
       break;
     case 'fetchQuota':
       if (id) {
-        state.quotaFetching = true;
+        state.quotaFetchingId = id;
         render();
         vscode.postMessage({ type: 'fetchQuota', value: id });
       }
@@ -1271,17 +1366,44 @@ function handleAction(el: HTMLElement): void {
       state.diagnoseResult = undefined;
       render();
       break;
+
+    // Debug
+    case 'debugRefresh':
+      state.debugLoading = true;
+      state.debugInfo = undefined;
+      render();
+      vscode.postMessage({ type: 'getDebugInfo' });
+      break;
+    case 'debugCopyPath':
+      if (state.debugInfo?.logPath) {
+        void navigator.clipboard.writeText(state.debugInfo.logPath).then(() => {
+          showToast('路径已复制', 'success');
+        });
+      }
+      break;
+    case 'debugCopyLogs': {
+      if (state.debugInfo) {
+        const header = `=== AI Echo Debug Report ===\n日志路径: ${state.debugInfo.logPath}\nWindsurf 补丁: ${state.debugInfo.patchApplied ? '已应用' : '未应用'}${state.debugInfo.patchExtensionPath ? `\nextension.js: ${state.debugInfo.patchExtensionPath}` : ''}${state.debugInfo.patchError ? `\n补丁错误: ${state.debugInfo.patchError}` : ''}\n时间: ${new Date().toISOString()}\n\n=== 最近日志 ===\n`;
+        void navigator.clipboard.writeText(header + state.debugInfo.logContent).then(() => {
+          showToast('日志已复制，可直接粘贴给 AI', 'success', 4000);
+        });
+      }
+      break;
+    }
   }
 }
 
 // ---- Utilities ----
 
+let _toastTimer: ReturnType<typeof setTimeout> | undefined;
+
 function showToast(msg: string, type: 'info' | 'success' | 'error' = 'info', duration?: number): void {
+  if (_toastTimer !== undefined) { clearTimeout(_toastTimer); _toastTimer = undefined; }
   state.notification = msg;
   state.notificationType = type;
   render();
   const dur = duration ?? (type === 'error' ? 5000 : msg.length > 30 ? 4000 : 2500);
-  setTimeout(() => { state.notification = undefined; render(); }, dur);
+  _toastTimer = setTimeout(() => { _toastTimer = undefined; state.notification = undefined; render(); }, dur);
 }
 
 function escapeHtml(value: string): string {
@@ -1326,8 +1448,8 @@ window.addEventListener('message', event => {
 
   if (msg.type === 'switchResult') {
     state.switchLoadingId = undefined;
-    const r = msg.value as { success: boolean; message: string };
-    showToast(r.message, r.success ? 'success' : 'error');
+    const r = msg.value as { success: boolean; needsRestart?: boolean; message: string };
+    showToast(r.message, r.success ? 'success' : r.needsRestart ? 'info' : 'error');
     return;
   }
 
@@ -1351,6 +1473,7 @@ window.addEventListener('message', event => {
 
   if (msg.type === 'quotaFetchResult') {
     state.quotaFetching = false;
+    state.quotaFetchingId = undefined;
     const r = msg.value as { success: boolean; error?: string };
     showToast(r.success ? '配额已更新' : `配额获取失败: ${r.error ?? '未知错误'}`, r.success ? 'success' : 'error');
     return;
@@ -1388,6 +1511,13 @@ window.addEventListener('message', event => {
     state.maintenanceLoadingAction = undefined;
     const r = msg.value as { action: string; error: string };
     showToast(`操作失败: ${r.error}`, 'error', 5000);
+    return;
+  }
+
+  if (msg.type === 'debugInfo') {
+    state.debugLoading = false;
+    state.debugInfo = msg.value as { logPath: string; logContent: string; patchApplied: boolean; patchExtensionPath: string | null; patchError: string | null };
+    render();
     return;
   }
 

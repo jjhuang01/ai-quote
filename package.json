@@ -63,6 +63,14 @@
       {
         "command": "infiniteDialog.showStatus",
         "title": "AI Echo: Show Status"
+      },
+      {
+        "command": "infiniteDialog.copyPort",
+        "title": "AI Echo: Copy Port"
+      },
+      {
+        "command": "infiniteDialog.rotateName",
+        "title": "AI Echo: Rotate MCP Name"
       }
     ],
     "menus": {

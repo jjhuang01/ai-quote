@@ -292,6 +292,7 @@ export interface RealQuotaInfo {
   usedFlowActions: number;
   remainingFlowActions: number;
   overageBalanceMicros: number;
+  planEndTimestamp?: number;       // unix ms (from planEnd ISO), 0 = unknown
   fetchedAt: string;               // ISO
   source: 'local' | 'api' | 'apikey' | 'cache' | 'proto';
 }

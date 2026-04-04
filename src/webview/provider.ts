@@ -4,6 +4,7 @@ import { EchoLogger } from '../core/logger';
 import type { DataManager } from '../core/data-manager';
 import type { WebviewBootstrap } from '../core/contracts';
 import { buildWebviewHtml } from './view-html';
+import { WindsurfPatchService } from '../adapters/windsurf-patch';
 
 export class EchoSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'infiniteDialogView';
@@ -34,12 +35,19 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
       webviewView.webview.html = `<!DOCTYPE html><html><body><p>加载失败，请点击刷新按钮重试。</p></body></html>`;
     }
 
-    webviewView.webview.onDidReceiveMessage(message => {
+    const msgDisposable = webviewView.webview.onDidReceiveMessage(message => {
       void this.handleMessage(message);
     });
 
     webviewView.onDidDispose(() => {
       this.view = undefined;
+      msgDisposable.dispose();
+    });
+
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        this.postBootstrap();
+      }
     });
   }
 
@@ -132,6 +140,25 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
         await this.bridge.injectTestFeedback();
         this.postState();
         return true;
+      case 'rotateName': {
+        const { rotateToolName } = await import('../utils/tool-name');
+        const { detectCurrentIde, writeMcpConfig } = await import('../adapters/mcp-config');
+        const { configureGlobalRules } = await import('../adapters/rules');
+        const storagePath = this.dataManager.globalStoragePath;
+        const newName = await rotateToolName(storagePath);
+        const ide = detectCurrentIde();
+        const sseUrl = this.bridge.getSseUrl();
+        await writeMcpConfig(ide, newName, sseUrl);
+        this.bridge.updateToolName(newName);
+        const ruleResults = await configureGlobalRules(newName);
+        this.bridge.setConfiguredPaths([
+          ide.configPath,
+          ...ruleResults.filter((r) => r.written).map((r) => r.path),
+        ]);
+        this.postBootstrap();
+        void this.view?.webview.postMessage({ type: 'opResult', value: { message: `MCP 工具名已旋转为: ${newName}` } });
+        return true;
+      }
       case 'clearHistory':
         await this.dataManager.history.clear();
         this.postBootstrap();
@@ -192,15 +219,38 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
         if (typeof value === 'string') {
           void this.view?.webview.postMessage({ type: 'switchLoading', value: true });
           const account = this.dataManager.windsurfAccounts.getById(value);
-          const ok = await this.dataManager.windsurfAccounts.switchTo(value);
+          const switchResult = await this.dataManager.windsurfAccounts.switchTo(value);
           void this.view?.webview.postMessage({ type: 'switchLoading', value: false });
-          this.postBootstrap();
-          if (ok && account) {
+
+          if (switchResult.needsRestart) {
+            // 补丁已写入，静默自动 reload，reload 后 activate() 自动完成切换
+            void vscode.window.withProgress(
+              { location: vscode.ProgressLocation.Notification, title: '正在切换账号，Windsurf 即将刷新...' },
+              () => new Promise<void>(resolve => setTimeout(() => { resolve(); }, 1500))
+            );
+            setTimeout(() => {
+              void vscode.commands.executeCommand('workbench.action.reloadWindow');
+            }, 1800);
+            return true;
+          }
+
+          if (switchResult.success && account) {
+            this.postBootstrap();
             const msg = `已切换到 ${account.email}`;
             void this.view?.webview.postMessage({ type: 'switchResult', value: { success: true, message: msg } });
             vscode.window.setStatusBarMessage(`$(check) ${msg}`, 4000);
           } else {
-            void this.view?.webview.postMessage({ type: 'switchResult', value: { success: false, message: '切换失败：账号不存在' } });
+            const errMsg = switchResult.error ?? '切换失败：未知错误';
+            void this.view?.webview.postMessage({ type: 'switchResult', value: { success: false, message: errMsg } });
+            if (switchResult.permissionHint) {
+              vscode.window.showErrorMessage(`切换失败: ${errMsg}`, '查看权限修复').then(choice => {
+                if (choice === '查看权限修复') {
+                  void vscode.window.showInformationMessage(switchResult.permissionHint ?? '');
+                }
+              });
+            } else {
+              vscode.window.showErrorMessage(`切换失败: ${errMsg}`);
+            }
           }
         }
         return true;
@@ -404,6 +454,23 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
           vscode.window.showErrorMessage(`清理缓存失败: ${String(err)}`);
         }
         return true;
+      case 'getDebugInfo': {
+        const [logContent, patchStatus] = await Promise.all([
+          this.logger.getRecentLogs(200),
+          WindsurfPatchService.isPatchApplied()
+        ]);
+        void this.view?.webview.postMessage({
+          type: 'debugInfo',
+          value: {
+            logPath: this.logger.getLogFilePath(),
+            logContent,
+            patchApplied: patchStatus.applied,
+            patchExtensionPath: patchStatus.extensionPath ?? null,
+            patchError: patchStatus.error ?? null
+          }
+        });
+        return true;
+      }
       case 'maintenanceDiagnose':
         void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'diagnose' });
         try {
@@ -447,7 +514,12 @@ export class EchoSidebarProvider implements vscode.WebviewViewProvider {
 
         const currentToolName = this.bridge.getStatus().toolName;
         const keysToRemove = Object.keys(config.mcpServers).filter(k =>
-          k !== currentToolName && (k.startsWith('echo_') || k.startsWith('infinite_') || k.startsWith('ai-echo'))
+          k !== currentToolName && (
+            k.startsWith('windsurf_endless_') ||
+            k.startsWith('echo_') ||
+            k.startsWith('infinite_') ||
+            k.startsWith('ai-echo')
+          )
         );
 
         if (keysToRemove.length === 0) continue;

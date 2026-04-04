@@ -59,7 +59,7 @@ export class EchoBridgeServer {
   public constructor(
     private readonly logger: LoggerLike,
     private readonly requestedPort: number,
-    private readonly toolName: string,
+    private toolName: string,
     private readonly currentIde: string
   ) {}
 
@@ -109,6 +109,11 @@ export class EchoBridgeServer {
   public setConfiguredPaths(paths: string[]): void {
     this.configuredPaths = paths;
     this.lastConfiguredAt = new Date().toISOString();
+  }
+
+  public updateToolName(newName: string): void {
+    this.toolName = newName;
+    this.logger.info('Tool name updated.', { toolName: newName });
   }
 
   public getStatus(): EchoBridgeStatus {

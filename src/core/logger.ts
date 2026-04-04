@@ -43,6 +43,16 @@ export class EchoLogger {
     return this.logFilePath;
   }
 
+  public async getRecentLogs(count = 200): Promise<string> {
+    try {
+      const content = await fs.readFile(this.logFilePath, 'utf8');
+      const lines = content.trim().split('\n').filter(l => l.length > 0);
+      return lines.slice(-count).join('\n');
+    } catch {
+      return '';
+    }
+  }
+
   private write(level: LogLevel, message: string, extra?: Record<string, unknown>): void {
     const record = {
       level,

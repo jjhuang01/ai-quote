@@ -6,7 +6,7 @@ import { DataManager } from "./core/data-manager";
 import { detectCurrentIde, writeMcpConfig } from "./adapters/mcp-config";
 import { configureGlobalRules } from "./adapters/rules";
 import { EchoSidebarProvider } from "./webview/provider";
-import { generateToolName } from "./utils/tool-name";
+import { loadOrCreateToolName, rotateToolName } from "./utils/tool-name";
 
 let statusBarItem: vscode.StatusBarItem | undefined;
 let logger: EchoLogger | undefined;
@@ -28,7 +28,7 @@ export async function activate(
   logger = new EchoLogger(context);
   const config = getExtensionConfig();
   const currentIde = detectCurrentIde();
-  const toolName = generateToolName();
+  const toolName = await loadOrCreateToolName(context.globalStorageUri.fsPath);
 
   dataManager = DataManager.getInstance(context, logger);
   await dataManager.initialize();
@@ -51,6 +51,7 @@ export async function activate(
     vscode.window.registerWebviewViewProvider(
       EchoSidebarProvider.viewId,
       sidebarProvider,
+      { webviewOptions: { retainContextWhenHidden: true } }
     ),
   );
 
@@ -77,6 +78,19 @@ export async function activate(
     );
     bridge.setConfiguredPaths(configuredPaths);
     logger.info("Auto configuration completed.", { configuredPaths });
+
+    void vscode.window
+      .showInformationMessage(
+        `AI Echo MCP 已配置 (${currentIde.name}) · 工具名: ${toolName}`,
+        "查看配置",
+      )
+      .then((choice) => {
+        if (choice === "查看配置") {
+          void vscode.workspace
+            .openTextDocument(vscode.Uri.file(currentIde.configPath))
+            .then((doc) => vscode.window.showTextDocument(doc));
+        }
+      });
   }
 
   context.subscriptions.push(
@@ -113,6 +127,38 @@ export async function activate(
         `Echo bridge ${status.running ? "running" : "stopped"} · port ${status.port} · IDE ${status.currentIde}`,
       );
     }),
+    vscode.commands.registerCommand("infiniteDialog.copyPort", () => {
+      if (!bridge) return;
+      const port = bridge.getPort();
+      void vscode.env.clipboard.writeText(String(port)).then(() => {
+        void vscode.window.showInformationMessage(`端口 ${port} 已复制`);
+      });
+    }),
+    vscode.commands.registerCommand("infiniteDialog.rotateName", async () => {
+      if (!bridge) return;
+      const newName = await rotateToolName(context.globalStorageUri.fsPath);
+      const sseUrl = bridge.getSseUrl();
+      const ide = detectCurrentIde();
+      await writeMcpConfig(ide, newName, sseUrl);
+      bridge.updateToolName(newName);
+      const ruleResults = await configureGlobalRules(newName);
+      bridge.setConfiguredPaths([
+        ide.configPath,
+        ...ruleResults.filter((r) => r.written).map((r) => r.path),
+      ]);
+      await updateStatusBar();
+      sidebarProvider.postBootstrap();
+      void vscode.window.showInformationMessage(
+        `MCP 工具名已旋转为: ${newName}`,
+        "查看配置",
+      ).then((choice) => {
+        if (choice === "查看配置") {
+          void vscode.workspace
+            .openTextDocument(vscode.Uri.file(ide.configPath))
+            .then((doc) => vscode.window.showTextDocument(doc));
+        }
+      });
+    }),
   );
 
   context.subscriptions.push({
@@ -129,6 +175,64 @@ export async function activate(
     runningPort,
     autoConfigureRules: config.autoConfigureRules,
   });
+
+  // ── 无感切换恢复：reload 后自动完成 pending switch ──────────────────────────
+  const pendingId = dataManager.windsurfAccounts.getPendingSwitchId();
+  if (pendingId) {
+    void completePendingSwitch(dataManager, sidebarProvider, logger, pendingId);
+  }
+}
+
+async function waitForPatchedCommand(maxWaitMs = 30_000): Promise<boolean> {
+  const PATCHED_CMD = 'windsurf.provideAuthTokenToAuthProviderWithShit';
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const cmds = await vscode.commands.getCommands(true);
+    if (cmds.includes(PATCHED_CMD)) return true;
+    await new Promise<void>(resolve => setTimeout(resolve, 2000));
+  }
+  return false;
+}
+
+async function completePendingSwitch(
+  dataManager: DataManager,
+  provider: EchoSidebarProvider,
+  log: EchoLogger,
+  pendingId: string
+): Promise<void> {
+  // 等待补丁命令注册就绪（最多 30 秒，每 2 秒检查一次）
+  const ready = await waitForPatchedCommand(30_000);
+  if (!ready) {
+    await dataManager.windsurfAccounts.clearPendingSwitchId();
+    vscode.window.showErrorMessage('切换失败：Windsurf 补丁命令未加载，请手动重启后再次点击切换。');
+    log.warn('Pending switch aborted: patched command not found after 30s wait.');
+    return;
+  }
+
+  log.info('Resuming pending switch after reload.', { pendingId });
+  const result = await dataManager.windsurfAccounts.switchTo(pendingId);
+
+  if (!result.success && result.needsRestart) {
+    // 理论上不会再次触发 needsRestart（补丁刚写入），保底清除避免死循环
+    await dataManager.windsurfAccounts.clearPendingSwitchId();
+    vscode.window.showErrorMessage('切换失败：补丁未生效，请手动重启 Windsurf 后再次点击切换。');
+    return;
+  }
+
+  // 清除 pending 标记
+  await dataManager.windsurfAccounts.clearPendingSwitchId();
+
+  if (result.success) {
+    const account = dataManager.windsurfAccounts.getById(pendingId);
+    const msg = `已切换到 ${account?.email ?? pendingId}`;
+    provider.postBootstrap();
+    vscode.window.setStatusBarMessage(`$(check) ${msg}`, 5000);
+    void vscode.window.showInformationMessage(msg);
+    log.info('Pending switch completed.', { pendingId });
+  } else {
+    log.warn('Pending switch failed.', { error: result.error });
+    vscode.window.showErrorMessage(`切换失败: ${result.error ?? '未知错误'}`);
+  }
 }
 
 export async function deactivate(): Promise<void> {

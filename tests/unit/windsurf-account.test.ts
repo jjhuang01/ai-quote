@@ -5,7 +5,31 @@ import * as path from 'node:path';
 // Mock vscode
 vi.mock('vscode', () => ({
   default: {},
-  Uri: { joinPath: (...args: string[]) => ({ fsPath: args.join('/') }) }
+  Uri: { joinPath: (...args: string[]) => ({ fsPath: args.join('/') }) },
+  commands: {
+    getCommands: vi.fn(async () => ['windsurf.provideAuthTokenToAuthProviderWithShit']),
+    executeCommand: vi.fn(async () => undefined)
+  }
+}));
+
+// Mock WindsurfAuth so signIn/registerUser don't hit network
+vi.mock('../../src/adapters/windsurf-auth', () => ({
+  WindsurfAuth: class {
+    signIn = vi.fn(async () => ({ idToken: 'mock-token' }));
+    registerUser = vi.fn(async () => ({ apiKey: 'mock-api-key' }));
+    setApiKey = vi.fn();
+  }
+}));
+
+// Mock WindsurfPatchService so patch check succeeds in test env
+vi.mock('../../src/adapters/windsurf-patch', () => ({
+  WindsurfPatchService: {
+    checkAndApply: vi.fn(async () => ({ success: true, needsRestart: false })),
+    isPatchApplied: vi.fn(async () => ({ applied: true, extensionPath: '/mock/extension.js' })),
+    applyPatch: vi.fn(async () => ({ success: true, needsRestart: false })),
+    findExtensionPath: vi.fn(() => '/mock/extension.js'),
+    getPermissionHint: vi.fn(() => '')
+  }
 }));
 
 // Mock fs
@@ -250,15 +274,43 @@ describe('WindsurfAccountManager', () => {
       await manager.initialize();
       const a1 = await manager.add('a@test.com', 'p');
       const a2 = await manager.add('b@test.com', 'p');
-      const ok = await manager.switchTo(a2.id);
-      expect(ok).toBe(true);
+      void a1;
+      const result = await manager.switchTo(a2.id);
+      expect(result.success).toBe(true);
       expect(manager.getCurrentAccountId()).toBe(a2.id);
     });
 
     it('切换到不存在的账号返回 false', async () => {
       await manager.initialize();
       await manager.add('a@test.com', 'p');
-      expect(await manager.switchTo('nonexistent')).toBe(false);
+      const result = await manager.switchTo('nonexistent');
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('resetMachineId', () => {
+    it('未找到 machineId 文件时返回 success:false', async () => {
+      // In test env machineId files don't exist → should return failure
+      (fs.access as any).mockRejectedValue(new Error('ENOENT'));
+      await manager.initialize();
+      const result = await manager.resetMachineId();
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('未找到');
+    });
+
+    it('找到 machineId 文件时重置并返回 success:true', async () => {
+      // Mock access to succeed for the first candidate path
+      (fs.access as any).mockResolvedValueOnce(undefined);
+      (fs.writeFile as any).mockResolvedValueOnce(undefined);
+      await manager.initialize();
+      const result = await manager.resetMachineId();
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('已重置');
+      // Verify writeFile was called with a 64-char hex string
+      const writeCall = (fs.writeFile as any).mock.calls.find(
+        (c: any[]) => typeof c[1] === 'string' && /^[0-9a-f]{64}$/.test(c[1])
+      );
+      expect(writeCall).toBeTruthy();
     });
   });
 });

@@ -27,8 +27,8 @@ export interface WindsurfPlanInfo {
   gracePeriodStatus: number;
   billingStrategy: string;             // 'quota' | 'credits'
   quotaUsage: {
-    dailyRemainingPercent: number;     // 0-100
-    weeklyRemainingPercent: number;    // 0-100
+    dailyRemainingPercent?: number;    // 0-100, undefined = API 未返回此字段
+    weeklyRemainingPercent?: number;   // 0-100, undefined = API 未返回此字段
     overageBalanceMicros: number;
     dailyResetAtUnix: number;          // unix seconds
     weeklyResetAtUnix: number;         // unix seconds
@@ -95,6 +95,40 @@ interface WindsurfAuthStatus {
   userEmail?: string;
   userName?: string;
   userStatusProtoBinaryBase64?: string;
+}
+
+// --- sqlite3 CLI helper (跨平台) ---
+
+/**
+ * 通过 sqlite3 CLI 执行查询。Windows 默认未安装 sqlite3，会返回明确错误。
+ * @returns 查询结果字符串，或 null 表示 sqlite3 不可用
+ */
+async function querySqlite(dbPath: string, sql: string): Promise<string> {
+  const { execFile } = await import('node:child_process');
+  return new Promise<string>((resolve, reject) => {
+    execFile(
+      'sqlite3',
+      [dbPath, sql],
+      { timeout: 5000 },
+      (err, stdout, stderr) => {
+        if (err) {
+          const msg = stderr || err.message;
+          // ENOENT = sqlite3 binary not found (common on Windows)
+          if ('code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+            reject(new Error(
+              process.platform === 'win32'
+                ? 'sqlite3 CLI 未找到。Windows 需手动安装: winget install SQLite.SQLite 或从 sqlite.org 下载'
+                : 'sqlite3 CLI 未找到。请安装: brew install sqlite3 (macOS) 或 apt install sqlite3 (Linux)'
+            ));
+          } else {
+            reject(new Error(`sqlite3 查询失败: ${msg}`));
+          }
+        } else {
+          resolve(stdout.trim());
+        }
+      }
+    );
+  });
 }
 
 // --- 最小 Protobuf 解码器 ---
@@ -192,7 +226,6 @@ function _protoSub(fields: ProtoFields, n: number): ProtoFields | undefined {
 export class WindsurfQuotaFetcher {
   private readonly auth: WindsurfAuth;
   private readonly logger: LoggerLike;
-  private readonly codeiumApiBase = 'https://server.codeium.com';
 
   // 结果缓存: accountId → QuotaFetchResult (最多 100 条)
   private cache = new Map<string, QuotaFetchResult>();
@@ -308,18 +341,7 @@ export class WindsurfQuotaFetcher {
 
       let raw: string;
       try {
-        const { execFile } = await import('node:child_process');
-        raw = await new Promise<string>((resolve, reject) => {
-          execFile(
-            'sqlite3',
-            [tmpDb, "SELECT value FROM ItemTable WHERE key='windsurfAuthStatus';"],
-            { timeout: 5000 },
-            (err, stdout, stderr) => {
-              if (err) reject(new Error(stderr || err.message));
-              else resolve(stdout.trim());
-            }
-          );
-        });
+        raw = await querySqlite(tmpDb, "SELECT value FROM ItemTable WHERE key='windsurfAuthStatus';");
       } finally {
         await fs.unlink(tmpDb).catch(() => undefined);
       }
@@ -506,18 +528,7 @@ export class WindsurfQuotaFetcher {
     }
 
     try {
-      const { execFile } = await import('node:child_process');
-      const raw = await new Promise<string>((resolve, reject) => {
-        execFile(
-          'sqlite3',
-          [tmpDb, "SELECT value FROM ItemTable WHERE key='windsurfAuthStatus';"],
-          { timeout: 5000 },
-          (err, stdout, stderr) => {
-            if (err) reject(new Error(stderr || err.message));
-            else resolve(stdout.trim());
-          }
-        );
-      });
+      const raw = await querySqlite(tmpDb, "SELECT value FROM ItemTable WHERE key='windsurfAuthStatus';");
 
       if (!raw) return null;
       const status = JSON.parse(raw) as WindsurfAuthStatus;
@@ -582,6 +593,8 @@ export class WindsurfQuotaFetcher {
               const userEmail = us.userEmail;
 
               // 如果 planInfo 缺少 quotaUsage 但有 planStatus 里的 credits，构造一个最小 planInfo
+              // 注意: 此场景无法推断真实的日/周配额百分比，故不设置 quotaUsage
+              // planInfoToRealQuota 的 clampPct 会将缺失的百分比默认为 100（满额），避免误报
               if (!planInfo && us.planStatus) {
                 const ps = us.planStatus;
                 const msgs = ps.availablePromptCredits ?? 0;
@@ -592,11 +605,11 @@ export class WindsurfQuotaFetcher {
                   endTimestamp: 0,
                   usage: {
                     duration: 0,
-                    messages: msgs + 1,
-                    flowActions: flows + 1,
+                    messages: msgs,
+                    flowActions: flows,
                     flexCredits: 0,
-                    usedMessages: 1,
-                    usedFlowActions: 1,
+                    usedMessages: 0,
+                    usedFlowActions: 0,
                     usedFlexCredits: 0,
                     remainingMessages: msgs,
                     remainingFlowActions: flows,
@@ -606,8 +619,8 @@ export class WindsurfQuotaFetcher {
                   gracePeriodStatus: 0,
                   billingStrategy: 'credits',
                   quotaUsage: {
-                    dailyRemainingPercent: msgs > 0 ? 50 : 0,
-                    weeklyRemainingPercent: msgs > 0 ? 50 : 0,
+                    dailyRemainingPercent: 100,   // 无法推断，默认满额避免误报
+                    weeklyRemainingPercent: 100,
                     overageBalanceMicros: 0,
                     dailyResetAtUnix: 0,
                     weeklyResetAtUnix: 0
@@ -658,30 +671,15 @@ export class WindsurfQuotaFetcher {
       }
 
       // 使用 sqlite3 CLI 查询 (避免添加 native 依赖)
-      const { execFile } = await import('node:child_process');
-      const planInfo = await new Promise<WindsurfPlanInfo | null>((resolve, reject) => {
-        execFile(
-          'sqlite3',
-          [dbPath, "SELECT value FROM ItemTable WHERE key='windsurf.settings.cachedPlanInfo';"],
-          { timeout: 5000 },
-          (err, stdout, stderr) => {
-            if (err) {
-              reject(new Error(`sqlite3 查询失败: ${stderr || err.message}`));
-              return;
-            }
-            const raw = stdout.trim();
-            if (!raw) {
-              resolve(null);
-              return;
-            }
-            try {
-              resolve(JSON.parse(raw) as WindsurfPlanInfo);
-            } catch {
-              reject(new Error('cachedPlanInfo JSON 解析失败'));
-            }
-          }
-        );
-      });
+      const raw = await querySqlite(dbPath, "SELECT value FROM ItemTable WHERE key='windsurf.settings.cachedPlanInfo';");
+      let planInfo: WindsurfPlanInfo | null = null;
+      if (raw) {
+        try {
+          planInfo = JSON.parse(raw) as WindsurfPlanInfo;
+        } catch {
+          throw new Error('cachedPlanInfo JSON 解析失败');
+        }
+      }
 
       if (!planInfo) {
         return {
@@ -773,8 +771,14 @@ export class WindsurfQuotaFetcher {
               const ps = parsed.planStatus;
               if (!ps) { resolve(null); return; }
 
-              const dailyRemainingPercent  = ps.dailyQuotaRemainingPercent  ?? 100;
-              const weeklyRemainingPercent = ps.weeklyQuotaRemainingPercent ?? 100;
+              // NOTE: 使用 undefined 表示「API 未返回此字段」，不要默认为 100（否则误导用户）
+              const dailyRemainingPercent  = ps.dailyQuotaRemainingPercent;   // undefined = no data
+              const weeklyRemainingPercent = ps.weeklyQuotaRemainingPercent;  // undefined = no data
+              this.logger.debug('GetPlanStatus raw quota fields.', {
+                dailyRemainingPercent: ps.dailyQuotaRemainingPercent,
+                weeklyRemainingPercent: ps.weeklyQuotaRemainingPercent,
+                planName: ps.planInfo?.planName
+              });
               const dailyResetAtUnix  = Number(ps.dailyQuotaResetAtUnix  ?? 0);
               const weeklyResetAtUnix = Number(ps.weeklyQuotaResetAtUnix ?? 0);
               const promptCredits = ps.availablePromptCredits ?? ps.planInfo?.monthlyPromptCredits ?? 0;
@@ -783,7 +787,7 @@ export class WindsurfQuotaFetcher {
               const endMs   = ps.planEnd   ? new Date(ps.planEnd).getTime()   : 0;
               const planName = ps.planInfo?.planName ?? 'Unknown';
 
-              const usedDailyPct = 100 - dailyRemainingPercent;
+              const usedDailyPct = dailyRemainingPercent !== undefined ? 100 - dailyRemainingPercent : 0;
               const usedPrompt   = Math.round(promptCredits * usedDailyPct / 100);
               const usedFlow     = Math.round(flowCredits   * usedDailyPct / 100);
 
@@ -830,19 +834,26 @@ export class WindsurfQuotaFetcher {
 
   private getWindsurfStatePath(): string | null {
     const home = os.homedir();
+    const appData = process.env.APPDATA;
     const candidates = [
+      // macOS
       path.join(home, 'Library', 'Application Support', 'Windsurf', 'User', 'globalStorage', 'state.vscdb'),
+      // Linux
       path.join(home, '.config', 'Windsurf', 'User', 'globalStorage', 'state.vscdb'),
-      path.join(process.env.APPDATA ?? '', 'Windsurf', 'User', 'globalStorage', 'state.vscdb')
     ];
-
-    // 返回第一个路径(实际存在性在调用处检查)
-    for (const p of candidates) {
-      if (p && !p.startsWith(path.sep + path.sep)) {
-        return p;
-      }
+    // Windows: only add APPDATA path if it's a real, non-empty value
+    if (appData && appData.length > 1) {
+      candidates.push(path.join(appData, 'Windsurf', 'User', 'globalStorage', 'state.vscdb'));
     }
-    return candidates[0] ?? null;
+
+    // 按平台优先返回（实际存在性在调用处用 fs.access 检查）
+    if (process.platform === 'win32') {
+      return candidates[2] ?? candidates[0];
+    }
+    if (process.platform === 'darwin') {
+      return candidates[0];
+    }
+    return candidates[1]; // linux
   }
 
   public clearCache(accountId?: string): void {

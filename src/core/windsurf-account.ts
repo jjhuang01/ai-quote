@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { WindsurfAccount, AutoSwitchConfig, QuotaSnapshot, AccountQuota, RealQuotaInfo } from './contracts';
@@ -397,11 +398,13 @@ export class WindsurfAccountManager {
   }
 
   private planInfoToRealQuota(info: WindsurfPlanInfo, source: 'local' | 'api' | 'apikey' | 'cache' | 'proto', fetchedAt: string): RealQuotaInfo {
+    // -1 = API 未返回此字段（无数据），0 = 耗尽，100 = 满额
+    const clampPct = (v: number | undefined) => v === undefined ? -1 : Math.max(0, Math.min(100, v));
     return {
       planName: info.planName,
       billingStrategy: info.billingStrategy,
-      dailyRemainingPercent: info.quotaUsage?.dailyRemainingPercent ?? 0,
-      weeklyRemainingPercent: info.quotaUsage?.weeklyRemainingPercent ?? 0,
+      dailyRemainingPercent: clampPct(info.quotaUsage?.dailyRemainingPercent),
+      weeklyRemainingPercent: clampPct(info.quotaUsage?.weeklyRemainingPercent),
       dailyResetAtUnix: info.quotaUsage?.dailyResetAtUnix ?? 0,
       weeklyResetAtUnix: info.quotaUsage?.weeklyResetAtUnix ?? 0,
       messages: info.usage?.messages ?? 0,
@@ -411,6 +414,7 @@ export class WindsurfAccountManager {
       usedFlowActions: info.usage?.usedFlowActions ?? 0,
       remainingFlowActions: info.usage?.remainingFlowActions ?? 0,
       overageBalanceMicros: info.quotaUsage?.overageBalanceMicros ?? 0,
+      planEndTimestamp: info.endTimestamp ?? 0,
       fetchedAt,
       source
     };
@@ -467,9 +471,9 @@ export class WindsurfAccountManager {
 
   public async resetMachineId(): Promise<{ success: boolean; message: string }> {
     const machineIdPaths = [
-      path.join(process.env.HOME ?? '~', '.windsurf', 'machineid'),
-      path.join(process.env.HOME ?? '~', '.config', 'windsurf', 'machineid'),
-      path.join(process.env.APPDATA ?? '', 'Windsurf', 'machineid')
+      path.join(os.homedir(), '.windsurf', 'machineid'),
+      path.join(os.homedir(), '.config', 'windsurf', 'machineid'),
+      path.join(process.env.APPDATA ?? os.homedir(), 'Windsurf', 'machineid')
     ];
 
     const newId = Array.from({ length: 64 }, () =>

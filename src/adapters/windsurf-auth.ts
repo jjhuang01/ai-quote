@@ -120,17 +120,16 @@ export class WindsurfAuth {
       throw new Error('Firebase API Key 未配置');
     }
 
+    // Firebase token refresh requires application/x-www-form-urlencoded (not JSON)
+    // Ref: https://firebase.google.com/docs/reference/rest/auth#section-refresh-token
     const url = `https://securetoken.googleapis.com/v1/token?key=${this.firebaseApiKey}`;
-    const body = JSON.stringify({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken
-    });
+    const formBody = `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}`;
 
-    const result = await this.httpsPost<{
+    const result = await this.httpsPostForm<{
       id_token: string;
       refresh_token: string;
       expires_in: string;
-    }>(url, body);
+    }>(url, formBody);
 
     if (accountId) {
       this.tokenCache.set(accountId, {
@@ -149,6 +148,46 @@ export class WindsurfAuth {
     } else {
       this.tokenCache.clear();
     }
+  }
+
+  private httpsPostForm<T>(urlString: string, formBody: string): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const url = new URL(urlString);
+      const req = https.request(
+        {
+          hostname: url.hostname,
+          port: 443,
+          path: `${url.pathname}${url.search}`,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Length': Buffer.byteLength(formBody)
+          },
+          timeout: 10_000
+        },
+        res => {
+          let chunks = '';
+          res.on('data', chunk => { chunks += chunk; });
+          res.on('end', () => {
+            try {
+              const parsed = JSON.parse(chunks);
+              if (res.statusCode && res.statusCode >= 400) {
+                const errMsg = parsed?.error?.message ?? `HTTP ${res.statusCode}`;
+                reject(new Error(`Firebase Token Refresh 错误: ${errMsg}`));
+              } else {
+                resolve(parsed as T);
+              }
+            } catch {
+              reject(new Error(`Firebase 返回非 JSON: ${chunks.slice(0, 200)}`));
+            }
+          });
+        }
+      );
+      req.on('error', err => reject(new Error(`网络错误: ${err.message}`)));
+      req.on('timeout', () => { req.destroy(new Error('Firebase 请求超时')); });
+      req.write(formBody);
+      req.end();
+    });
   }
 
   private httpsPost<T>(urlString: string, body: string): Promise<T> {

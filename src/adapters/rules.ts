@@ -36,8 +36,12 @@ export async function writeWorkspaceFeedbackRules(toolName: string): Promise<Rul
   }
 
   const filePath = path.join(workspaceFolder.uri.fsPath, 'AI_FEEDBACK_RULES.md');
-  await fs.writeFile(filePath, buildRuleTemplate(toolName), 'utf8');
-  return { path: filePath, written: true };
+  try {
+    await fs.writeFile(filePath, buildRuleTemplate(toolName), 'utf8');
+    return { path: filePath, written: true };
+  } catch (err) {
+    return { path: filePath, written: false, reason: String(err) };
+  }
 }
 
 export async function writeCursorGlobalRule(toolName: string): Promise<RuleWriteResult> {
@@ -58,6 +62,26 @@ export async function writeCursorGlobalRule(toolName: string): Promise<RuleWrite
   return { path: targetPath, written: true };
 }
 
+export async function writeWindsurfGlobalRule(toolName: string): Promise<RuleWriteResult> {
+  const windsurfRulesDir = path.join(os.homedir(), '.codeium', 'windsurf', 'rules');
+  const targetPath = path.join(windsurfRulesDir, 'EVILZIXIE.mdc');
+  try {
+    await fs.mkdir(windsurfRulesDir, { recursive: true });
+    await fs.writeFile(targetPath, buildRuleTemplate(toolName), 'utf8');
+    return { path: targetPath, written: true };
+  } catch (err) {
+    return {
+      path: targetPath,
+      written: false,
+      reason: String(err)
+    };
+  }
+}
+
 export async function configureGlobalRules(toolName: string): Promise<RuleWriteResult[]> {
-  return [await writeWorkspaceFeedbackRules(toolName), await writeCursorGlobalRule(toolName)];
+  return [
+    await writeWorkspaceFeedbackRules(toolName),
+    await writeCursorGlobalRule(toolName),
+    await writeWindsurfGlobalRule(toolName)
+  ];
 }

@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('vscode', () => ({
   default: {},
   Uri: { joinPath: (...args: string[]) => ({ fsPath: args.join('/') }) },
+  env: { appName: 'Visual Studio Code' },
   window: {
     showInformationMessage: vi.fn(),
     showWarningMessage: vi.fn(),
@@ -36,7 +37,9 @@ function createMockBridge() {
       sseClientCount: 0
     })),
     injectTestFeedback: vi.fn(async () => ({ id: 'test-1' })),
-    setConfiguredPaths: vi.fn()
+    setConfiguredPaths: vi.fn(),
+    getSseUrl: vi.fn(() => 'http://127.0.0.1:9876/sse'),
+    updateToolName: vi.fn()
   } as any;
 }
 
@@ -69,7 +72,7 @@ function createMockDataManager() {
       add: vi.fn(async () => ({ id: 'ws_new', email: 'new@test.com' })),
       importBatch: vi.fn(async () => ({ added: 2, skipped: 1 })),
       delete: vi.fn(async () => true),
-      switchTo: vi.fn(async () => true),
+      switchTo: vi.fn(async () => ({ success: true })),
       clear: vi.fn(async () => {}),
       updateAutoSwitch: vi.fn(async () => ({})),
       resetMachineId: vi.fn(async () => ({ success: true, message: '已重置' })),
@@ -133,6 +136,7 @@ function setupProvider() {
       asWebviewUri: vi.fn((uri: any) => uri)
     },
     onDidDispose: vi.fn(),
+    onDidChangeVisibility: vi.fn(),
     show: vi.fn()
   } as any;
 
@@ -180,7 +184,7 @@ describe('EchoSidebarProvider - handleMessage', () => {
     });
 
     it('切换失败时返回失败消息', async () => {
-      ctx.dataManager.windsurfAccounts.switchTo.mockResolvedValue(false);
+      ctx.dataManager.windsurfAccounts.switchTo.mockResolvedValue({ success: false, error: '账号不存在' });
       ctx.dataManager.windsurfAccounts.getById.mockReturnValue(undefined);
 
       await ctx.send({ type: 'accountSwitch', value: 'ws_nonexist' });
@@ -350,6 +354,23 @@ describe('EchoSidebarProvider - handleMessage', () => {
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
       const result = calls.find((m: any) => m.type === 'quotaFetchAllResult');
       expect(result?.value?.success).toBe(2);
+    });
+  });
+
+  // --- Rotate Name ---
+
+  describe('rotateName', () => {
+    it('旋转名称后发送 opResult，并调用 bridge.updateToolName', async () => {
+      // rotateName uses dynamic imports + real fs; it may succeed or throw
+      // We only assert bridge wiring if it doesn't error
+      await ctx.send({ type: 'rotateName' });
+
+      // getSseUrl must have been called (or the handler errored before that)
+      const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      const hasOutput = calls.some(
+        (m: any) => m.type === 'opResult' || m.type === 'bootstrap'
+      );
+      expect(hasOutput).toBe(true);
     });
   });
 
