@@ -498,11 +498,12 @@ function renderStatusTab(bs: Bootstrap): string {
         <div class="sent-history">
           <div class="sent-history-label">📤 已发送内容 <span class="sent-count">(共 ${state.sentHistory.length} 条)</span></div>
           <ul class="sent-list">
-            ${state.sentHistory.slice(0, 3).map(item => `
+            ${state.sentHistory.slice(0, 3).map((item, idx) => `
             <li class="sent-item ${item.mode === 'queue' ? 'sent-queue' : 'sent-manual'}">
               <span class="sent-badge">${item.mode === 'queue' ? '队列' : '手动'}</span>
               <span class="sent-text">${escapeHtml(item.text.slice(0, 60))}${item.text.length > 60 ? '…' : ''}</span>
               <span class="sent-ts">${item.sentAt}</span>
+              <button class="btn-xs btn-copy-inline" data-action="copySent" data-idx="${idx}" title="复制">${icon('copy')}</button>
             </li>`).join('')}
           </ul>
         </div>` : ''}
@@ -536,6 +537,7 @@ function renderStatusTab(bs: Bootstrap): string {
               <div class="queue-item-btns">
                 ${i > 0 ? `<button class="btn-xs" data-action="queueMoveUp" data-idx="${i}" title="上移">↑</button>` : ''}
                 ${i < total - 1 ? `<button class="btn-xs" data-action="queueMoveDown" data-idx="${i}" title="下移">↓</button>` : ''}
+                <button class="btn-xs btn-copy-inline" data-action="queueCopy" data-idx="${i}" title="复制">${icon('copy')}</button>
                 <button class="btn-xs" data-action="queueEdit" data-idx="${i}" title="编辑">✎</button>
                 <button class="btn-xs btn-danger-xs" data-action="queueRemove" data-idx="${i}" title="删除">×</button>
               </div>
@@ -1230,7 +1232,10 @@ function renderDialogCard(req: McpDialogRequest): string {
         <span class="dialog-ts">${ts}</span>
         <button class="btn-xs dialog-close-btn" data-action="dialogDismiss" title="取消对话 (Esc)">✕</button>
       </div>
-      <div class="dialog-summary${req.isMarkdown ? ' dialog-summary-md' : ''}">${req.isMarkdown ? renderMd(req.summary) : escapeHtml(req.summary)}</div>
+      <div class="dialog-summary-wrap">
+        <div class="dialog-summary${req.isMarkdown ? ' dialog-summary-md' : ''}">${req.isMarkdown ? renderMd(req.summary) : escapeHtml(req.summary)}</div>
+        <button class="btn-xs btn-copy" data-action="copySummary" title="复制 LLM 摘要">${icon('copy')}</button>
+      </div>
       ${optionBtns ? `<div class="dialog-options">${optionBtns}</div>` : ''}
       <div class="dialog-input-row">
         <textarea class="dialog-textarea" id="dialog-input" placeholder="输入回复… (Ctrl+Enter 发送, Esc 取消)" rows="3">${escapeHtml(state.dialogInput)}</textarea>
@@ -1589,6 +1594,34 @@ function handleAction(el: HTMLElement): void {
       state.editingQueueText = "";
       render();
       break;
+
+    // Copy actions
+    case "copySummary": {
+      if (state.pendingDialog) {
+        void navigator.clipboard.writeText(state.pendingDialog.summary).then(() => {
+          showToast("LLM 摘要已复制", "success");
+        });
+      }
+      break;
+    }
+    case "copySent": {
+      const sentIdx = parseInt(el.dataset.idx ?? "", 10);
+      if (!isNaN(sentIdx) && sentIdx >= 0 && sentIdx < state.sentHistory.length) {
+        void navigator.clipboard.writeText(state.sentHistory[sentIdx].text).then(() => {
+          showToast("已复制", "success");
+        });
+      }
+      break;
+    }
+    case "queueCopy": {
+      const copyIdx = parseInt(el.dataset.idx ?? "", 10);
+      if (!isNaN(copyIdx) && copyIdx >= 0 && copyIdx < state.responseQueue.length) {
+        void navigator.clipboard.writeText(state.responseQueue[copyIdx]).then(() => {
+          showToast("已复制", "success");
+        });
+      }
+      break;
+    }
 
     // Response Queue management
     case "queueAdd": {

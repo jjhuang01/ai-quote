@@ -448,6 +448,20 @@ export class QuoteDialogPanel {
   }
   .attach-remove:hover { color: var(--danger); background: var(--danger-subtle); }
   .attach-count { font-size: 11px; color: var(--muted); }
+  /* Copy button */
+  .copy-btn {
+    position: absolute; top: 6px; right: 6px;
+    padding: 3px 8px;
+    background: var(--surface); border: 1px solid var(--border-subtle);
+    border-radius: 4px; cursor: pointer;
+    font-size: 11px; color: var(--muted);
+    opacity: 0; transition: opacity 0.15s;
+    font-family: var(--font);
+  }
+  .summary-wrap { position: relative; }
+  .summary-wrap:hover .copy-btn { opacity: 1; }
+  .copy-btn:hover { color: var(--fg); border-color: var(--accent); background: var(--accent-subtle); }
+  .copy-btn.copied { color: var(--success); border-color: var(--success); }
 </style>
 </head>
 <body>
@@ -457,7 +471,10 @@ export class QuoteDialogPanel {
   <span class="header-ts" id="ts"></span>
 </div>
 <div class="body">
-  ${summaryHtml}
+  <div class="summary-wrap">
+    ${summaryHtml}
+    <button class="copy-btn" id="copySummary" title="复制 LLM 摘要">复制</button>
+  </div>
   ${optionBtns ? `<div class="options">${optionBtns}</div>` : ''}
   <div class="input-section">
     <div class="input-label">回复内容 · Ctrl+Enter 发送 · 支持拖拽文件与图片</div>
@@ -665,6 +682,18 @@ document.getElementById('reply').addEventListener('keydown', function(e) {
     e.preventDefault();
     dismiss();
   }
+});
+
+// Copy summary
+document.getElementById('copySummary').addEventListener('click', function() {
+  var summaryEl = document.getElementById('summary');
+  var text = summaryEl ? summaryEl.innerText || summaryEl.textContent : '';
+  navigator.clipboard.writeText(text).then(function() {
+    var btn = document.getElementById('copySummary');
+    btn.textContent = '✓ 已复制';
+    btn.classList.add('copied');
+    setTimeout(function() { btn.textContent = '复制'; btn.classList.remove('copied'); }, 1500);
+  });
 });
 
 // Bind action buttons via addEventListener (safer than inline onclick in webview)
