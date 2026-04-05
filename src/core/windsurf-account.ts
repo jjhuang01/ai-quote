@@ -60,10 +60,8 @@ export class WindsurfAccountManager {
   }
 
   public getCurrentAccount(): WindsurfAccount | undefined {
-    if (this.currentAccountId) {
-      return this.accounts.find(a => a.id === this.currentAccountId);
-    }
-    return this.accounts.find(a => a.isActive);
+    if (!this.currentAccountId) return undefined;
+    return this.accounts.find(a => a.id === this.currentAccountId);
   }
 
   public async getRealCurrentAccountId(): Promise<string | undefined> {
@@ -259,6 +257,15 @@ export class WindsurfAccountManager {
 
   public async autoSwitchIfNeeded(): Promise<boolean> {
     if (!this.autoSwitch.enabled) return false;
+
+    // Refresh currentAccountId from real Windsurf login state
+    const realId = await this.getRealCurrentAccountId();
+    if (realId && realId !== this.currentAccountId) {
+      this.accounts.forEach(a => { a.isActive = a.id === realId; });
+      this.currentAccountId = realId;
+      await this.save();
+    }
+
     const current = this.getCurrentAccount();
     if (!current) return false;
 

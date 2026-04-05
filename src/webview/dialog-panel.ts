@@ -480,6 +480,9 @@ export class QuoteDialogPanel {
     --success: #22c55e;
     --danger: #ef4444;
     --danger-subtle: color-mix(in srgb, #ef4444 14%, transparent);
+    --warning: #f59e0b;
+    --warning-dim: #d97706;
+    --warning-subtle: color-mix(in srgb, #f59e0b 14%, transparent);
     --radius: 8px;
     --font: var(--vscode-font-family, system-ui, -apple-system, sans-serif);
     --mono: var(--vscode-editor-font-family, 'SF Mono', Menlo, monospace);
@@ -593,12 +596,17 @@ export class QuoteDialogPanel {
   }
   textarea:focus { border-color: var(--accent); }
   textarea.drag-active { border-color: var(--accent); background: var(--accent-subtle); }
+  .btn-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+  }
   .btn-send {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    width: 100%;
+    flex: 1;
     padding: 11px 0;
     background: var(--accent);
     color: #fff;
@@ -614,6 +622,27 @@ export class QuoteDialogPanel {
   .btn-send:hover { background: var(--accent-dim); }
   .btn-send:active { transform: scale(0.99); }
   .btn-send svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .btn-cancel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 11px 14px;
+    background: transparent;
+    color: var(--warning);
+    border: 1px solid var(--warning);
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 12px;
+    font-family: var(--font);
+    font-weight: 500;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .btn-cancel:hover { background: var(--warning-subtle); color: var(--warning-dim); border-color: var(--warning-dim); }
+  .btn-cancel:active { transform: scale(0.97); }
+  .btn-cancel svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .shortcut-bar {
     display: flex;
     justify-content: center;
@@ -876,7 +905,10 @@ export class QuoteDialogPanel {
   <div id="dropZone" class="drop-zone">拖拽文件或图片到此处 · 支持 100+ 种文件类型 · <a href="#" id="browseBtn" style="color:var(--accent);text-decoration:underline;cursor:pointer;">浏览文件</a></div>
   <div id="attachmentList" class="attachment-list"></div>
   <span id="attachCount" class="attach-count"></span>
-  <button class="btn-send" data-action="submitCustom"><svg viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>发送</button>
+  <div class="btn-row">
+    <button class="btn-send" data-action="submitCustom"><svg viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>发送</button>
+    <button class="btn-cancel" data-action="cancelDialog"><svg viewBox="0 0 24 24"><path d="M18 6L6 18"/><path d="M6 6L18 18"/></svg>取消</button>
+  </div>
   <div class="shortcut-bar">
     <kbd>${this.enterToSend ? 'Enter' : 'Ctrl+Enter'}</kbd> 发送 <span class="shortcut-sep">|</span> <kbd>Esc</kbd> 结束
   </div>
