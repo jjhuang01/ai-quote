@@ -569,7 +569,14 @@ export class QuoteDialogPanel {
   }
   .opt-btn:hover { background: var(--surface-hover); border-color: var(--accent); box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
   .input-section { display: flex; flex-direction: column; gap: 6px; }
-  .input-label { font-size: 11px; color: var(--muted); }
+  .input-label { font-size: 12px; color: var(--fg); font-weight: 600; }
+  .input-hint { font-weight: 400; font-size: 11px; color: var(--muted); margin-left: 4px; }
+  .textarea-wrap { position: relative; }
+  .char-count {
+    position: absolute; bottom: 8px; right: 10px;
+    font-size: 11px; color: var(--muted); pointer-events: none;
+    font-variant-numeric: tabular-nums;
+  }
   textarea {
     width: 100%;
     min-height: 100px;
@@ -587,39 +594,45 @@ export class QuoteDialogPanel {
   }
   textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-subtle); }
   textarea.drag-active { border-color: var(--accent); background: var(--accent-subtle); }
-  .actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-  .btn-primary {
-    padding: 9px 28px;
-    background: linear-gradient(180deg, var(--btn-bg), color-mix(in srgb, var(--btn-bg) 80%, #000));
-    color: var(--btn-fg);
+  .btn-send {
+    display: block;
+    width: 100%;
+    padding: 13px 0;
+    background: linear-gradient(135deg, #22c55e, #06b6a0);
+    color: #fff;
     border: none;
-    border-radius: 8px;
+    border-radius: 12px;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 15px;
     font-family: var(--font);
-    font-weight: 600;
-    transition: all 0.15s;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-    letter-spacing: 0.02em;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    transition: all 0.18s ease;
+    box-shadow: 0 2px 8px rgba(34,197,94,0.3);
   }
-  .btn-primary:hover { background: var(--btn-hover); box-shadow: 0 2px 6px rgba(0,0,0,0.3); transform: translateY(-0.5px); }
-  .btn-cancel {
-    padding: 9px 20px;
-    background: transparent;
+  .btn-send:hover { filter: brightness(1.1); box-shadow: 0 4px 16px rgba(34,197,94,0.4); transform: translateY(-1px); }
+  .btn-send:active { transform: translateY(0); filter: brightness(0.95); }
+  .shortcut-bar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 0 2px;
+    font-size: 11px;
     color: var(--muted);
-    border: 1px solid var(--border-subtle);
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 13px;
-    font-family: var(--font);
-    transition: all 0.15s;
   }
-  .btn-cancel:hover { color: var(--fg); border-color: var(--border); background: var(--danger-subtle); }
-  .hint { font-size: 11px; color: var(--muted); margin-left: auto; }
+  .shortcut-bar kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.3;
+    color: var(--fg);
+  }
+  .shortcut-sep { color: var(--border); margin: 0 2px; }
   /* Drop zone & attachments */
   .drop-zone {
     border: 1.5px dashed var(--border);
@@ -843,16 +856,18 @@ export class QuoteDialogPanel {
   </div>
   ${optionBtns ? `<div class="options">${optionBtns}</div>` : ''}
   <div class="input-section">
-    <div class="input-label">回复内容 · ${this.enterToSend ? 'Enter' : 'Ctrl+Enter'} 发送 · 支持拖拽 / 粘贴文件与图片</div>
-    <textarea id="reply" placeholder="输入回复… (${this.enterToSend ? 'Enter 发送, Shift+Enter 换行' : 'Ctrl+Enter 发送'})" autofocus></textarea>
+    <div class="input-label">✏ 反馈内容 <span class="input-hint">拖拽文件/图片到输入框 · Ctrl+V 粘贴</span></div>
+    <div class="textarea-wrap">
+      <textarea id="reply" placeholder="输入反馈或指令..." autofocus></textarea>
+      <span class="char-count" id="charCount">0 字</span>
+    </div>
   </div>
   <div id="dropZone" class="drop-zone">拖拽文件或图片到此处 · 支持 100+ 种文件类型 · <a href="#" id="browseBtn" style="color:var(--accent);text-decoration:underline;cursor:pointer;">浏览文件</a></div>
   <div id="attachmentList" class="attachment-list"></div>
-  <div class="actions">
-    <button class="btn-primary" data-action="submitCustom">发送</button>
-    <button class="btn-cancel" data-action="dismiss">取消</button>
-    <span id="attachCount" class="attach-count"></span>
-    <span class="hint">Esc 取消 · ${this.enterToSend ? 'Enter' : 'Ctrl+Enter'} 发送</span>
+  <span id="attachCount" class="attach-count"></span>
+  <button class="btn-send" data-action="submitCustom">✅ 发送</button>
+  <div class="shortcut-bar">
+    <kbd>${this.enterToSend ? 'Enter' : 'Ctrl+Enter'}</kbd> 发送 <span class="shortcut-sep">|</span> <kbd>Esc</kbd> 结束
   </div>
   <div class="queue-section">
     <div class="queue-header">无人值守队列 <span class="queue-badge" id="queueBadge">${this.queueCount}</span></div>

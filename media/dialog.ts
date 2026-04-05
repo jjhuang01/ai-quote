@@ -426,6 +426,15 @@ replyEl.addEventListener('drop', (e: DragEvent) => {
   }
 });
 
+// ── Character count ──────────────────────────────────────────────
+const charCountEl = $id<HTMLSpanElement>('charCount');
+if (replyEl && charCountEl) {
+  replyEl.addEventListener('input', () => {
+    const len = replyEl.value.length;
+    charCountEl.textContent = `${len} 字`;
+  });
+}
+
 // ── Send key handler ──────────────────────────────────────────────
 replyEl.addEventListener('keydown', (e: KeyboardEvent) => {
   if (cfg.enterToSend) {
@@ -595,22 +604,33 @@ window.addEventListener('message', (e: MessageEvent) => {
     // Disable input area
     if (replyEl) { replyEl.disabled = true; replyEl.placeholder = '已发送'; }
     // Disable send button and option buttons
-    document.querySelectorAll('.btn-primary, .opt-btn').forEach(btn => {
+    document.querySelectorAll('.btn-send, .opt-btn').forEach(btn => {
       (btn as HTMLButtonElement).disabled = true;
       (btn as HTMLButtonElement).style.opacity = '0.5';
     });
-    const primary = document.querySelector('.btn-primary');
-    if (primary) primary.textContent = '✓ 已发送';
-    // Transform "取消" into "关闭" button — sends dialogClose (just closes panel)
-    const cancelBtn = document.querySelector('.btn-cancel') as HTMLButtonElement | null;
-    if (cancelBtn) {
-      cancelBtn.textContent = '关闭';
-      cancelBtn.style.opacity = '1';
-      cancelBtn.disabled = false;
-      // Replace old listener by cloning
-      const closeBtn = cancelBtn.cloneNode(true) as HTMLButtonElement;
-      cancelBtn.parentNode?.replaceChild(closeBtn, cancelBtn);
+    const sendBtn = document.querySelector('.btn-send') as HTMLButtonElement | null;
+    if (sendBtn) {
+      sendBtn.textContent = '✓ 已发送';
+      sendBtn.style.background = 'var(--surface)';
+      sendBtn.style.color = 'var(--success)';
+      sendBtn.style.boxShadow = 'none';
+      sendBtn.style.cursor = 'default';
+    }
+    // Transform shortcut bar into close button
+    const shortcutBar = document.querySelector('.shortcut-bar') as HTMLElement | null;
+    if (shortcutBar) {
+      shortcutBar.innerHTML = '';
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'btn-send';
+      closeBtn.textContent = '关闭';
+      closeBtn.style.background = 'var(--surface)';
+      closeBtn.style.color = 'var(--fg)';
+      closeBtn.style.boxShadow = 'none';
+      closeBtn.style.border = '1px solid var(--border)';
+      closeBtn.style.padding = '8px 0';
+      closeBtn.style.fontSize = '13px';
       closeBtn.addEventListener('click', () => vscode.postMessage({ type: 'dialogClose' }));
+      shortcutBar.appendChild(closeBtn);
     }
     return;
   }
