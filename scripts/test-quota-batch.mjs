@@ -17,18 +17,24 @@ import { fileURLToPath } from 'node:url';
 // ── Firebase API Key (Channel B) ─────────────────────────────────────
 const FIREBASE_API_KEY = 'AIzaSyDsOl-1XpT5err0Tcnx8FFod1H8gVGIycY';
 
-// ── 抽样 10 个 Windsurf 试用号（来自 orders_2026-04-04.txt） ─────────
+// ── 抽样账号（来自 orders_2026-04-04.txt） ─────────────────────────
+// 注意：dailyQuotaRemainingPercent = 剩余 %（非使用 %）
+//   100 = 从未使用（全新账号）→ 可用 ✅
+//   89  = 已使用 11%（89% 剩余）→ 可用 ✅
+//   0   = 完全耗尽（0% 剩余）  → 不可用 ❌
 const ACCOUNTS = [
-  { email: '7sbgxp5lpu@pqubzct.shop',   password: 'mk765ww4i1',   order: 'WEB20260404VFXH7YRT' },
-  { email: 'x4bbzla7bi@fvdcfqr.shop',   password: '3bm0o7lhf7',   order: 'WEB20260404U5BQ20J8' },
-  { email: '2uyk6zvfys@fwqzotl.shop',   password: '471n4odwr3',    order: 'WEB202604036H4L0XR6' },
-  { email: 'yyegiz17p3@nzccmyq.shop',   password: 'e140bjs4k6k',   order: 'WEB20260403F9I062XM' },
-  { email: '99x2iz2zlz@palcbhk.shop',   password: '0b0b5hny45',   order: 'WEB202604038E74QT3N' },
-  { email: 'w7kuj84ngv@furybww.shop',   password: 'yf63f0q9',      order: 'WEB20260403KG2XRGBH' },
-  { email: 'anx4of0bai@puhlmgw.shop',   password: '5u58d22ys',     order: 'WEB20260403NWSM2PDL' },
+  // ── 截图账号（用于与 Windsurf Plan Info 页对比验证）
+  { email: 's1z6pkws4k@zyqwotq.shop',   password: 'br07zq5',       order: 'WEB20260402CFAT1SC5' },
+  { email: 'elzkuhyfd6@gicnsjt.shop',   password: '96ahf4w9',      order: 'WEB20260402QYA87R14' },
   { email: 'v3g6r80qyu@zmshgwp.shop',   password: 'wt2got22q',     order: 'WEB202604024REELFKZ' },
   { email: 'rg307927xo@bukvofm.shop',   password: 'sm4i43z',       order: 'WEB202604029T50SBAB' },
   { email: '0gqvqg29pj@nqfffca.shop',   password: 'ca3798d1wb',    order: 'WEB20260402J908DZ8Z' },
+  // ── 新购账号
+  { email: '7sbgxp5lpu@pqubzct.shop',   password: 'mk765ww4i1',    order: 'WEB20260404VFXH7YRT' },
+  { email: 'x4bbzla7bi@fvdcfqr.shop',   password: '3bm0o7lhf7',    order: 'WEB20260404U5BQ20J8' },
+  { email: '2uyk6zvfys@fwqzotl.shop',   password: '471n4odwr3',     order: 'WEB202604036H4L0XR6' },
+  { email: 'yyegiz17p3@nzccmyq.shop',   password: 'e140bjs4k6k',   order: 'WEB20260403F9I062XM' },
+  { email: '99x2iz2zlz@palcbhk.shop',   password: '0b0b5hny45',    order: 'WEB202604038E74QT3N' },
 ];
 
 // ── HTTP helpers ────────────────────────────────────────────────────
@@ -133,15 +139,19 @@ for (const acc of ACCOUNTS) {
       row.status = 'no_data';
     }
 
-    const daily  = row.dailyRemainingPercent  !== null ? `日${row.dailyRemainingPercent}%` : '日—';
-    const weekly = row.weeklyRemainingPercent !== null ? `周${row.weeklyRemainingPercent}%` : '周—';
+    // 转为已用 % 输出（与 Windsurf UI "Daily quota usage: X%" 一致）
+    const dailyUsed   = row.dailyRemainingPercent  !== null ? 100 - row.dailyRemainingPercent  : null;
+    const weeklyUsed  = row.weeklyRemainingPercent !== null ? 100 - row.weeklyRemainingPercent : null;
+    const dailyStr    = dailyUsed  !== null ? `日已用${dailyUsed}%`  : '日—';
+    const weeklyStr   = weeklyUsed !== null ? `周已用${weeklyUsed}%` : '周—';
     const statusIcon = {
       usable:   '✅',
       low:      '⚠️ ',
       exhausted:'❌',
       no_data:  '❓',
     }[row.status] ?? '?';
-    console.log(`${statusIcon} ${daily.padEnd(8)} ${weekly.padEnd(8)} ${row.planName ?? ''}`);
+    const endStr = row.planEnd ? ` 到期${new Date(row.planEnd).toLocaleDateString('zh-CN',{month:'short',day:'numeric'})}` : '';
+    console.log(`${statusIcon} ${dailyStr.padEnd(10)} ${weeklyStr.padEnd(10)} ${(row.planName??'').padEnd(8)}${endStr}`);
   } catch (err) {
     row.status = 'error';
     row.error  = err.message;
