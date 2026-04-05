@@ -614,9 +614,10 @@ window.addEventListener('message', (e: MessageEvent) => {
     if (sendBtn) {
       sendBtn.textContent = '✓ 已发送';
       sendBtn.style.background = 'var(--surface)';
-      sendBtn.style.color = 'var(--success)';
+      sendBtn.style.color = 'var(--accent)';
       sendBtn.style.boxShadow = 'none';
       sendBtn.style.cursor = 'default';
+      sendBtn.style.border = '1px solid var(--border)';
     }
     // Transform shortcut bar into close button
     const shortcutBar = document.querySelector('.shortcut-bar') as HTMLElement | null;

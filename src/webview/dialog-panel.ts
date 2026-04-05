@@ -598,20 +598,20 @@ export class QuoteDialogPanel {
     display: block;
     width: 100%;
     padding: 13px 0;
-    background: linear-gradient(135deg, #22c55e, #06b6a0);
-    color: #fff;
+    background: linear-gradient(180deg, var(--btn-bg), color-mix(in srgb, var(--btn-bg) 80%, #000));
+    color: var(--btn-fg);
     border: none;
-    border-radius: 12px;
+    border-radius: 10px;
     cursor: pointer;
-    font-size: 15px;
+    font-size: 14px;
     font-family: var(--font);
-    font-weight: 700;
-    letter-spacing: 0.04em;
+    font-weight: 600;
+    letter-spacing: 0.02em;
     transition: all 0.18s ease;
-    box-shadow: 0 2px 8px rgba(34,197,94,0.3);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.25);
   }
-  .btn-send:hover { filter: brightness(1.1); box-shadow: 0 4px 16px rgba(34,197,94,0.4); transform: translateY(-1px); }
-  .btn-send:active { transform: translateY(0); filter: brightness(0.95); }
+  .btn-send:hover { background: var(--btn-hover); box-shadow: 0 3px 10px rgba(0,0,0,0.35); transform: translateY(-1px); }
+  .btn-send:active { transform: translateY(0); box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
   .shortcut-bar {
     display: flex;
     justify-content: center;
