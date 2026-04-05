@@ -134,9 +134,14 @@ export async function activate(
       }, {
         enterToSend: settings.enterToSend,
         queueCount: sidebarProvider.getQueueCount(),
+        queueItems: sidebarProvider.getQueueItems(),
         onQueueAdd: (items) => {
           sidebarProvider.addToQueue(items);
-          QuoteDialogPanel.updateQueueCount(sidebarProvider.getQueueCount());
+          QuoteDialogPanel.syncQueueItems(sidebarProvider.getQueueItems());
+        },
+        onQueueReplace: (items) => {
+          sidebarProvider.replaceQueue(items);
+          QuoteDialogPanel.syncQueueItems(sidebarProvider.getQueueItems());
         }
       });
     } catch (err) {

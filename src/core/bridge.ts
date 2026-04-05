@@ -511,12 +511,12 @@ export class QuoteBridge {
           this.dialogCallback(dialogReq);
         }
 
-        // Keep SSE connection alive while waiting (prevents Windsurf MCP client idle timeout)
+        // Keep SSE alive aggressively (5s) — Windsurf MCP client may have its own idle timeout
         const keepAlive = setInterval(() => {
           if (sseClient && !sseClient.writableEnded) {
             sseClient.write(': keepalive\n\n');
           }
-        }, 10_000);
+        }, 5_000);
 
         // Optional auto-timeout (0 = wait indefinitely)
         let timeoutHandle: ReturnType<typeof setTimeout> | undefined;

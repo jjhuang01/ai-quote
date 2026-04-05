@@ -78,11 +78,26 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     return this.responseQueue.length;
   }
 
+  /** Get a copy of current queue items. */
+  public getQueueItems(): string[] {
+    return [...this.responseQueue];
+  }
+
   /** Add items to the queue from external sources (e.g. dialog panel). */
   public addToQueue(items: string[]): void {
     this.responseQueue.push(...items);
+    this.persistAndNotifyQueue();
+  }
+
+  /** Replace entire queue (from dialog panel CRUD operations). */
+  public replaceQueue(items: string[]): void {
+    this.responseQueue.length = 0;
+    this.responseQueue.push(...items);
+    this.persistAndNotifyQueue();
+  }
+
+  private persistAndNotifyQueue(): void {
     void this.context.globalState.update('responseQueue', this.responseQueue);
-    // Notify sidebar webview about queue change
     if (this.view) {
       void this.view.webview.postMessage({ type: 'queueUpdated', value: this.responseQueue });
     }

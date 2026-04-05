@@ -113,9 +113,11 @@ export class QuoteDialogPanel {
   private currentReq?: McpDialogRequest;
   private onSubmit?: DialogSubmitHandler;
   private onQueueAdd?: (items: string[]) => void;
+  private onQueueReplace?: (items: string[]) => void;
   private submitted = false;
   private enterToSend = false;
   private queueCount = 0;
+  private queueItems: string[] = [];
 
   private constructor(
     private readonly extensionUri: vscode.Uri,
@@ -149,6 +151,14 @@ export class QuoteDialogPanel {
         const items = msg.value as string[];
         if (items?.length) this.onQueueAdd?.(items);
       }
+      if (msg.type === 'queueUpdate') {
+        const items = msg.value as string[];
+        if (Array.isArray(items)) {
+          this.queueItems = items;
+          this.queueCount = items.length;
+          this.onQueueReplace?.(items);
+        }
+      }
     });
 
     this.panel.onDidDispose(() => {
@@ -162,13 +172,15 @@ export class QuoteDialogPanel {
     extensionUri: vscode.Uri,
     req: McpDialogRequest,
     onSubmit: DialogSubmitHandler,
-    options?: { enterToSend?: boolean; queueCount?: number; onQueueAdd?: (items: string[]) => void }
+    options?: { enterToSend?: boolean; queueCount?: number; queueItems?: string[]; onQueueAdd?: (items: string[]) => void; onQueueReplace?: (items: string[]) => void }
   ): void {
     if (QuoteDialogPanel.instance) {
       QuoteDialogPanel.instance.onSubmit = onSubmit;
       QuoteDialogPanel.instance.enterToSend = options?.enterToSend ?? false;
       QuoteDialogPanel.instance.queueCount = options?.queueCount ?? 0;
+      QuoteDialogPanel.instance.queueItems = options?.queueItems ?? [];
       QuoteDialogPanel.instance.onQueueAdd = options?.onQueueAdd;
+      QuoteDialogPanel.instance.onQueueReplace = options?.onQueueReplace;
       QuoteDialogPanel.instance.update(req);
       QuoteDialogPanel.instance.panel.reveal(vscode.ViewColumn.One);
       return;
@@ -176,17 +188,27 @@ export class QuoteDialogPanel {
     const inst = new QuoteDialogPanel(extensionUri, onSubmit);
     inst.enterToSend = options?.enterToSend ?? false;
     inst.queueCount = options?.queueCount ?? 0;
+    inst.queueItems = options?.queueItems ?? [];
     inst.onQueueAdd = options?.onQueueAdd;
+    inst.onQueueReplace = options?.onQueueReplace;
     QuoteDialogPanel.instance = inst;
     inst.update(req);
   }
 
-  /** Update queue count display from outside (e.g. when sidebar queue changes). */
+  /** Update queue display from outside (e.g. when sidebar queue changes). */
   public static updateQueueCount(count: number): void {
     if (QuoteDialogPanel.instance) {
       QuoteDialogPanel.instance.queueCount = count;
+    }
+  }
+
+  /** Sync full queue items to dialog webview. */
+  public static syncQueueItems(items: string[]): void {
+    if (QuoteDialogPanel.instance) {
+      QuoteDialogPanel.instance.queueItems = items;
+      QuoteDialogPanel.instance.queueCount = items.length;
       try {
-        void QuoteDialogPanel.instance.panel.webview.postMessage({ type: 'queueCount', value: count });
+        void QuoteDialogPanel.instance.panel.webview.postMessage({ type: 'queueSync', value: items });
       } catch { /* panel may be disposed */ }
     }
   }
@@ -539,6 +561,50 @@ export class QuoteDialogPanel {
   }
   .btn-queue-add:hover { border-color: var(--accent); background: var(--accent-subtle); }
   .queue-hint { font-size: 10px; color: var(--muted); margin-top: 4px; }
+  /* Queue list */
+  .queue-list-container { margin-top: 8px; max-height: 200px; overflow-y: auto; }
+  .queue-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 8px; background: var(--surface);
+    border: 1px solid var(--border-subtle); border-radius: 4px;
+    margin-bottom: 3px; font-size: 12px;
+  }
+  .queue-item-editing { flex-direction: column; align-items: stretch; }
+  .queue-item-content {
+    flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    cursor: default;
+  }
+  .queue-item-actions { display: flex; gap: 2px; flex-shrink: 0; }
+  .queue-act {
+    width: 22px; height: 22px;
+    background: none; border: 1px solid transparent;
+    color: var(--muted); cursor: pointer;
+    font-size: 12px; border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.12s;
+  }
+  .queue-act:hover { color: var(--fg); border-color: var(--border); background: var(--surface-hover); }
+  .queue-act-danger:hover { color: var(--danger); border-color: var(--danger); background: var(--danger-subtle); }
+  .queue-edit-input {
+    width: 100%; min-height: 28px; resize: vertical;
+    background: var(--input-bg); color: var(--input-fg);
+    border: 1px solid var(--input-border); border-radius: 4px;
+    padding: 4px 6px; font-family: var(--font); font-size: 12px;
+    outline: none;
+  }
+  .queue-edit-input:focus { border-color: var(--accent); }
+  .queue-empty { font-size: 11px; color: var(--muted); padding: 6px 0; text-align: center; }
+  .queue-clear-row { text-align: right; padding-top: 4px; }
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--card); color: var(--fg); border: 1px solid var(--border);
+    padding: 6px 16px; border-radius: 6px; font-size: 12px;
+    opacity: 0; pointer-events: none; transition: all 0.25s ease;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 100;
+  }
+  .toast-show { opacity: 1; transform: translateX(-50%) translateY(0); }
 </style>
 </head>
 <body>
@@ -571,7 +637,8 @@ export class QuoteDialogPanel {
       <textarea class="queue-input" id="queueInput" placeholder="输入预设回复… 多条用 --- 分隔" rows="2"></textarea>
       <button class="btn-queue-add" id="queueAddBtn">加入队列</button>
     </div>
-    <div class="queue-hint">提示：队列中的回复会在 LLM 下次调用时自动发送，实现无人值守。多条用 <code>---</code> 分隔。</div>
+    <div class="queue-hint">提示：队列中的回复会在 LLM 下次调用时自动发送，实现无人值守。多条用 <code>---</code> 分隔。Ctrl+Enter 快速添加。</div>
+    <div class="queue-list-container" id="queueList"></div>
   </div>
 </div>
 <script nonce="${nonce}">
@@ -579,7 +646,7 @@ export class QuoteDialogPanel {
     sessionId: ${sessionId},
     enterToSend: ${this.enterToSend ? 'true' : 'false'},
     options: ${safeJsonEmbed(req.options ?? [])},
-    queueCount: ${this.queueCount}
+    queueItems: ${safeJsonEmbed(this.queueItems)}
   };
 </script>
 <script nonce="${nonce}" src="${dialogScriptUri}"></script>

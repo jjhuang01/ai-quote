@@ -21,7 +21,7 @@ interface DialogConfig {
   sessionId: string;
   enterToSend: boolean;
   options: string[];
-  queueCount: number;
+  queueItems: string[];
 }
 
 interface Attachment {
@@ -40,8 +40,11 @@ const cfg: DialogConfig = (window as any).__DIALOG_CONFIG__ ?? {
   sessionId: '',
   enterToSend: false,
   options: [],
-  queueCount: 0,
+  queueItems: [],
 };
+
+// Local queue state (mutable, synced with extension)
+const queue: string[] = [...(cfg.queueItems || [])];
 
 // ── DOM refs ───────────────────────────────────────────────────────
 const $id = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -54,6 +57,7 @@ const attachCount = $id<HTMLSpanElement>('attachCount');
 const queueBadge = $id<HTMLSpanElement>('queueBadge');
 const queueInput = $id<HTMLTextAreaElement>('queueInput');
 const queueAddBtn = $id<HTMLButtonElement>('queueAddBtn');
+const queueListEl = $id<HTMLDivElement>('queueList');
 const copySummaryBtn = $id<HTMLButtonElement>('copySummary');
 
 // Render timestamp
@@ -172,8 +176,24 @@ function addFile(file: File): void {
       });
       renderAttachments();
     });
+  } else {
+    // Unsupported file type — show brief feedback
+    showToast(`不支持的文件类型: ${file.name}`, 2500);
   }
-  // Unsupported types silently ignored
+}
+
+// ── Toast feedback ─────────────────────────────────────────────────
+function showToast(msg: string, duration = 2000): void {
+  let toast = document.getElementById('toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'toast';
+    toast.className = 'toast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.classList.add('toast-show');
+  setTimeout(() => toast!.classList.remove('toast-show'), duration);
 }
 
 // ── Attachment UI ──────────────────────────────────────────────────
@@ -311,28 +331,139 @@ document.querySelectorAll('[data-action]').forEach(btn => {
 });
 
 // ── Queue management ──────────────────────────────────────────────
+
+function syncQueueToExtension(): void {
+  vscode.postMessage({ type: 'queueUpdate', value: [...queue] });
+}
+
+function renderQueue(): void {
+  if (queueBadge) queueBadge.textContent = String(queue.length);
+  if (!queueListEl) return;
+  if (queue.length === 0) {
+    queueListEl.innerHTML = '<div class="queue-empty">队列为空</div>';
+    return;
+  }
+  queueListEl.innerHTML = '';
+  queue.forEach((item, i) => {
+    const row = document.createElement('div');
+    row.className = 'queue-item';
+    row.setAttribute('data-idx', String(i));
+    // Content preview
+    const content = document.createElement('div');
+    content.className = 'queue-item-content';
+    content.textContent = item.length > 60 ? item.slice(0, 60) + '…' : item;
+    content.title = item; // hover to see full content
+    row.appendChild(content);
+    // Action buttons
+    const actions = document.createElement('div');
+    actions.className = 'queue-item-actions';
+    if (i > 0) {
+      const upBtn = document.createElement('button');
+      upBtn.className = 'queue-act'; upBtn.textContent = '↑'; upBtn.title = '上移';
+      upBtn.onclick = () => { [queue[i - 1], queue[i]] = [queue[i], queue[i - 1]]; syncQueueToExtension(); renderQueue(); };
+      actions.appendChild(upBtn);
+    }
+    if (i < queue.length - 1) {
+      const downBtn = document.createElement('button');
+      downBtn.className = 'queue-act'; downBtn.textContent = '↓'; downBtn.title = '下移';
+      downBtn.onclick = () => { [queue[i], queue[i + 1]] = [queue[i + 1], queue[i]]; syncQueueToExtension(); renderQueue(); };
+      actions.appendChild(downBtn);
+    }
+    const editBtn = document.createElement('button');
+    editBtn.className = 'queue-act'; editBtn.textContent = '✎'; editBtn.title = '编辑';
+    editBtn.onclick = () => startEditQueueItem(i);
+    actions.appendChild(editBtn);
+    const delBtn = document.createElement('button');
+    delBtn.className = 'queue-act queue-act-danger'; delBtn.textContent = '×'; delBtn.title = '删除';
+    delBtn.onclick = () => { queue.splice(i, 1); syncQueueToExtension(); renderQueue(); };
+    actions.appendChild(delBtn);
+    row.appendChild(actions);
+    queueListEl.appendChild(row);
+  });
+  // Clear all button
+  if (queue.length > 1) {
+    const clearRow = document.createElement('div');
+    clearRow.className = 'queue-clear-row';
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'queue-act queue-act-danger'; clearBtn.textContent = '清空全部';
+    clearBtn.onclick = () => { queue.length = 0; syncQueueToExtension(); renderQueue(); };
+    clearRow.appendChild(clearBtn);
+    queueListEl.appendChild(clearRow);
+  }
+}
+
+function startEditQueueItem(idx: number): void {
+  if (!queueListEl) return;
+  const row = queueListEl.querySelector(`[data-idx="${idx}"]`);
+  if (!row) return;
+  row.innerHTML = '';
+  row.className = 'queue-item queue-item-editing';
+  const ta = document.createElement('textarea');
+  ta.className = 'queue-edit-input';
+  ta.value = queue[idx];
+  ta.rows = 2;
+  row.appendChild(ta);
+  const btnRow = document.createElement('div');
+  btnRow.className = 'queue-item-actions';
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'queue-act'; saveBtn.textContent = '✓'; saveBtn.title = '保存';
+  saveBtn.onclick = () => {
+    const v = ta.value.trim();
+    if (v) { queue[idx] = v; syncQueueToExtension(); }
+    renderQueue();
+  };
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'queue-act'; cancelBtn.textContent = '✗'; cancelBtn.title = '取消';
+  cancelBtn.onclick = () => renderQueue();
+  btnRow.appendChild(saveBtn);
+  btnRow.appendChild(cancelBtn);
+  row.appendChild(btnRow);
+  ta.focus();
+}
+
 if (queueAddBtn && queueInput) {
   queueAddBtn.addEventListener('click', () => {
     const raw = queueInput.value.trim();
     if (!raw) return;
-    // Split by --- on its own line
     const SEPARATOR = /\n---\n|\n---$|^---\n/;
     const items = raw.split(SEPARATOR).map(s => s.trim()).filter(Boolean);
     if (items.length === 0) return;
-    vscode.postMessage({ type: 'queueAdd', value: items });
+    queue.push(...items);
     queueInput.value = '';
-    const cur = parseInt(queueBadge.textContent || '0', 10) || 0;
-    queueBadge.textContent = String(cur + items.length);
+    syncQueueToExtension();
+    renderQueue();
+    showToast(`已添加 ${items.length} 条到队列`);
+  });
+
+  // Ctrl+Enter in queue input to add
+  queueInput.addEventListener('keydown', (e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      queueAddBtn.click();
+    }
   });
 }
 
-// Listen for queueCount updates from extension
+// Listen for queue sync + other messages from extension
 window.addEventListener('message', (e: MessageEvent) => {
   const msg = e.data;
-  if (msg && msg.type === 'queueCount' && queueBadge) {
+  if (!msg) return;
+  if (msg.type === 'queueSync') {
+    const items = msg.value as string[];
+    if (Array.isArray(items)) {
+      queue.length = 0;
+      queue.push(...items);
+      renderQueue();
+    }
+  }
+  // Legacy: queueCount (if sidebar only sends count)
+  if (msg.type === 'queueCount' && queueBadge) {
     queueBadge.textContent = String(msg.value || 0);
   }
 });
+
+// Initial render
+renderQueue();
 
 // ── Focus textarea ────────────────────────────────────────────────
 setTimeout(() => { replyEl?.focus(); }, 100);
