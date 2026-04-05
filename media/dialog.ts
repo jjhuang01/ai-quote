@@ -154,26 +154,32 @@ function send(response: string): void {
 
 function submitOption(idx: string): void {
   const text = cfg.options[Number(idx)] || '';
+  if (dialogResolved) {
+    if (text) { queue.push(text); syncQueueToExtension(); renderQueue(); showToast('已加入队列'); }
+    return;
+  }
   send(text);
 }
 
 function addToQueue(): void {
   const text = replyEl.value.trim();
+  const hasImages = attachments.some(a => a.kind === 'image');
   let fileCtx = '';
   attachments.filter(a => a.kind === 'file').forEach(a => {
     const content = a.fullContent || a.preview || '';
     if (content) fileCtx += '\n\n--- ' + (a.filename || 'file') + ' ---\n' + content;
   });
-  let content = (text || '') + fileCtx;
-  if (!content.trim() && attachments.length === 0) return;
-  if (!content.trim()) content = '(attachment)';
-  queue.push(content.trim());
+  const combined = (text || '') + fileCtx;
+  if (!combined.trim() && !hasImages) return;
+  const queued = combined.trim() || '(attachment)';
+  if (hasImages) showToast('图片无法入队列，仅文字内容已加入', 2500);
+  queue.push(queued);
   replyEl.value = '';
   attachments.length = 0;
   renderAttachments();
   syncQueueToExtension();
   renderQueue();
-  showToast('已加入队列 · 等待 LLM 就绪');
+  if (!hasImages) showToast('已加入队列 · 等待 LLM 就绪');
 }
 
 function submitCustom(): void {
@@ -471,7 +477,7 @@ replyEl.addEventListener('keydown', (e: KeyboardEvent) => {
   }
   if (e.key === 'Escape') {
     e.preventDefault();
-    dismiss();
+    if (dialogResolved) { vscode.postMessage({ type: 'dialogClose' }); } else { dismiss(); }
   }
 });
 

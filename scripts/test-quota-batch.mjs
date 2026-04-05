@@ -185,18 +185,20 @@ for (const acc of ACCOUNTS) {
 }
 
 // ── Summary ────────────────────────────────────────────────────────
-const usable   = results.filter(r => r.status === 'usable').length;
-const low      = results.filter(r => r.status === 'low').length;
+const usable    = results.filter(r => r.status === 'usable').length;
+const low       = results.filter(r => r.status === 'low').length;
 const exhausted = results.filter(r => r.status === 'exhausted').length;
-const errors   = results.filter(r => r.status === 'error').length;
+const expired   = results.filter(r => r.status === 'expired').length;
+const errors    = results.filter(r => r.status === 'error').length;
 
 console.log('\n' + '─'.repeat(72));
 console.log(`\n📊 结果汇总:`);
-console.log(`   ✅ 可用 (>10%):   ${usable} 个`);
-console.log(`   ⚠️  低余额 (≤10%): ${low} 个`);
-console.log(`   ❌ 已耗尽 (0%):   ${exhausted} 个`);
-console.log(`   💥 获取失败:      ${errors} 个`);
-console.log(`   ─ 总计:          ${results.length} 个\n`);
+console.log(`   ✅ 可用 (>10%):       ${usable} 个`);
+console.log(`   ⚠️  低余额 (≤10%):    ${low} 个`);
+console.log(`   ❌ 已耗尽 (quota=0):  ${exhausted} 个`);
+console.log(`   � 已过期 (planEnd):  ${expired} 个`);
+console.log(`   � 获取失败:          ${errors} 个`);
+console.log(`   ─ 总计:              ${results.length} 个\n`);
 
 // ── Write JSON log ─────────────────────────────────────────────────
 const dateStr = new Date().toISOString().slice(0, 10);
@@ -206,7 +208,7 @@ const output = {
   generatedAt: new Date().toISOString(),
   source: 'orders_2026-04-04.txt (first 10 windsurf trial accounts)',
   method: 'Channel B: Firebase signIn → GetPlanStatus (web-backend.windsurf.com)',
-  summary: { usable, low, exhausted, errors, total: results.length },
+  summary: { usable, low, exhausted, expired, errors, total: results.length },
   results,
 };
 await fs.writeFile(outPath, JSON.stringify(output, null, 2), 'utf8');
