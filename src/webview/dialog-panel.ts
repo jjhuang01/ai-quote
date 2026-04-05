@@ -785,28 +785,23 @@ export class QuoteDialogPanel {
   }
   .queue-edit-input:focus { border-color: var(--accent); }
   .queue-empty { font-size: 11px; color: var(--muted); padding: 4px 0; text-align: center; }
-  .queue-add-row {
-    display: flex; gap: 4px; margin-top: 6px;
-    border-top: 1px solid var(--border-subtle); padding-top: 6px;
-  }
-  .queue-add-input {
-    flex: 1; min-height: 24px; resize: none;
-    background: var(--input-bg); color: var(--input-fg);
-    border: 1px solid var(--input-border); border-radius: 4px;
-    padding: 4px 8px; font-family: var(--font); font-size: 11px;
-    line-height: 1.4; outline: none;
-  }
-  .queue-add-input:focus { border-color: var(--accent); }
-  .queue-add-input::placeholder { color: var(--muted); }
-  .queue-add-btn {
-    width: 28px; height: 28px;
-    background: var(--surface); color: var(--fg);
-    border: 1px solid var(--border); border-radius: 4px;
-    cursor: pointer; font-size: 16px; line-height: 1;
-    display: flex; align-items: center; justify-content: center;
+  /* Inline close button + sent status (after dialogResolved) */
+  .btn-close-inline {
+    padding: 1px 8px;
+    background: none;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: var(--font);
+    line-height: 1.6;
     transition: all 0.12s;
+    flex-shrink: 0;
   }
-  .queue-add-btn:hover { border-color: var(--accent); background: var(--accent-subtle); }
+  .btn-close-inline:hover { color: var(--fg); border-color: var(--fg); }
+  .sent-status { font-size: 11px; color: var(--success); flex: 1; text-align: left; }
+  .sent-bar { justify-content: flex-start; gap: 8px; }
   /* Toast */
   .toast {
     position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%) translateY(20px);
@@ -868,13 +863,9 @@ export class QuoteDialogPanel {
       </span>
     </div>
     <div class="queue-inline-list" id="queueList"></div>
-    <div class="queue-add-row">
-      <textarea class="queue-add-input" id="queueInput" placeholder="添加到队列… 多条用 --- 分隔" rows="1"></textarea>
-      <button class="queue-add-btn" id="queueAddBtn">+</button>
-    </div>
   </div>
   <div class="input-section">
-    <div class="input-label">✏ 反馈内容 <span class="input-hint">拖拽文件/图片到输入框 · Ctrl+V 粘贴</span></div>
+    <div class="input-label">✏ 反馈内容 <span class="input-hint">拖拽文件/图片 · Ctrl+V 粘贴 · 发送后可继续加入队列</span></div>
     <div class="textarea-wrap">
       <textarea id="reply" placeholder="输入反馈或指令..." autofocus></textarea>
       <span class="char-count" id="charCount">0 字</span>

@@ -56,9 +56,10 @@ const dropZone = $id<HTMLDivElement>('dropZone');
 const attachmentList = $id<HTMLDivElement>('attachmentList');
 const attachCount = $id<HTMLSpanElement>('attachCount');
 const queueBadge = $id<HTMLSpanElement>('queueBadge');
-const queueInput = $id<HTMLTextAreaElement>('queueInput');
-const queueAddBtn = $id<HTMLButtonElement>('queueAddBtn');
 const queueListEl = $id<HTMLDivElement>('queueList');
+
+// 对话已被 LLM 接收 — 后续发送走队列
+let dialogResolved = false;
 const copySummaryBtn = $id<HTMLButtonElement>('copySummary');
 
 // Render timestamp
@@ -156,7 +157,27 @@ function submitOption(idx: string): void {
   send(text);
 }
 
+function addToQueue(): void {
+  const text = replyEl.value.trim();
+  let fileCtx = '';
+  attachments.filter(a => a.kind === 'file').forEach(a => {
+    const content = a.fullContent || a.preview || '';
+    if (content) fileCtx += '\n\n--- ' + (a.filename || 'file') + ' ---\n' + content;
+  });
+  let content = (text || '') + fileCtx;
+  if (!content.trim() && attachments.length === 0) return;
+  if (!content.trim()) content = '(attachment)';
+  queue.push(content.trim());
+  replyEl.value = '';
+  attachments.length = 0;
+  renderAttachments();
+  syncQueueToExtension();
+  renderQueue();
+  showToast('已加入队列 · 等待 LLM 就绪');
+}
+
 function submitCustom(): void {
+  if (dialogResolved) { addToQueue(); return; }
   const text = replyEl.value.trim();
   if (!text && attachments.length === 0) return;
   let fileCtx = '';
@@ -570,71 +591,46 @@ if (queueClearAllBtn) {
   });
 }
 
-if (queueAddBtn && queueInput) {
-  queueAddBtn.addEventListener('click', () => {
-    const raw = queueInput.value.trim();
-    if (!raw) return;
-    const SEPARATOR = /\n---\n|\n---$|^---\n/;
-    const items = raw.split(SEPARATOR).map(s => s.trim()).filter(Boolean);
-    if (items.length === 0) return;
-    queue.push(...items);
-    queueInput.value = '';
-    syncQueueToExtension();
-    renderQueue();
-    showToast(`已添加 ${items.length} 条到队列`);
-  });
-
-  // Ctrl+Enter in queue input to add
-  queueInput.addEventListener('keydown', (e: KeyboardEvent) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      queueAddBtn.click();
-    }
-  });
-}
-
 // Listen for messages from extension
 window.addEventListener('message', (e: MessageEvent) => {
   const msg = e.data;
   if (!msg) return;
-  // Dialog resolved — show "sent" confirmation, keep panel open for user to close
+  // Dialog resolved — keep input active for queue, show small status row
   if (msg.type === 'dialogResolved') {
+    dialogResolved = true;
     const header = document.querySelector('.header-icon');
     const title = document.querySelector('.header-title');
     if (header) header.textContent = '✓';
     if (title) title.textContent = '已发送 · 等待 LLM 处理';
-    // Disable input area
-    if (replyEl) { replyEl.disabled = true; replyEl.placeholder = '已发送'; }
-    // Disable send button and option buttons
-    document.querySelectorAll('.btn-send, .opt-btn').forEach(btn => {
-      (btn as HTMLButtonElement).disabled = true;
-      (btn as HTMLButtonElement).style.opacity = '0.5';
-    });
+    // Change send button to queue mode (don't disable)
     const sendBtn = document.querySelector('.btn-send') as HTMLButtonElement | null;
     if (sendBtn) {
-      sendBtn.textContent = '✓ 已发送';
+      sendBtn.textContent = '➕ 加入队列';
       sendBtn.style.background = 'var(--surface)';
-      sendBtn.style.color = 'var(--accent)';
+      sendBtn.style.color = 'var(--fg)';
       sendBtn.style.boxShadow = 'none';
-      sendBtn.style.cursor = 'default';
       sendBtn.style.border = '1px solid var(--border)';
+      sendBtn.style.fontSize = '13px';
+      sendBtn.style.padding = '10px 0';
+      sendBtn.style.fontWeight = '500';
     }
-    // Transform shortcut bar into close button
+    // Transform shortcut-bar into small inline "已发送 [关闭]" row
     const shortcutBar = document.querySelector('.shortcut-bar') as HTMLElement | null;
     if (shortcutBar) {
       shortcutBar.innerHTML = '';
+      shortcutBar.classList.add('sent-bar');
+      const status = document.createElement('span');
+      status.className = 'sent-status';
+      status.textContent = '✓ 已发送 · 等待 LLM 处理';
       const closeBtn = document.createElement('button');
-      closeBtn.className = 'btn-send';
+      closeBtn.className = 'btn-close-inline';
       closeBtn.textContent = '关闭';
-      closeBtn.style.background = 'var(--surface)';
-      closeBtn.style.color = 'var(--fg)';
-      closeBtn.style.boxShadow = 'none';
-      closeBtn.style.border = '1px solid var(--border)';
-      closeBtn.style.padding = '8px 0';
-      closeBtn.style.fontSize = '13px';
       closeBtn.addEventListener('click', () => vscode.postMessage({ type: 'dialogClose' }));
+      shortcutBar.appendChild(status);
       shortcutBar.appendChild(closeBtn);
     }
+    // Update textarea placeholder to guide user
+    if (replyEl) replyEl.placeholder = '继续输入，发送后加入队列...';
     return;
   }
   if (msg.type === 'queueSync') {
