@@ -730,69 +730,52 @@ export class QuoteDialogPanel {
   .summary-wrap:hover .copy-btn { opacity: 1; }
   .copy-btn:hover { color: var(--fg); border-color: var(--accent); background: var(--accent-subtle); }
   .copy-btn.copied { color: var(--success); border-color: var(--success); }
-  /* Queue section */
-  .queue-section {
-    background: var(--card);
+  /* Queue inline */
+  .queue-inline {
     border: 1px solid var(--border-subtle);
     border-radius: 8px;
-    padding: 10px 14px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--card) 60%, var(--bg));
   }
-  .queue-header {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 12px; font-weight: 600; margin-bottom: 8px;
+  .queue-inline-header {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12px; font-weight: 600; margin-bottom: 4px;
   }
-  .queue-badge {
-    display: inline-flex; align-items: center; justify-content: center;
-    min-width: 18px; height: 18px; padding: 0 5px;
-    background: var(--accent); color: var(--btn-fg);
-    border-radius: 9px; font-size: 10px; font-weight: 700;
+  .queue-inline-actions { display: flex; gap: 4px; }
+  .queue-toggle, .queue-clear-all {
+    background: none; border: none; cursor: pointer;
+    font-size: 12px; color: var(--muted); padding: 2px;
+    border-radius: 3px; transition: color 0.12s;
   }
-  .queue-input-row { display: flex; gap: 6px; }
-  .queue-input {
-    flex: 1; min-height: 32px; resize: none;
-    background: var(--input-bg); color: var(--input-fg);
-    border: 1px solid var(--input-border); border-radius: 6px;
-    padding: 6px 8px; font-family: var(--font); font-size: 12px;
-    line-height: 1.4; outline: none;
-    transition: border-color 0.15s;
-  }
-  .queue-input:focus { border-color: var(--accent); }
-  .queue-input::placeholder { color: var(--muted); }
-  .btn-queue-add {
-    padding: 4px 12px; white-space: nowrap;
-    background: var(--surface); color: var(--fg);
-    border: 1px solid var(--border); border-radius: 6px;
-    cursor: pointer; font-size: 11px; font-family: var(--font);
-    transition: all 0.15s;
-  }
-  .btn-queue-add:hover { border-color: var(--accent); background: var(--accent-subtle); }
-  .queue-hint { font-size: 10px; color: var(--muted); margin-top: 4px; }
-  /* Queue list */
-  .queue-list-container { margin-top: 8px; max-height: 200px; overflow-y: auto; }
+  .queue-toggle:hover { color: var(--fg); }
+  .queue-clear-all:hover { color: var(--danger); }
+  .queue-inline-list { max-height: 160px; overflow-y: auto; }
+  .queue-inline-list.collapsed { display: none; }
   .queue-item {
     display: flex; align-items: center; gap: 6px;
-    padding: 5px 8px; background: var(--surface);
-    border: 1px solid var(--border-subtle); border-radius: 4px;
-    margin-bottom: 3px; font-size: 12px;
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 12px;
   }
-  .queue-item-editing { flex-direction: column; align-items: stretch; }
+  .queue-item:last-child { border-bottom: none; }
+  .queue-item-num { color: var(--muted); font-size: 11px; flex-shrink: 0; min-width: 18px; }
   .queue-item-content {
     flex: 1; min-width: 0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     cursor: default;
   }
   .queue-item-actions { display: flex; gap: 2px; flex-shrink: 0; }
+  .queue-item-editing { flex-direction: column; align-items: stretch; padding: 6px; }
   .queue-act {
-    width: 22px; height: 22px;
-    background: none; border: 1px solid transparent;
+    width: 20px; height: 20px;
+    background: none; border: none;
     color: var(--muted); cursor: pointer;
-    font-size: 12px; border-radius: 3px;
+    font-size: 11px; border-radius: 3px;
     display: flex; align-items: center; justify-content: center;
     transition: all 0.12s;
   }
-  .queue-act:hover { color: var(--fg); border-color: var(--border); background: var(--surface-hover); }
-  .queue-act-danger:hover { color: var(--danger); border-color: var(--danger); background: var(--danger-subtle); }
+  .queue-act:hover { color: var(--fg); }
+  .queue-act-danger:hover { color: var(--danger); }
   .queue-edit-input {
     width: 100%; min-height: 28px; resize: vertical;
     background: var(--input-bg); color: var(--input-fg);
@@ -801,8 +784,29 @@ export class QuoteDialogPanel {
     outline: none;
   }
   .queue-edit-input:focus { border-color: var(--accent); }
-  .queue-empty { font-size: 11px; color: var(--muted); padding: 6px 0; text-align: center; }
-  .queue-clear-row { text-align: right; padding-top: 4px; }
+  .queue-empty { font-size: 11px; color: var(--muted); padding: 4px 0; text-align: center; }
+  .queue-add-row {
+    display: flex; gap: 4px; margin-top: 6px;
+    border-top: 1px solid var(--border-subtle); padding-top: 6px;
+  }
+  .queue-add-input {
+    flex: 1; min-height: 24px; resize: none;
+    background: var(--input-bg); color: var(--input-fg);
+    border: 1px solid var(--input-border); border-radius: 4px;
+    padding: 4px 8px; font-family: var(--font); font-size: 11px;
+    line-height: 1.4; outline: none;
+  }
+  .queue-add-input:focus { border-color: var(--accent); }
+  .queue-add-input::placeholder { color: var(--muted); }
+  .queue-add-btn {
+    width: 28px; height: 28px;
+    background: var(--surface); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 4px;
+    cursor: pointer; font-size: 16px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.12s;
+  }
+  .queue-add-btn:hover { border-color: var(--accent); background: var(--accent-subtle); }
   /* Toast */
   .toast {
     position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%) translateY(20px);
@@ -855,6 +859,20 @@ export class QuoteDialogPanel {
     <button class="copy-btn" id="copySummary" title="复制 LLM 摘要">复制</button>
   </div>
   ${optionBtns ? `<div class="options">${optionBtns}</div>` : ''}
+  <div class="queue-inline" id="queueSection">
+    <div class="queue-inline-header">
+      <span>📋 发送队列 (<span id="queueBadge">${this.queueCount}</span>)</span>
+      <span class="queue-inline-actions">
+        <button class="queue-toggle" id="queueToggle" title="展开/收起">▼</button>
+        <button class="queue-clear-all" id="queueClearAll" title="清空全部">🗑</button>
+      </span>
+    </div>
+    <div class="queue-inline-list" id="queueList"></div>
+    <div class="queue-add-row">
+      <textarea class="queue-add-input" id="queueInput" placeholder="添加到队列… 多条用 --- 分隔" rows="1"></textarea>
+      <button class="queue-add-btn" id="queueAddBtn">+</button>
+    </div>
+  </div>
   <div class="input-section">
     <div class="input-label">✏ 反馈内容 <span class="input-hint">拖拽文件/图片到输入框 · Ctrl+V 粘贴</span></div>
     <div class="textarea-wrap">
@@ -868,15 +886,6 @@ export class QuoteDialogPanel {
   <button class="btn-send" data-action="submitCustom">✅ 发送</button>
   <div class="shortcut-bar">
     <kbd>${this.enterToSend ? 'Enter' : 'Ctrl+Enter'}</kbd> 发送 <span class="shortcut-sep">|</span> <kbd>Esc</kbd> 结束
-  </div>
-  <div class="queue-section">
-    <div class="queue-header">无人值守队列 <span class="queue-badge" id="queueBadge">${this.queueCount}</span></div>
-    <div class="queue-input-row">
-      <textarea class="queue-input" id="queueInput" placeholder="输入预设回复… 多条用 --- 分隔" rows="2"></textarea>
-      <button class="btn-queue-add" id="queueAddBtn">加入队列</button>
-    </div>
-    <div class="queue-hint">提示：队列中的回复会在 LLM 下次调用时自动发送，实现无人值守。多条用 <code>---</code> 分隔。Ctrl+Enter 快速添加。</div>
-    <div class="queue-list-container" id="queueList"></div>
   </div>
 </div>
 <script nonce="${nonce}">

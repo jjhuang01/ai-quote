@@ -495,27 +495,20 @@ function renderQueue(): void {
     const row = document.createElement('div');
     row.className = 'queue-item';
     row.setAttribute('data-idx', String(i));
+    // Number label
+    const num = document.createElement('span');
+    num.className = 'queue-item-num';
+    num.textContent = `${i + 1}.`;
+    row.appendChild(num);
     // Content preview
     const content = document.createElement('div');
     content.className = 'queue-item-content';
-    content.textContent = item.length > 60 ? item.slice(0, 60) + '…' : item;
-    content.title = item; // hover to see full content
+    content.textContent = item.length > 80 ? item.slice(0, 80) + '…' : item;
+    content.title = item;
     row.appendChild(content);
-    // Action buttons
+    // Action buttons (edit + delete only, compact)
     const actions = document.createElement('div');
     actions.className = 'queue-item-actions';
-    if (i > 0) {
-      const upBtn = document.createElement('button');
-      upBtn.className = 'queue-act'; upBtn.textContent = '↑'; upBtn.title = '上移';
-      upBtn.onclick = () => { [queue[i - 1], queue[i]] = [queue[i], queue[i - 1]]; syncQueueToExtension(); renderQueue(); };
-      actions.appendChild(upBtn);
-    }
-    if (i < queue.length - 1) {
-      const downBtn = document.createElement('button');
-      downBtn.className = 'queue-act'; downBtn.textContent = '↓'; downBtn.title = '下移';
-      downBtn.onclick = () => { [queue[i], queue[i + 1]] = [queue[i + 1], queue[i]]; syncQueueToExtension(); renderQueue(); };
-      actions.appendChild(downBtn);
-    }
     const editBtn = document.createElement('button');
     editBtn.className = 'queue-act'; editBtn.textContent = '✎'; editBtn.title = '编辑';
     editBtn.onclick = () => startEditQueueItem(i);
@@ -527,16 +520,6 @@ function renderQueue(): void {
     row.appendChild(actions);
     queueListEl.appendChild(row);
   });
-  // Clear all button
-  if (queue.length > 1) {
-    const clearRow = document.createElement('div');
-    clearRow.className = 'queue-clear-row';
-    const clearBtn = document.createElement('button');
-    clearBtn.className = 'queue-act queue-act-danger'; clearBtn.textContent = '清空全部';
-    clearBtn.onclick = () => { queue.length = 0; syncQueueToExtension(); renderQueue(); };
-    clearRow.appendChild(clearBtn);
-    queueListEl.appendChild(clearRow);
-  }
 }
 
 function startEditQueueItem(idx: number): void {
@@ -566,6 +549,25 @@ function startEditQueueItem(idx: number): void {
   btnRow.appendChild(cancelBtn);
   row.appendChild(btnRow);
   ta.focus();
+}
+
+// ── Queue toggle & clear all ────────────────────────────────────
+const queueToggleBtn = document.getElementById('queueToggle');
+const queueClearAllBtn = document.getElementById('queueClearAll');
+if (queueToggleBtn && queueListEl) {
+  queueToggleBtn.addEventListener('click', () => {
+    queueListEl.classList.toggle('collapsed');
+    queueToggleBtn.textContent = queueListEl.classList.contains('collapsed') ? '▶' : '▼';
+  });
+}
+if (queueClearAllBtn) {
+  queueClearAllBtn.addEventListener('click', () => {
+    if (queue.length === 0) return;
+    queue.length = 0;
+    syncQueueToExtension();
+    renderQueue();
+    showToast('队列已清空');
+  });
 }
 
 if (queueAddBtn && queueInput) {
