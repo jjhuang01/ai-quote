@@ -28,10 +28,12 @@ Thumbs.db
 
 # IDE
 .idea/
+.claude/
 *.swp
 *.swo
 .windsurfrules
 analyze-original.js
+tmp/
 
 # TypeScript cache
 *.tsbuildinfo

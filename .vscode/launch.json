@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run AI Echo Rebuild",
+      "name": "Run Quote",
       "type": "extensionHost",
       "request": "launch",
       "runtimeExecutable": "${execPath}",
@@ -10,13 +10,11 @@
         "--disable-extensions",
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],
-      "outFiles": [
-        "${workspaceFolder}/dist/**/*.js"
-      ],
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
       "preLaunchTask": "npm: build"
     },
     {
-      "name": "Run AI Echo Rebuild Tests",
+      "name": "Run Quote Tests",
       "type": "extensionHost",
       "request": "launch",
       "runtimeExecutable": "${execPath}",
@@ -25,9 +23,7 @@
         "--extensionDevelopmentPath=${workspaceFolder}",
         "--extensionTestsPath=${workspaceFolder}/dist-test/tests/integration"
       ],
-      "outFiles": [
-        "${workspaceFolder}/dist-test/**/*.js"
-      ],
+      "outFiles": ["${workspaceFolder}/dist-test/**/*.js"],
       "preLaunchTask": "npm: compile-tests"
     }
   ]

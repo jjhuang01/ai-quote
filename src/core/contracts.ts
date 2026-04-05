@@ -1,4 +1,4 @@
-export interface EchoBridgeMessage {
+export interface QuoteMessage {
   id: string;
   source: 'extension' | 'webview' | 'bridge' | 'test';
   text: string;
@@ -6,13 +6,13 @@ export interface EchoBridgeMessage {
   metadata?: Record<string, unknown>;
 }
 
-export interface EchoBridgeEvent<T = unknown> {
+export interface QuoteEvent<T = unknown> {
   type: string;
   timestamp: string;
   payload: T;
 }
 
-export interface EchoBridgeStatus {
+export interface QuoteStatus {
   running: boolean;
   port: number;
   toolName: string;
@@ -21,6 +21,27 @@ export interface EchoBridgeStatus {
   sseClientCount: number;
   autoConfiguredPaths: string[];
   lastConfiguredAt?: string;
+  pendingDialog?: McpDialogRequest;
+}
+
+export interface McpDialogRequest {
+  id: number | string;
+  sessionId: string;
+  summary: string;
+  options?: string[];
+  isMarkdown?: boolean;
+  receivedAt: string;
+}
+
+export interface ImageAttachment {
+  data: string;        // base64 encoded (without data URI prefix)
+  media_type: string;  // e.g. 'image/png', 'image/jpeg'
+  filename?: string;
+}
+
+export interface DialogResponse {
+  text: string;
+  images: ImageAttachment[];
 }
 
 export interface RemoteApiResponse<T = unknown> {
@@ -48,6 +69,7 @@ export interface FirebaseLoginRequest {
 
 export interface McpServerConfig {
   url: string;
+  timeout?: number;
 }
 
 export interface McpConfigFile {
@@ -178,6 +200,8 @@ export interface PluginSettings {
   soundAlert: 'none' | 'tada' | 'ding' | 'pop' | 'chime';
   // 配额获取
   firebaseApiKey: string;          // Codeium Firebase Web API Key (用于通道B)
+  // MCP 清理白名单：这些名称的 MCP 服务不会被清理工具移除
+  mcpWhitelist: string[];
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -192,7 +216,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   showUserPrompt: false,
   historyLimit: 30,
   soundAlert: 'tada',
-  firebaseApiKey: ''
+  firebaseApiKey: '',
+  mcpWhitelist: ['qdrant', 'pencil', 'fetch', 'context7', 'playwright', 'repomix', 'toon']
 };
 
 // Shortcut (快捷短语)
@@ -260,7 +285,7 @@ export interface QuotaSnapshot {
 
 // Webview bootstrap data
 export interface WebviewBootstrap {
-  status: EchoBridgeStatus;
+  status: QuoteStatus;
   history: HistoryItem[];
   accounts: WindsurfAccount[];
   shortcuts: ShortcutItem[];
@@ -272,6 +297,7 @@ export interface WebviewBootstrap {
   licenseInfo?: LicenseInfo;
   quotaSnapshots: QuotaSnapshot[];
   quotaFetching?: boolean;
+  responseQueue?: string[];
 }
 
 export interface LicenseInfo {
@@ -307,3 +333,8 @@ export interface WebviewState {
   searchQuery: string;
   isWaiting: boolean;
 }
+
+// Backward-compat aliases
+export type EchoBridgeMessage = QuoteMessage;
+export type EchoBridgeEvent<T = unknown> = QuoteEvent<T>;
+export type EchoBridgeStatus = QuoteStatus;

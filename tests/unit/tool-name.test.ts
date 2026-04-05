@@ -2,11 +2,22 @@ import { describe, expect, it, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { createId, generateToolName, loadOrCreateToolName, rotateToolName } from '../../src/utils/tool-name';
+import { createId, generateToolName, isValidToolName, loadOrCreateToolName, rotateToolName } from '../../src/utils/tool-name';
 
 describe('tool-name utilities', () => {
-  it('generates a windsurf_endless tool name', () => {
-    expect(generateToolName()).toMatch(/^windsurf_endless_[a-f0-9]{8}$/);
+  it('generates a neutral tool name with pattern <4alpha>_<hex8>', () => {
+    const name = generateToolName();
+    expect(name).toMatch(/^[a-z]{4}_[a-f0-9]{8}$/);
+    expect(isValidToolName(name)).toBe(true);
+  });
+
+  it('does not contain windsurf or endless in generated name', () => {
+    // Run multiple times to ensure no accidental matches
+    for (let i = 0; i < 10; i++) {
+      const name = generateToolName();
+      expect(name).not.toContain('windsurf');
+      expect(name).not.toContain('endless');
+    }
   });
 
   it('generates unique ids with prefix', () => {
@@ -26,7 +37,7 @@ describe('loadOrCreateToolName', () => {
   it('首次调用：生成新名称并写入文件', async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tool-name-test-'));
     const name = await loadOrCreateToolName(tmpDir);
-    expect(name).toMatch(/^windsurf_endless_[a-f0-9]{8}$/);
+    expect(name).toMatch(/^[a-z]{4}_[a-f0-9]{8}$/);
     const saved = await fs.readFile(path.join(tmpDir, 'toolName.txt'), 'utf8');
     expect(saved).toBe(name);
   });
@@ -38,18 +49,27 @@ describe('loadOrCreateToolName', () => {
     expect(second).toBe(first);
   });
 
-  it('文件内容前缀非 windsurf_endless_：重新生成', async () => {
+  it('文件内容不符合新格式：重新生成', async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tool-name-test-'));
     await fs.writeFile(path.join(tmpDir, 'toolName.txt'), 'old_invalid_name', 'utf8');
     const name = await loadOrCreateToolName(tmpDir);
-    expect(name).toMatch(/^windsurf_endless_[a-f0-9]{8}$/);
+    expect(name).toMatch(/^[a-z]{4}_[a-f0-9]{8}$/);
+  });
+
+  it('旧格式 windsurf_endless_ 名称：重新生成', async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tool-name-test-'));
+    await fs.writeFile(path.join(tmpDir, 'toolName.txt'), 'windsurf_endless_aabbccdd', 'utf8');
+    const name = await loadOrCreateToolName(tmpDir);
+    expect(name).toMatch(/^[a-z]{4}_[a-f0-9]{8}$/);
+    // Must NOT preserve the old windsurf_endless_ format
+    expect(name).not.toContain('windsurf');
   });
 
   it('文件内容为空字符串：重新生成', async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tool-name-test-'));
     await fs.writeFile(path.join(tmpDir, 'toolName.txt'), '   ', 'utf8');
     const name = await loadOrCreateToolName(tmpDir);
-    expect(name).toMatch(/^windsurf_endless_[a-f0-9]{8}$/);
+    expect(name).toMatch(/^[a-z]{4}_[a-f0-9]{8}$/);
   });
 });
 
@@ -66,7 +86,7 @@ describe('rotateToolName', () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tool-name-rotate-'));
     const first = await loadOrCreateToolName(tmpDir);
     const rotated = await rotateToolName(tmpDir);
-    expect(rotated).toMatch(/^windsurf_endless_[a-f0-9]{8}$/);
+    expect(rotated).toMatch(/^[a-z]{4}_[a-f0-9]{8}$/);
     // 名称可能相同（极低概率），但文件应被更新
     const saved = await fs.readFile(path.join(tmpDir, 'toolName.txt'), 'utf8');
     expect(saved).toBe(rotated);

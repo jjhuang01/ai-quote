@@ -1,7 +1,12 @@
 import esbuild from 'esbuild';
+import { copyFileSync, mkdirSync } from 'node:fs';
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
+
+// Copy mermaid.min.js to dist/webview/ for dialog panel
+mkdirSync('dist/webview', { recursive: true });
+copyFileSync('node_modules/mermaid/dist/mermaid.min.js', 'dist/webview/mermaid.min.js');
 
 const problemMatcherPlugin = {
   name: 'esbuild-problem-matcher',
@@ -52,14 +57,28 @@ const webviewConfig = {
   logLevel: 'silent'
 };
 
+const dialogConfig = {
+  entryPoints: ['media/dialog.ts'],
+  bundle: true,
+  outfile: 'dist/webview/dialog.js',
+  format: 'iife',
+  platform: 'browser',
+  sourcemap: !production,
+  minify: production,
+  target: 'es2020',
+  logLevel: 'silent'
+};
+
 if (watch) {
   const ctx1 = await esbuild.context({ ...extensionConfig, plugins: [...extensionConfig.plugins] });
   const ctx2 = await esbuild.context(webviewConfig);
-  await Promise.all([ctx1.watch(), ctx2.watch()]);
+  const ctx3 = await esbuild.context(dialogConfig);
+  await Promise.all([ctx1.watch(), ctx2.watch(), ctx3.watch()]);
   console.log('[watch] watching for changes...');
 } else {
   await Promise.all([
     esbuild.build(extensionConfig),
-    esbuild.build(webviewConfig)
+    esbuild.build(webviewConfig),
+    esbuild.build(dialogConfig)
   ]);
 }

@@ -17,6 +17,7 @@ describe('mergeMcpConfig', () => {
   it('adds a server entry when config is empty', () => {
     const merged = mergeMcpConfig(undefined, 'tool-a', 'http://127.0.0.1:3456/sse');
     expect(merged.mcpServers['tool-a']?.url).toBe('http://127.0.0.1:3456/sse');
+    expect(merged.mcpServers['tool-a']?.timeout).toBe(259_200_000);
   });
 
   it('preserves existing entries', () => {
@@ -36,6 +37,7 @@ describe('mergeMcpConfig', () => {
       'http://127.0.0.1:4000/sse'
     );
     expect(merged.mcpServers['tool-a']?.url).toBe('http://127.0.0.1:4000/sse');
+    expect(merged.mcpServers['tool-a']?.timeout).toBe(259_200_000);
     expect(Object.keys(merged.mcpServers)).toHaveLength(1);
   });
 

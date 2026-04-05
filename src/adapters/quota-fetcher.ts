@@ -517,6 +517,7 @@ export class WindsurfQuotaFetcher {
     try {
       await fs.access(dbPath);
     } catch {
+      this.logger.debug('readWindsurfApiKey: DB file not accessible.', { dbPath });
       return null;
     }
 
@@ -524,6 +525,7 @@ export class WindsurfQuotaFetcher {
     try {
       await fs.copyFile(dbPath, tmpDb);
     } catch {
+      this.logger.debug('readWindsurfApiKey: DB file copy failed.', { dbPath });
       return null;
     }
 
@@ -540,7 +542,8 @@ export class WindsurfQuotaFetcher {
         return null;
       }
       return key;
-    } catch {
+    } catch (err) {
+      this.logger.debug('readWindsurfApiKey: SQLite query failed.', { error: String(err) });
       return null;
     } finally {
       await fs.unlink(tmpDb).catch(() => undefined);
