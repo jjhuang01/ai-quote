@@ -4,7 +4,7 @@ import type { DialogCallback } from "./core/bridge";
 import { getExtensionConfig } from "./core/config";
 import { QuoteLogger } from "./core/logger";
 import { DataManager } from "./core/data-manager";
-import { detectCurrentIde, writeMcpConfig } from "./adapters/mcp-config";
+import { detectCurrentIde, writeMcpConfig, removeMcpConfigEntry } from "./adapters/mcp-config";
 import { QuoteSidebarProvider } from "./webview/provider";
 import { QuoteDialogPanel } from "./webview/dialog-panel";
 import { loadOrCreateToolName, rotateToolName } from "./utils/tool-name";
@@ -15,6 +15,8 @@ let statusBarItem: vscode.StatusBarItem | undefined;
 let logger: QuoteLogger | undefined;
 let bridge: QuoteBridge | undefined;
 let dataManager: DataManager | undefined;
+let activeToolName: string | undefined;
+let secondaryInstance = false;
 
 async function updateStatusBar(): Promise<void> {
   if (!statusBarItem || !bridge) {
@@ -41,7 +43,7 @@ export async function activate(
   logger = new QuoteLogger(context);
   const config = getExtensionConfig();
   const currentIde = detectCurrentIde();
-  const toolName = await loadOrCreateToolName(context.globalStorageUri.fsPath);
+  let toolName = await loadOrCreateToolName(context.globalStorageUri.fsPath);
 
   dataManager = DataManager.getInstance(context, logger);
   await dataManager.initialize();
@@ -54,6 +56,19 @@ export async function activate(
     config.dialogTimeoutSeconds > 0 ? config.dialogTimeoutSeconds * 1000 : 0,
   );
   const runningPort = await bridge.start();
+
+  // Multi-window isolation: if port fell back, another instance owns the primary toolName.
+  // Generate a session-scoped toolName so both windows have independent MCP entries.
+  secondaryInstance = runningPort !== config.serverPort;
+  if (secondaryInstance) {
+    const { generateToolName } = await import('./utils/tool-name');
+    toolName = generateToolName();
+    bridge.updateToolName(toolName);
+    logger.info('Secondary instance detected — using session-scoped toolName.', {
+      primaryPort: config.serverPort, runningPort, toolName
+    });
+  }
+  activeToolName = toolName;
 
   const sidebarProvider = new QuoteSidebarProvider(
     context.extensionUri,
@@ -99,7 +114,7 @@ export async function activate(
       logger.warn('Failed to configure rules.', { error: String(err) });
     }
     bridge.setConfiguredPaths(configuredPaths);
-    logger.info('Auto configuration completed.', { configuredPaths });
+    logger.info('Auto configuration completed.', { configuredPaths, secondaryInstance });
   }
 
   // Register MCP dialog callback: open QuoteDialogPanel (editor tab) on LLM call
@@ -116,7 +131,14 @@ export async function activate(
         bridge?.resolvePendingDialog(sessionId, response, images);
         void updateStatusBar();
         sidebarProvider.postState();
-      }, { enterToSend: settings.enterToSend });
+      }, {
+        enterToSend: settings.enterToSend,
+        queueCount: sidebarProvider.getQueueCount(),
+        onQueueAdd: (items) => {
+          sidebarProvider.addToQueue(items);
+          QuoteDialogPanel.updateQueueCount(sidebarProvider.getQueueCount());
+        }
+      });
     } catch (err) {
       logger?.error('Failed to open QuoteDialogPanel.', { error: String(err) });
       // Sidebar dialog card is the fallback — user can still respond from there
@@ -127,6 +149,10 @@ export async function activate(
     // Close editor tab dialog panel when dialog resolves from any source
     QuoteDialogPanel.dispose();
     void updateStatusBar();
+  });
+  bridge.registerSseClientChangeCallback(() => {
+    void updateStatusBar();
+    sidebarProvider.postState();
   });
 
   context.subscriptions.push(
@@ -320,6 +346,31 @@ async function completePendingSwitch(
 }
 
 export async function deactivate(): Promise<void> {
+  // Clean up session-scoped MCP entry and rules for secondary instances
+  if (secondaryInstance && activeToolName) {
+    try {
+      const ide = detectCurrentIde();
+      await removeMcpConfigEntry(ide, activeToolName);
+      // Remove session-scoped rules files (best-effort)
+      const fs = await import('node:fs/promises');
+      const os = await import('node:os');
+      const path = await import('node:path');
+      const rulesDir = path.join(os.homedir(), '.codeium', 'windsurf', 'rules');
+      await fs.unlink(path.join(rulesDir, `${activeToolName}.mdc`)).catch(() => {});
+      const wsFolder = vscode.workspace.workspaceFolders?.[0];
+      if (wsFolder) {
+        // Only clean workspace rules if they reference our session tool
+        const wsRules = path.join(wsFolder.uri.fsPath, '.windsurfrules');
+        const content = await fs.readFile(wsRules, 'utf8').catch(() => '');
+        if (content.includes(activeToolName)) {
+          await fs.unlink(wsRules).catch(() => {});
+        }
+      }
+      logger?.info('Secondary instance cleanup done.', { activeToolName });
+    } catch (err) {
+      logger?.warn('Secondary instance cleanup failed (non-fatal).', { error: String(err) });
+    }
+  }
   dataManager?.endSession();
   DataManager.resetInstance();
   await bridge?.stop();

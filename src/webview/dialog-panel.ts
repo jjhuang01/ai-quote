@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { McpDialogRequest, ImageAttachment } from '../core/contracts';
 
@@ -111,8 +112,10 @@ export class QuoteDialogPanel {
   private panel: vscode.WebviewPanel;
   private currentReq?: McpDialogRequest;
   private onSubmit?: DialogSubmitHandler;
+  private onQueueAdd?: (items: string[]) => void;
   private submitted = false;
   private enterToSend = false;
+  private queueCount = 0;
 
   private constructor(
     private readonly extensionUri: vscode.Uri,
@@ -137,12 +140,14 @@ export class QuoteDialogPanel {
         const response = payload?.response ?? '';
         const images = payload?.images ?? [];
         const sid = payload?.sessionId ?? this.currentReq.sessionId;
-        // onSubmit triggers resolvePendingDialog → dialogResolvedCallback → QuoteDialogPanel.dispose()
-        // so we must NOT access this.panel after onSubmit returns
         this.onSubmit?.(sid, response, images.length > 0 ? images : undefined);
       }
       if (msg.type === 'dialogDismiss') {
         this.dismissAndResolve();
+      }
+      if (msg.type === 'queueAdd') {
+        const items = msg.value as string[];
+        if (items?.length) this.onQueueAdd?.(items);
       }
     });
 
@@ -157,19 +162,33 @@ export class QuoteDialogPanel {
     extensionUri: vscode.Uri,
     req: McpDialogRequest,
     onSubmit: DialogSubmitHandler,
-    options?: { enterToSend?: boolean }
+    options?: { enterToSend?: boolean; queueCount?: number; onQueueAdd?: (items: string[]) => void }
   ): void {
     if (QuoteDialogPanel.instance) {
       QuoteDialogPanel.instance.onSubmit = onSubmit;
       QuoteDialogPanel.instance.enterToSend = options?.enterToSend ?? false;
+      QuoteDialogPanel.instance.queueCount = options?.queueCount ?? 0;
+      QuoteDialogPanel.instance.onQueueAdd = options?.onQueueAdd;
       QuoteDialogPanel.instance.update(req);
       QuoteDialogPanel.instance.panel.reveal(vscode.ViewColumn.One);
       return;
     }
     const inst = new QuoteDialogPanel(extensionUri, onSubmit);
     inst.enterToSend = options?.enterToSend ?? false;
+    inst.queueCount = options?.queueCount ?? 0;
+    inst.onQueueAdd = options?.onQueueAdd;
     QuoteDialogPanel.instance = inst;
     inst.update(req);
+  }
+
+  /** Update queue count display from outside (e.g. when sidebar queue changes). */
+  public static updateQueueCount(count: number): void {
+    if (QuoteDialogPanel.instance) {
+      QuoteDialogPanel.instance.queueCount = count;
+      try {
+        void QuoteDialogPanel.instance.panel.webview.postMessage({ type: 'queueCount', value: count });
+      } catch { /* panel may be disposed */ }
+    }
   }
 
   public static dispose(): void {
@@ -199,6 +218,11 @@ export class QuoteDialogPanel {
   }
 
   private buildHtml(req: McpDialogRequest): string {
+    const nonce = randomBytes(16).toString('hex');
+    const dialogScriptUri = this.panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview', 'dialog.js')
+    );
+
     const optionBtns = (req.options ?? [])
       .map(
         (opt, i) =>
@@ -218,7 +242,7 @@ export class QuoteDialogPanel {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.panel.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${this.panel.webview.cspSource} data:; font-src data:;">
 <title>Quote Dialog</title>
 <style>
   :root {
@@ -477,6 +501,44 @@ export class QuoteDialogPanel {
   .summary-wrap:hover .copy-btn { opacity: 1; }
   .copy-btn:hover { color: var(--fg); border-color: var(--accent); background: var(--accent-subtle); }
   .copy-btn.copied { color: var(--success); border-color: var(--success); }
+  /* Queue section */
+  .queue-section {
+    background: var(--card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 10px 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .queue-header {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; font-weight: 600; margin-bottom: 8px;
+  }
+  .queue-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 18px; height: 18px; padding: 0 5px;
+    background: var(--accent); color: var(--btn-fg);
+    border-radius: 9px; font-size: 10px; font-weight: 700;
+  }
+  .queue-input-row { display: flex; gap: 6px; }
+  .queue-input {
+    flex: 1; min-height: 32px; resize: none;
+    background: var(--input-bg); color: var(--input-fg);
+    border: 1px solid var(--input-border); border-radius: 6px;
+    padding: 6px 8px; font-family: var(--font); font-size: 12px;
+    line-height: 1.4; outline: none;
+    transition: border-color 0.15s;
+  }
+  .queue-input:focus { border-color: var(--accent); }
+  .queue-input::placeholder { color: var(--muted); }
+  .btn-queue-add {
+    padding: 4px 12px; white-space: nowrap;
+    background: var(--surface); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 6px;
+    cursor: pointer; font-size: 11px; font-family: var(--font);
+    transition: all 0.15s;
+  }
+  .btn-queue-add:hover { border-color: var(--accent); background: var(--accent-subtle); }
+  .queue-hint { font-size: 10px; color: var(--muted); margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -503,250 +565,24 @@ export class QuoteDialogPanel {
     <span id="attachCount" class="attach-count"></span>
     <span class="hint">Esc 取消 · ${this.enterToSend ? 'Enter' : 'Ctrl+Enter'} 发送</span>
   </div>
+  <div class="queue-section">
+    <div class="queue-header">无人值守队列 <span class="queue-badge" id="queueBadge">${this.queueCount}</span></div>
+    <div class="queue-input-row">
+      <textarea class="queue-input" id="queueInput" placeholder="输入预设回复… 多条用 --- 分隔" rows="2"></textarea>
+      <button class="btn-queue-add" id="queueAddBtn">加入队列</button>
+    </div>
+    <div class="queue-hint">提示：队列中的回复会在 LLM 下次调用时自动发送，实现无人值守。多条用 <code>---</code> 分隔。</div>
+  </div>
 </div>
-<script>
-const vscode = acquireVsCodeApi();
-const SESSION_ID = ${sessionId};
-const ENTER_TO_SEND = ${this.enterToSend ? 'true' : 'false'};
-
-// Render timestamp
-document.getElementById('ts').textContent = new Date().toLocaleTimeString();
-
-// --- Attachment state ---
-var attachments = []; // { kind:'image'|'file', dataUri?, data, media_type, filename, preview? }
-
-// Recognized text file extensions
-var TEXT_EXTS = ['js','ts','jsx','tsx','mjs','cjs','json','md','markdown','txt','css','scss','less','html','htm','xml','yaml','yml','toml','ini','cfg','conf','sh','bash','zsh','py','rb','go','rs','java','c','cpp','h','hpp','swift','kt','sql','graphql','gql','vue','svelte','astro','env','gitignore','dockerignore','dockerfile','makefile','csv','tsv','log','diff','patch'];
-
-function isTextFile(name) {
-  if (!name) return false;
-  var ext = name.split('.').pop().toLowerCase();
-  return TEXT_EXTS.indexOf(ext) !== -1;
-}
-
-function formatSize(bytes) {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-}
-
-function fileExt(name) {
-  if (!name) return '';
-  var parts = name.split('.');
-  return parts.length > 1 ? parts.pop().toLowerCase() : '';
-}
-
-function submitOption(idx) {
-  var opts = ${safeJsonEmbed(req.options ?? [])};
-  var text = opts[Number(idx)] || '';
-  send(text);
-}
-
-function submitCustom() {
-  var text = document.getElementById('reply').value.trim();
-  if (!text && attachments.length === 0) return;
-  // Build file context string for text files
-  var fileCtx = '';
-  attachments.forEach(function(a) {
-    if (a.kind === 'file' && a.preview) {
-      fileCtx += '\n\n--- ' + (a.filename || 'file') + ' ---\n' + a.preview;
-    }
-  });
-  var response = (text || '') + fileCtx;
-  if (!response.trim()) response = '(attachment)';
-  send(response.trim());
-}
-
-function dismiss() {
-  vscode.postMessage({ type: 'dialogDismiss' });
-}
-
-function send(response) {
-  var images = attachments.filter(function(a) { return a.kind === 'image'; }).map(function(a) {
-    return { data: a.data, media_type: a.media_type, filename: a.filename || null };
-  });
-  vscode.postMessage({ type: 'dialogSubmit', value: { sessionId: SESSION_ID, response: response, images: images.length > 0 ? images : undefined } });
-}
-
-// --- File reading ---
-function readFileAsText(file) {
-  return new Promise(function(resolve, reject) {
-    var reader = new FileReader();
-    reader.onload = function() { resolve(reader.result); };
-    reader.onerror = function() { reject(reader.error); };
-    reader.readAsText(file);
-  });
-}
-
-function readFileAsDataURL(file) {
-  return new Promise(function(resolve, reject) {
-    var reader = new FileReader();
-    reader.onload = function() { resolve(reader.result); };
-    reader.onerror = function() { reject(reader.error); };
-    reader.readAsDataURL(file);
-  });
-}
-
-function addFile(file) {
-  if (!file) return;
-  var isImage = file.type && file.type.startsWith('image/');
-  var isText = isTextFile(file.name);
-
-  if (isImage) {
-    readFileAsDataURL(file).then(function(dataUri) {
-      var parts = dataUri.split(',');
-      var meta = parts[0];
-      var base64 = parts[1];
-      var mm = meta.match(/data:([^;]+)/);
-      var mediaType = mm ? mm[1] : 'image/png';
-      attachments.push({ kind: 'image', dataUri: dataUri, data: base64, media_type: mediaType, filename: file.name || 'image', size: file.size });
-      renderAttachments();
-    });
-  } else if (isText) {
-    readFileAsText(file).then(function(text) {
-      var preview = text.length > 2000 ? text.slice(0, 2000) + '\n... (truncated)' : text;
-      attachments.push({ kind: 'file', filename: file.name, size: file.size, preview: preview, media_type: 'text/plain', data: '' });
-      renderAttachments();
-    });
-  }
-  // Unsupported types silently ignored
-}
-
-function removeAttachment(idx) {
-  attachments.splice(idx, 1);
-  renderAttachments();
-}
-
-function esc(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-function renderAttachments() {
-  var list = document.getElementById('attachmentList');
-  var countEl = document.getElementById('attachCount');
-  var dropEl = document.getElementById('dropZone');
-  list.innerHTML = '';
-  attachments.forEach(function(a, i) {
-    var div = document.createElement('div');
-    div.className = 'attach-item' + (a.kind === 'image' ? ' attach-image' : '');
-    var html = '';
-    if (a.kind === 'image' && a.dataUri) {
-      html += '<img class="attach-thumb" src="' + a.dataUri + '" alt="">';
-    } else {
-      html += '<span class="attach-icon">📄</span>';
-    }
-    html += '<div class="attach-info">';
-    html += '<div class="attach-name">' + esc(a.filename || 'file') + '</div>';
-    html += '<div class="attach-meta">' + (a.kind === 'image' ? a.media_type : fileExt(a.filename).toUpperCase()) + ' · ' + formatSize(a.size || 0) + '</div>';
-    if (a.kind === 'file' && a.preview) {
-      html += '<div class="attach-preview">' + esc(a.preview.slice(0, 200)) + '</div>';
-    }
-    html += '</div>';
-    div.innerHTML = html;
-    var btn = document.createElement('button');
-    btn.className = 'attach-remove';
-    btn.textContent = '×';
-    btn.onclick = function() { removeAttachment(i); };
-    div.appendChild(btn);
-    list.appendChild(div);
-  });
-  var n = attachments.length;
-  countEl.textContent = n > 0 ? n + ' 个附件' : '';
-  dropEl.style.display = n > 0 ? 'none' : '';
-}
-
-// --- Drag & drop ---
-var dropZone = document.getElementById('dropZone');
-['dragenter', 'dragover'].forEach(function(evt) {
-  document.body.addEventListener(evt, function(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    dropZone.classList.add('dragover');
-    dropZone.style.display = '';
-  });
-});
-['dragleave', 'drop'].forEach(function(evt) {
-  document.body.addEventListener(evt, function(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    dropZone.classList.remove('dragover');
-    if (attachments.length > 0) dropZone.style.display = 'none';
-  });
-});
-document.body.addEventListener('drop', function(e) {
-  var files = e.dataTransfer ? e.dataTransfer.files : [];
-  for (var i = 0; i < files.length; i++) { addFile(files[i]); }
-});
-
-// --- Paste (images + files) ---
-document.getElementById('reply').addEventListener('paste', function(e) {
-  var items = e.clipboardData ? e.clipboardData.items : [];
-  var handled = false;
-  for (var i = 0; i < items.length; i++) {
-    if (items[i].kind === 'file') {
-      var file = items[i].getAsFile();
-      if (file) { addFile(file); handled = true; }
-    }
-  }
-  if (handled) e.preventDefault();
-});
-
-// --- Textarea drag visual ---
-var replyEl = document.getElementById('reply');
-replyEl.addEventListener('dragenter', function(e) { e.preventDefault(); replyEl.classList.add('drag-active'); });
-replyEl.addEventListener('dragover', function(e) { e.preventDefault(); });
-replyEl.addEventListener('dragleave', function() { replyEl.classList.remove('drag-active'); });
-replyEl.addEventListener('drop', function(e) {
-  e.preventDefault(); e.stopPropagation();
-  replyEl.classList.remove('drag-active');
-  var files = e.dataTransfer ? e.dataTransfer.files : [];
-  for (var i = 0; i < files.length; i++) { addFile(files[i]); }
-});
-
-// --- Send key handler ---
-replyEl.addEventListener('keydown', function(e) {
-  if (ENTER_TO_SEND) {
-    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-      e.preventDefault();
-      submitCustom();
-    }
-  } else {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      submitCustom();
-    }
-  }
-  if (e.key === 'Escape') {
-    e.preventDefault();
-    dismiss();
-  }
-});
-
-// Copy summary
-document.getElementById('copySummary').addEventListener('click', function() {
-  var summaryEl = document.getElementById('summary');
-  var text = summaryEl ? summaryEl.innerText || summaryEl.textContent : '';
-  navigator.clipboard.writeText(text).then(function() {
-    var btn = document.getElementById('copySummary');
-    btn.textContent = '✓ 已复制';
-    btn.classList.add('copied');
-    setTimeout(function() { btn.textContent = '复制'; btn.classList.remove('copied'); }, 1500);
-  });
-});
-
-// Bind action buttons via addEventListener (safer than inline onclick in webview)
-document.querySelectorAll('[data-action]').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    var action = btn.getAttribute('data-action');
-    if (action === 'submitCustom') submitCustom();
-    else if (action === 'dismiss') dismiss();
-    else if (action === 'submitOption') submitOption(btn.getAttribute('data-idx'));
-  });
-});
-
-// Focus textarea
-setTimeout(function() { document.getElementById('reply').focus(); }, 100);
+<script nonce="${nonce}">
+  window.__DIALOG_CONFIG__ = {
+    sessionId: ${sessionId},
+    enterToSend: ${this.enterToSend ? 'true' : 'false'},
+    options: ${safeJsonEmbed(req.options ?? [])},
+    queueCount: ${this.queueCount}
+  };
 </script>
+<script nonce="${nonce}" src="${dialogScriptUri}"></script>
 </body>
 </html>`;
   }

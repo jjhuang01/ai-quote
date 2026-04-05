@@ -74,6 +74,20 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     void this.view.webview.postMessage({ type: 'mcpDialog', value: req });
   }
 
+  public getQueueCount(): number {
+    return this.responseQueue.length;
+  }
+
+  /** Add items to the queue from external sources (e.g. dialog panel). */
+  public addToQueue(items: string[]): void {
+    this.responseQueue.push(...items);
+    void this.context.globalState.update('responseQueue', this.responseQueue);
+    // Notify sidebar webview about queue change
+    if (this.view) {
+      void this.view.webview.postMessage({ type: 'queueUpdated', value: this.responseQueue });
+    }
+  }
+
   public postBootstrap(): void {
     if (!this.view) return;
     void this.view.webview.postMessage({

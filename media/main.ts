@@ -2236,6 +2236,15 @@ window.addEventListener("message", (event) => {
     return;
   }
 
+  if (msg.type === "queueUpdated") {
+    const newQueue = msg.value as string[];
+    if (Array.isArray(newQueue)) {
+      state.responseQueue = newQueue;
+      render();
+    }
+    return;
+  }
+
   if (msg.type === "opResult") {
     const r = msg.value as { message: string };
     showToast(r.message, "success");

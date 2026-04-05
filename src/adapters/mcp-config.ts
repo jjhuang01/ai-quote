@@ -54,6 +54,20 @@ export function mergeMcpConfig(existing: McpConfigFile | undefined, toolName: st
   return next;
 }
 
+/** Remove a tool entry from MCP config (used for cleanup of session-scoped secondary instances). */
+export async function removeMcpConfigEntry(target: IdeTarget, toolName: string): Promise<void> {
+  try {
+    const raw = await fs.readFile(target.configPath, 'utf8');
+    const config = JSON.parse(raw) as McpConfigFile;
+    if (config.mcpServers?.[toolName]) {
+      delete config.mcpServers[toolName];
+      await fs.writeFile(target.configPath, JSON.stringify(config, null, 2), 'utf8');
+    }
+  } catch {
+    // Config file doesn't exist or is unreadable — nothing to clean up
+  }
+}
+
 export async function writeMcpConfig(target: IdeTarget, toolName: string, url: string): Promise<string> {
   await fs.mkdir(path.dirname(target.configPath), { recursive: true });
 

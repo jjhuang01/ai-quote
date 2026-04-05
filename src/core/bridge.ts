@@ -70,6 +70,7 @@ export class QuoteBridge {
   private pendingDialog?: McpDialogRequest;
   private dialogCallback?: DialogCallback;
   private dialogResolvedCallback?: () => void;
+  private sseClientChangeCallback?: () => void;
   private pendingDialogResolvers = new Map<
     string,
     (response: string, images?: ImageAttachment[]) => void
@@ -179,6 +180,11 @@ export class QuoteBridge {
   /** Called after every dialog resolution (real MCP or test) to allow callers to refresh UI state. */
   public registerDialogResolvedCallback(cb: () => void): void {
     this.dialogResolvedCallback = cb;
+  }
+
+  /** Called when SSE client connects or disconnects — use to refresh UI immediately. */
+  public registerSseClientChangeCallback(cb: () => void): void {
+    this.sseClientChangeCallback = cb;
   }
 
   public resolvePendingDialog(
@@ -357,6 +363,7 @@ export class QuoteBridge {
     );
 
     this.logger.info("SSE client connected.", { sessionId: sid });
+    this.sseClientChangeCallback?.();
 
     response.on("close", () => {
       this.clients.delete(sid);
@@ -375,6 +382,7 @@ export class QuoteBridge {
         );
       }
       this.logger.info("SSE client disconnected.", { sessionId: sid });
+      this.sseClientChangeCallback?.();
     });
   }
 
