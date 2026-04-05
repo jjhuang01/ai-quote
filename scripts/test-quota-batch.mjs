@@ -134,6 +134,8 @@ for (const acc of ACCOUNTS) {
       row.weeklyRemainingPercent = ps.weeklyQuotaRemainingPercent ?? null;
       row.planName = ps.planInfo?.planName ?? null;
       row.planEnd  = ps.planEnd ?? null;
+      // 保留完整原始响应供调试
+      row.rawPlanStatus = ps;
       row.status   = classify(ps);
     } else {
       row.status = 'no_data';
@@ -144,6 +146,8 @@ for (const acc of ACCOUNTS) {
     const weeklyUsed  = row.weeklyRemainingPercent !== null ? 100 - row.weeklyRemainingPercent : null;
     const dailyStr    = dailyUsed  !== null ? `日已用${dailyUsed}%`  : '日—';
     const weeklyStr   = weeklyUsed !== null ? `周已用${weeklyUsed}%` : '周—';
+    const promptLeft  = row.rawPlanStatus?.availablePromptCredits ?? '?';
+    const flowLeft    = row.rawPlanStatus?.availableFlowCredits   ?? '?';
     const statusIcon = {
       usable:   '✅',
       low:      '⚠️ ',
@@ -151,7 +155,7 @@ for (const acc of ACCOUNTS) {
       no_data:  '❓',
     }[row.status] ?? '?';
     const endStr = row.planEnd ? ` 到期${new Date(row.planEnd).toLocaleDateString('zh-CN',{month:'short',day:'numeric'})}` : '';
-    console.log(`${statusIcon} ${dailyStr.padEnd(10)} ${weeklyStr.padEnd(10)} ${(row.planName??'').padEnd(8)}${endStr}`);
+    console.log(`${statusIcon} ${dailyStr.padEnd(10)} ${weeklyStr.padEnd(10)} prompt:${String(promptLeft).padEnd(5)} flow:${String(flowLeft).padEnd(5)}${endStr}`);
   } catch (err) {
     row.status = 'error';
     row.error  = err.message;
