@@ -329,6 +329,48 @@ if (browseBtn) {
   });
 }
 
+// ── Shared: extract file URIs from drag data ─────────────────────
+function extractFileUris(dt: DataTransfer | null): string[] {
+  if (!dt) return [];
+  const uriList = dt.getData('text/uri-list') || '';
+  const textData = dt.getData('text/plain') || '';
+  const uris: string[] = [];
+  if (uriList) {
+    uriList.split('\n').forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#')) uris.push(trimmed);
+    });
+  } else if (textData) {
+    textData.split('\n').forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('file://') || (trimmed.startsWith('/') && !trimmed.includes(' '))) {
+        uris.push(trimmed.startsWith('file://') ? trimmed : 'file://' + trimmed);
+      }
+    });
+  }
+  return uris;
+}
+
+function handleDroppedFiles(dt: DataTransfer | null): void {
+  if (!dt) return;
+  const files = dt.files;
+  if (files && files.length > 0) {
+    for (let i = 0; i < files.length; i++) addFile(files[i]);
+    return;
+  }
+  const uris = extractFileUris(dt);
+  if (uris.length > 0) {
+    vscode.postMessage({ type: 'readFiles', value: uris });
+    showToast(`正在读取 ${uris.length} 个文件...`);
+  }
+}
+
+function resetDragState(): void {
+  dragCounter = 0;
+  dropZone.classList.remove('dragover');
+  if (attachments.length > 0) dropZone.style.display = 'none';
+}
+
 // ── Drag & drop (counter-based to prevent child-element jitter) ───
 let dragCounter = 0;
 
@@ -355,41 +397,11 @@ document.body.addEventListener('dragleave', (e: Event) => {
     if (attachments.length > 0) dropZone.style.display = 'none';
   }
 });
-document.body.addEventListener('drop', (e: Event) => {
+document.body.addEventListener('drop', (e: DragEvent) => {
   e.preventDefault();
   e.stopPropagation();
-  dragCounter = 0;
-  dropZone.classList.remove('dragover');
-  if (attachments.length > 0) dropZone.style.display = 'none';
-});
-document.body.addEventListener('drop', (e: DragEvent) => {
-  // OS file manager drag: files are available directly
-  const files = e.dataTransfer?.files;
-  if (files && files.length > 0) {
-    for (let i = 0; i < files.length; i++) addFile(files[i]);
-    return;
-  }
-  // IDE explorer drag: files are empty, but text/uri-list has file:// URIs
-  const uriList = e.dataTransfer?.getData('text/uri-list') || '';
-  const textData = e.dataTransfer?.getData('text/plain') || '';
-  const uris: string[] = [];
-  if (uriList) {
-    uriList.split('\n').forEach(line => {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('#')) uris.push(trimmed);
-    });
-  } else if (textData) {
-    textData.split('\n').forEach(line => {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('file://') || (trimmed.startsWith('/') && !trimmed.includes(' '))) {
-        uris.push(trimmed.startsWith('file://') ? trimmed : 'file://' + trimmed);
-      }
-    });
-  }
-  if (uris.length > 0) {
-    vscode.postMessage({ type: 'readFiles', value: uris });
-    showToast(`正在读取 ${uris.length} 个文件...`);
-  }
+  resetDragState();
+  handleDroppedFiles(e.dataTransfer);
 });
 
 // ── Paste (images + files) ─────────────────────────────────────────
@@ -422,35 +434,8 @@ replyEl.addEventListener('drop', (e: DragEvent) => {
   e.preventDefault(); e.stopPropagation();
   textareaDragCounter = 0;
   replyEl.classList.remove('drag-active');
-  dropZone.classList.remove('dragover');
-  if (attachments.length > 0) dropZone.style.display = 'none';
-  // OS file manager drag
-  const files = e.dataTransfer?.files;
-  if (files && files.length > 0) {
-    for (let i = 0; i < files.length; i++) addFile(files[i]);
-    return;
-  }
-  // IDE explorer drag (same logic as body handler)
-  const uriList = e.dataTransfer?.getData('text/uri-list') || '';
-  const textData = e.dataTransfer?.getData('text/plain') || '';
-  const uris: string[] = [];
-  if (uriList) {
-    uriList.split('\n').forEach(line => {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('#')) uris.push(trimmed);
-    });
-  } else if (textData) {
-    textData.split('\n').forEach(line => {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('file://') || (trimmed.startsWith('/') && !trimmed.includes(' '))) {
-        uris.push(trimmed.startsWith('file://') ? trimmed : 'file://' + trimmed);
-      }
-    });
-  }
-  if (uris.length > 0) {
-    vscode.postMessage({ type: 'readFiles', value: uris });
-    showToast(`正在读取 ${uris.length} 个文件...`);
-  }
+  resetDragState();
+  handleDroppedFiles(e.dataTransfer);
 });
 
 // ── Character count ──────────────────────────────────────────────
@@ -617,14 +602,18 @@ window.addEventListener('message', (e: MessageEvent) => {
   // Dialog resolved — keep input active for queue, show small status row
   if (msg.type === 'dialogResolved') {
     dialogResolved = true;
-    const header = document.querySelector('.header-icon');
+    const headerDot = document.querySelector('.header-status') as HTMLElement | null;
     const title = document.querySelector('.header-title');
-    if (header) header.textContent = '✓';
+    if (headerDot) {
+      headerDot.style.animation = 'none';
+      headerDot.style.background = 'var(--success)';
+      headerDot.style.boxShadow = '0 0 6px color-mix(in srgb, var(--success) 60%, transparent)';
+    }
     if (title) title.textContent = '已发送 · 等待 LLM 处理';
     // Change send button to queue mode (don't disable)
     const sendBtn = document.querySelector('.btn-send') as HTMLButtonElement | null;
     if (sendBtn) {
-      sendBtn.textContent = '➕ 加入队列';
+      sendBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>加入队列';
       sendBtn.style.background = 'var(--surface)';
       sendBtn.style.color = 'var(--fg)';
       sendBtn.style.boxShadow = 'none';
@@ -648,6 +637,9 @@ window.addEventListener('message', (e: MessageEvent) => {
       shortcutBar.appendChild(status);
       shortcutBar.appendChild(closeBtn);
     }
+    // Hide cancel button (redundant with inline close)
+    const cancelBtn = document.querySelector('.btn-cancel') as HTMLElement | null;
+    if (cancelBtn) cancelBtn.style.display = 'none';
     // Update textarea placeholder to guide user
     if (replyEl) replyEl.placeholder = '继续输入，发送后加入队列...';
     return;
