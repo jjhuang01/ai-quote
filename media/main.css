@@ -1275,6 +1275,45 @@ button:focus-visible {
 .ac-card.ac-crit {
   border-color: color-mix(in srgb, var(--danger) 55%, var(--border-subtle));
 }
+/* Exhausted / quota depleted state — 配额归零账号的禁用外观 */
+.ac-card.ac-exhausted {
+  background: color-mix(in srgb, var(--surface) 45%, var(--bg));
+  border-color: color-mix(in srgb, var(--border-glass) 35%, transparent);
+  opacity: 0.52;
+  transition:
+    border-color var(--t-normal),
+    background var(--t-normal),
+    opacity var(--t-normal);
+}
+.ac-card.ac-exhausted:hover {
+  opacity: 0.75;
+  border-color: var(--border-glass);
+  background: color-mix(in srgb, var(--surface) 60%, var(--bg));
+}
+/* Current account that is also exhausted: keep identity border, slightly less dimmed */
+.ac-card.ac-exhausted.ac-active {
+  opacity: 0.68;
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-glass));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 50%, transparent);
+}
+/* Desaturate fill bars on exhausted cards */
+.ac-card.ac-exhausted .ac-fill {
+  background: color-mix(in srgb, var(--muted) 35%, transparent) !important;
+  filter: saturate(0);
+}
+/* Badge: 已耗尽 */
+.badge-exhausted {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  color: var(--muted);
+  flex-shrink: 0;
+  line-height: 1.6;
+}
 /* Head row: email + badges */
 .ac-head {
   display: flex;

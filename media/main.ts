@@ -725,7 +725,15 @@ function renderAccountItem(
     dailyText = `${Math.round(dailyFillPct)}%`;
   }
 
+  // 判断账号是否已耗尽配额（周剩余 = 0%，或日/周都是 0%）
+  const isExhausted = !!rq && (
+    (rq.weeklyRemainingPercent >= 0 && rq.weeklyRemainingPercent <= 0) ||
+    (rq.dailyRemainingPercent  >= 0 && rq.dailyRemainingPercent  <= 0 &&
+     rq.weeklyRemainingPercent  < 0)   // 无周数据但日已归零
+  );
+
   // fillClass based on usage% (low usage = ok, high usage = danger)
+  // exhausted 账号强制 grey — 由 CSS .ac-exhausted .ac-fill 覆盖颜色
   const fillClass = (usedPct: number | null): string => {
     if (usedPct === null) return "";
     if (usedPct < 50) return "quota-fill-ok";
@@ -735,12 +743,13 @@ function renderAccountItem(
 
   const refreshing = state.quotaFetching || state.quotaFetchingId === a.id;
   return `
-    <div class="ac-card ${isCurrent ? "ac-active" : ""} ${q?.warningLevel === "critical" ? "ac-crit" : q?.warningLevel === "warn" ? "ac-warn" : ""}">
+    <div class="ac-card ${isCurrent ? "ac-active" : ""} ${isExhausted ? "ac-exhausted" : ""} ${q?.warningLevel === "critical" && !isExhausted ? "ac-crit" : q?.warningLevel === "warn" && !isExhausted ? "ac-warn" : ""}">
       <div class="ac-head">
         <span class="ac-email" title="${escapeHtml(a.email)}">${escapeHtml(a.email)}</span>
         <div class="ac-tags">
           <span class="plan-badge plan-${a.plan.toLowerCase()}">${planIcon(a.plan)} ${a.plan}</span>
           ${isCurrent ? '<span class="badge-active">当前</span>' : ""}
+          ${isExhausted ? '<span class="badge-exhausted">已耗尽</span>' : ""}
           ${planEndText ? `<span class="ac-end">${planEndText}</span>` : ""}
         </div>
       </div>
