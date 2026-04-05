@@ -2,7 +2,7 @@
   "name": "ai-quote",
   "displayName": "Quote",
   "icon": "resources/icon.png",
-  "description": "",
+  "description": "VS Code extension: Windsurf account switcher with quota stats, MCP Bridge, and LLM dialog panel",
   "version": "2.9.1",
   "publisher": "opensource",
   "license": "MIT",

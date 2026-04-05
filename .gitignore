@@ -40,3 +40,12 @@ tmp/
 
 # Sensitive account data (passwords) — do NOT commit
 data/
+
+# Internal AI tooling config (not for public repo)
+AI_FEEDBACK_RULES.md
+
+# Reverse-engineering evidence (legally sensitive)
+_evidence/
+
+# Internal AI dev notes
+agents.md

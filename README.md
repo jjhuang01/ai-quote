@@ -1,18 +1,39 @@
 # Quote
 
-Windsurf 账号管理工具。支持多账号切换、配额统计、本地 MCP Bridge、LLM 对话面板。
+> VS Code extension for Windsurf account management — multi-account switching, quota stats, local MCP Bridge, and LLM dialog panel.
+
+Windsurf 账号管理 VS Code 扩展。支持多账号切换、配额统计、本地 MCP Bridge、LLM 对话面板。
+
+| 对话面板（Dialog）                                            | 账号管理                                                      |
+| ------------------------------------------------------------- | ------------------------------------------------------------- |
+| ![Dialog Panel](docs/screenshots/screenshot-dialog-panel.png) | ![Account List](docs/screenshots/screenshot-account-list.png) |
+
+| 对话面板（全局视图）                                                | 设置                                                  |
+| ------------------------------------------------------------------- | ----------------------------------------------------- |
+| ![Dialog Overview](docs/screenshots/screenshot-dialog-overview.png) | ![Settings](docs/screenshots/screenshot-settings.png) |
 
 ---
 
-## 安装
+## 安装 / Install
 
-从 VSIX 安装：扩展面板右上角 `···` → **从 VSIX 安装** → 选择 `ai-quote-2.7.7.vsix`。
+**从 VSIX 安装（推荐）：**
+
+在扩展面板右上角点击 `···` → **从 VSIX 安装** → 选择最新的 `.vsix` 文件（见 [Releases](../../releases)）。
 
 安装后重新加载窗口，Activity Bar 会自动出现 Quote 图标。若未出现，右键单击 Activity Bar 空白处 → 勾选 **Quote**。
 
+**从源码构建：**
+
+```bash
+npm install
+npm run build
+# 打包为 .vsix
+npx vsce package --no-dependencies
+```
+
 ---
 
-## 功能
+## 功能 / Features
 
 - **账号管理** — 添加、切换、删除 Windsurf 账号
 - **配额统计** — 查看各账号日/周配额使用情况
@@ -24,7 +45,7 @@ Windsurf 账号管理工具。支持多账号切换、配额统计、本地 MCP 
 
 ---
 
-## 命令
+## 命令 / Commands
 
 `Cmd+Shift+P` 输入 `Quote` 可找到以下命令：
 
@@ -40,7 +61,7 @@ Windsurf 账号管理工具。支持多账号切换、配额统计、本地 MCP 
 
 ---
 
-## 设置
+## 设置 / Settings
 
 在 VS Code / Cursor 设置中搜索 `Quote`：
 
@@ -52,7 +73,7 @@ Windsurf 账号管理工具。支持多账号切换、配额统计、本地 MCP 
 
 ---
 
-## 常见问题
+## 常见问题 / FAQ
 
 **侧边栏图标不显示**
 右键单击 Activity Bar → 找到 **Quote** → 勾选。
@@ -65,4 +86,20 @@ Windsurf 账号管理工具。支持多账号切换、配额统计、本地 MCP 
 
 **账号切换不生效**
 查看调试面板（**调试** 标签页）获取详细日志。
-# ai-quote
+
+---
+
+## 开发 / Development
+
+```bash
+npm install
+npm run check-types   # 类型检查
+npm run build         # 构建
+npm test              # 运行测试
+```
+
+---
+
+## License
+
+MIT © EVILZIXIE
