@@ -82,7 +82,44 @@ export async function writeMcpConfig(target: IdeTarget, toolName: string, url: s
     existing = { mcpServers: {} };
   }
 
+  // Clean up stale entries from previous tool name rotations
+  cleanupStaleMcpEntries(existing, toolName);
+
   const merged = mergeMcpConfig(existing, toolName, url);
   await fs.writeFile(target.configPath, JSON.stringify(merged, null, 2), 'utf8');
   return target.configPath;
+}
+
+/**
+ * Remove stale Quote tool entries from MCP config.
+ * Matches the 4-char_8-hex pattern (e.g. "abcd_12345678") but keeps the current tool.
+ */
+function cleanupStaleMcpEntries(config: McpConfigFile, currentToolName: string): void {
+  const toolNamePattern = /^[a-z]{4}_[0-9a-f]{8}$/;
+  for (const key of Object.keys(config.mcpServers ?? {})) {
+    if (toolNamePattern.test(key) && key !== currentToolName) {
+      delete config.mcpServers![key];
+    }
+  }
+}
+
+/**
+ * Verify our tool entry still exists in the MCP config file.
+ * Windsurf's settings UI may overwrite the file and remove our entry.
+ * Returns true if the entry was present (or successfully re-written).
+ */
+export async function ensureMcpConfigEntry(target: IdeTarget, toolName: string, url: string): Promise<boolean> {
+  try {
+    const raw = await fs.readFile(target.configPath, 'utf8');
+    const config = JSON.parse(raw) as McpConfigFile;
+    const entry = config.mcpServers?.[toolName];
+    if (entry && typeof entry === 'object' && 'url' in entry) {
+      return true; // Entry exists
+    }
+    // Entry missing — re-write
+    await writeMcpConfig(target, toolName, url);
+    return true;
+  } catch {
+    return false;
+  }
 }

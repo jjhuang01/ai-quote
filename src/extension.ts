@@ -4,7 +4,7 @@ import type { DialogCallback } from "./core/bridge";
 import { getExtensionConfig } from "./core/config";
 import { QuoteLogger } from "./core/logger";
 import { DataManager } from "./core/data-manager";
-import { detectCurrentIde, writeMcpConfig, removeMcpConfigEntry } from "./adapters/mcp-config";
+import { detectCurrentIde, writeMcpConfig, removeMcpConfigEntry, ensureMcpConfigEntry } from "./adapters/mcp-config";
 import { QuoteSidebarProvider } from "./webview/provider";
 import { QuoteDialogPanel } from "./webview/dialog-panel";
 import { loadOrCreateToolName, rotateToolName } from "./utils/tool-name";
@@ -115,6 +115,19 @@ export async function activate(
     }
     bridge.setConfiguredPaths(configuredPaths);
     logger.info('Auto configuration completed.', { configuredPaths, secondaryInstance });
+
+    // Periodic MCP config guard: re-write our entry if Windsurf settings UI overwrites it.
+    // Checks every 30s — lightweight (single file read + optional write).
+    const guardLogger = logger;
+    const mcpGuardInterval = setInterval(async () => {
+      try {
+        const ok = await ensureMcpConfigEntry(currentIde, toolName, sseUrl);
+        if (!ok) {
+          guardLogger.warn('MCP config entry missing — re-written.');
+        }
+      } catch { /* ignore */ }
+    }, 30_000);
+    context.subscriptions.push({ dispose: () => clearInterval(mcpGuardInterval) });
   }
 
   // Register MCP dialog callback: open QuoteDialogPanel (editor tab) on LLM call

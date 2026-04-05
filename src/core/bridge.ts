@@ -580,26 +580,26 @@ export class QuoteBridge {
           usingFallback: clientProgressToken === undefined,
         });
 
-        // Multi-layer keepalive strategy:
-        // L1: SSE comment (transport-level, keeps TCP alive)
-        // L2: MCP notifications/progress (application-level, resets client SDK timeout)
-        // L3: MCP notifications/message (application-level log, resets any data-event idle timer)
+        // Aggressive multi-layer keepalive strategy to prevent Windsurf Cascade timeout.
+        // Windsurf has an internal ~60s timeout at the Cascade transport layer (L1).
+        // We send BOTH progress AND message notifications on EVERY tick to maximize
+        // the chance that at least one resets the timeout timer.
         let progressCounter = 0;
         const keepAlive = setInterval(() => {
           if (sseClient && !sseClient.writableEnded) {
+            progressCounter++;
             // L1: SSE comment — keeps TCP/proxy/LB connections alive
             sseClient.write(": keepalive\n\n");
 
             // L2: MCP progress notification — resets client SDK request timeout.
-            // Always sent (using clientProgressToken or requestId fallback).
             if (progressToken !== undefined) {
-              progressCounter++;
               const progressNotification = JSON.stringify({
                 jsonrpc: "2.0",
                 method: "notifications/progress",
                 params: {
                   progressToken,
                   progress: progressCounter,
+                  total: progressCounter + 1,
                   message: "Waiting for user response...",
                 },
               });
@@ -607,19 +607,17 @@ export class QuoteBridge {
             }
 
             // L3: MCP log notification — a real JSON-RPC data event.
-            // Sent less frequently (every 5th cycle ≈ 15s) to avoid overwhelming client.
-            if (progressCounter % 5 === 0) {
-              const logNotification = JSON.stringify({
-                jsonrpc: "2.0",
-                method: "notifications/message",
-                params: {
-                  level: "info",
-                  logger: "quote-keepalive",
-                  data: "Waiting for user response...",
-                },
-              });
-              sseClient.write(`data: ${logNotification}\n\n`);
-            }
+            // Sent EVERY tick (not just every 5th) to aggressively reset any idle timer.
+            const logNotification = JSON.stringify({
+              jsonrpc: "2.0",
+              method: "notifications/message",
+              params: {
+                level: "info",
+                logger: "quote-keepalive",
+                data: `Waiting for user response... (${progressCounter * 3}s)`,
+              },
+            });
+            sseClient.write(`data: ${logNotification}\n\n`);
           }
         }, KEEPALIVE_INTERVAL_MS);
 
