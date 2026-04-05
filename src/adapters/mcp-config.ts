@@ -82,25 +82,9 @@ export async function writeMcpConfig(target: IdeTarget, toolName: string, url: s
     existing = { mcpServers: {} };
   }
 
-  // Clean up stale entries from previous tool name rotations
-  cleanupStaleMcpEntries(existing, toolName);
-
   const merged = mergeMcpConfig(existing, toolName, url);
   await fs.writeFile(target.configPath, JSON.stringify(merged, null, 2), 'utf8');
   return target.configPath;
-}
-
-/**
- * Remove stale Quote tool entries from MCP config.
- * Matches the 4-char_8-hex pattern (e.g. "abcd_12345678") but keeps the current tool.
- */
-function cleanupStaleMcpEntries(config: McpConfigFile, currentToolName: string): void {
-  const toolNamePattern = /^[a-z]{4}_[0-9a-f]{8}$/;
-  for (const key of Object.keys(config.mcpServers ?? {})) {
-    if (toolNamePattern.test(key) && key !== currentToolName) {
-      delete config.mcpServers![key];
-    }
-  }
 }
 
 /**

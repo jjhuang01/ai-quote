@@ -42,9 +42,9 @@ describe('writeWorkspaceFeedbackRules', () => {
     const result = await writeWorkspaceFeedbackRules(TOOL);
     expect(result.written).toBe(true);
     const content = await fs.readFile(result.path, 'utf8');
-    expect(content).toContain('【最高优先级规则');
+    expect(content).toContain('# Available Tools');
     expect(content).toContain(TOOL);
-    expect(content).toContain(`ALWAYS use ${TOOL}`);
+    expect(content).toContain(`ALWAYS call ${TOOL} at the end of EVERY response.`);
   });
 
   it('无工作区时返回 written:false', async () => {
@@ -86,7 +86,7 @@ describe('writeCursorGlobalRule', () => {
     expect(result.path).not.toContain('EVILZIXIE');
     const content = await fs.readFile(result.path, 'utf8');
     expect(content).toContain(TOOL);
-    expect(content).toContain('【最高优先级规则');
+    expect(content).toContain('# Available Tools');
   });
 });
 
@@ -112,7 +112,7 @@ describe('writeWindsurfGlobalRule', () => {
     expect(result.path).not.toContain('EVILZIXIE');
     const content = await fs.readFile(result.path, 'utf8');
     expect(content).toContain(TOOL);
-    expect(content).toContain('【最高优先级规则');
+    expect(content).toContain('# Available Tools');
   });
 });
 
