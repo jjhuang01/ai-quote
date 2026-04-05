@@ -10,15 +10,18 @@
 - 先恢复 manifest / command / view / config / local bridge 等可证实能力，再逐步补齐高风险功能。
 - 所有运行时日志默认写入 VS Code `logUri`，仓库内 `logs/` 只存调试说明与测试产物。
 - 对会修改用户目录的能力（MCP 配置、规则文件）必须做到：幂等、最小化、可追踪。
+- MCP 配置采用**追加模式**：多窗口各自写入独立 toolName 条目，不清理其他窗口的条目。
+- 规则文件只写**工作区级别**（`AI_FEEDBACK_RULES.md` + `.windsurfrules`），不写全局 `.mdc`。
 
 ## Evidence Anchors
 
-- Activity Bar 容器：`infinite-dialog-sidebar`
-- Webview View：`infiniteDialogView`
-- Commands：`infiniteDialog.openPanel` / `refresh` / `testFeedback` / `showStatus`
-- Config：`infiniteDialog.serverPort` / `infiniteDialog.autoConfigureRules`
-- Inferred bridge endpoints：`/events` `/message` `/api/version` `/api/verify` `/api/firebase/login` `/sse`
-- Inferred config targets：Windsurf / Cursor / Kiro / Trae / VS Code
+- Activity Bar 容器：`quote-sidebar`
+- Webview View：`quoteView`
+- Commands：`quote.openPanel` / `quote.refresh` / `quote.testFeedback` / `quote.showStatus` / `quote.copyPort` / `quote.rotateName` / `quote.testDialog`
+- Config：`quote.serverPort` / `quote.autoConfigureRules` / `quote.dialogTimeoutSeconds`
+- Bridge endpoints：`/events` `/message` `/api/version` `/api/verify` `/api/firebase/login` `/sse`
+- MCP config targets：Windsurf / Cursor / Kiro / Trae / VS Code
+- Rules targets：`AI_FEEDBACK_RULES.md`（工作区）/ `.windsurfrules`（工作区）
 
 ## 日志文件位置
 
@@ -45,7 +48,6 @@
 
 - `npm run check-types`
 - `npm run build`
-- `npm run test`
-- `npm run test:integration`
+- `npm run test`（含 unit + e2e）
 
 全部通过前，不得宣称完成。

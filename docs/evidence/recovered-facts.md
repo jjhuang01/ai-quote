@@ -4,21 +4,26 @@
 
 - 包内存在：`extension/package.json`, `extension/out/extension.js`, `extension/README.md`, `extension/resources/icon.svg`
 - 激活事件：`onStartupFinished`
-- 主入口：`./out/extension.js`
-- View Container：`infinite-dialog-sidebar`
-- Webview View：`infiniteDialogView`
+- 主入口：`./dist/extension.js`
+- View Container：`quote-sidebar`
+- Webview View：`quoteView`
 - Commands：
-  - `infiniteDialog.openPanel`
-  - `infiniteDialog.refresh`
-  - `infiniteDialog.testFeedback`
-  - `infiniteDialog.showStatus`
+  - `quote.openPanel`
+  - `quote.refresh`
+  - `quote.testFeedback`
+  - `quote.showStatus`
+  - `quote.copyPort`
+  - `quote.rotateName`
+  - `quote.testDialog`
 - Settings：
-  - `infiniteDialog.serverPort` default `3456`
-  - `infiniteDialog.autoConfigureRules` default `true`
-- Dependencies：`mammoth`, `proxy-agent`, `xlsx`
+  - `quote.serverPort` default `3456`
+  - `quote.autoConfigureRules` default `false`
+  - `quote.dialogTimeoutSeconds` default `0`
+- Dependencies：`mammoth`, `proxy-agent`, `xlsx`, `highlight.js`, `katex`, `mermaid`
 - Bundle strings / symbols：`MCPHttpServer`, `configureMcpConfig`, `configureGlobalRules`, `WindsurfAccountManager`
 - Route fragments：`/events`, `/message`, `/api/version`, `/api/verify`, `/api/firebase/login`, `/sse`
-- File targets：`.cursor/mcp.json`, `.vscode/mcp.json`, `.trae/mcp.json`, `.codeium/windsurf/mcp_config.json`, `AI_FEEDBACK_RULES.md`, `.cursor/rules/EVILZIXIE.mdc`
+- MCP file targets (append mode)：`.cursor/mcp.json`, `.vscode/mcp.json`, `.trae/mcp.json`, `.codeium/windsurf/mcp_config.json`, `.kiro/steering/mcp.json`
+- Rules file targets (workspace only)：`AI_FEEDBACK_RULES.md`, `.windsurfrules`
 
 ## Inferred
 
