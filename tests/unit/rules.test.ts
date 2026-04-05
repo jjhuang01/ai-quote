@@ -21,7 +21,8 @@ import * as os from 'node:os';
 import {
   writeWorkspaceFeedbackRules,
   writeCursorGlobalRule,
-  writeWindsurfGlobalRule
+  writeWindsurfGlobalRule,
+  cleanupStaleRules
 } from '../../src/adapters/rules';
 
 const TOOL = 'kpzm_a1b2c3d4';
@@ -41,7 +42,7 @@ describe('writeWorkspaceFeedbackRules', () => {
     const result = await writeWorkspaceFeedbackRules(TOOL);
     expect(result.written).toBe(true);
     const content = await fs.readFile(result.path, 'utf8');
-    expect(content).toContain('# Available Tools');
+    expect(content).toContain('【最高优先级规则');
     expect(content).toContain(TOOL);
     expect(content).toContain(`ALWAYS use ${TOOL}`);
   });
@@ -85,7 +86,7 @@ describe('writeCursorGlobalRule', () => {
     expect(result.path).not.toContain('EVILZIXIE');
     const content = await fs.readFile(result.path, 'utf8');
     expect(content).toContain(TOOL);
-    expect(content).toContain('# Available Tools');
+    expect(content).toContain('【最高优先级规则');
   });
 });
 
@@ -111,6 +112,54 @@ describe('writeWindsurfGlobalRule', () => {
     expect(result.path).not.toContain('EVILZIXIE');
     const content = await fs.readFile(result.path, 'utf8');
     expect(content).toContain(TOOL);
-    expect(content).toContain('# Available Tools');
+    expect(content).toContain('【最高优先级规则');
+  });
+});
+
+describe('cleanupStaleRules', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(realOs.tmpdir(), 'cleanup-rules-'));
+    vi.mocked(os.homedir).mockReturnValue(tmpDir);
+  });
+
+  afterEach(async () => {
+    vi.mocked(os.homedir).mockReset();
+    vi.mocked(os.homedir).mockReturnValue(realOs.homedir());
+    if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('删除旧的 Quote 工具名 .mdc 文件，保留当前工具名', async () => {
+    const windsurfDir = path.join(tmpDir, '.codeium', 'windsurf', 'rules');
+    await fs.mkdir(windsurfDir, { recursive: true });
+
+    // Create stale files
+    await fs.writeFile(path.join(windsurfDir, 'abcd_12345678.mdc'), 'stale');
+    await fs.writeFile(path.join(windsurfDir, 'efgh_aabbccdd.mdc'), 'stale');
+    // Current tool — should be kept
+    await fs.writeFile(path.join(windsurfDir, `${TOOL}.mdc`), 'current');
+    // Non-matching file — should be kept
+    await fs.writeFile(path.join(windsurfDir, 'infinite-dialog.mdc'), 'keep');
+
+    const removed = await cleanupStaleRules(TOOL);
+    expect(removed.length).toBe(2);
+
+    // Current tool file still exists
+    const current = await fs.readFile(path.join(windsurfDir, `${TOOL}.mdc`), 'utf8');
+    expect(current).toBe('current');
+
+    // Non-matching file still exists
+    const other = await fs.readFile(path.join(windsurfDir, 'infinite-dialog.mdc'), 'utf8');
+    expect(other).toBe('keep');
+
+    // Stale files are gone
+    await expect(fs.access(path.join(windsurfDir, 'abcd_12345678.mdc'))).rejects.toThrow();
+    await expect(fs.access(path.join(windsurfDir, 'efgh_aabbccdd.mdc'))).rejects.toThrow();
+  });
+
+  it('目录不存在时不报错', async () => {
+    const removed = await cleanupStaleRules(TOOL);
+    expect(removed).toEqual([]);
   });
 });
