@@ -126,9 +126,11 @@
     "test:integration": "npm run build && npm run compile-tests && vscode-test",
     "verify": "npm run check-types && npm run build && npm run test && npm run test:integration",
     "vscode:prepublish": "npm run build",
-    "release": "npm version patch --no-git-tag-version && vsce package --no-dependencies",
-    "release:minor": "npm version minor --no-git-tag-version && vsce package --no-dependencies",
-    "release:major": "npm version major --no-git-tag-version && vsce package --no-dependencies"
+    "release": "node scripts/archive-builds.mjs release",
+    "release:minor": "node scripts/archive-builds.mjs archive && npm version minor --no-git-tag-version && vsce package --no-dependencies",
+    "release:major": "node scripts/archive-builds.mjs archive && npm version major --no-git-tag-version && vsce package --no-dependencies",
+    "archive": "node scripts/archive-builds.mjs archive",
+    "archive:cleanup": "node scripts/archive-builds.mjs cleanup"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
