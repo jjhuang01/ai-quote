@@ -132,7 +132,5 @@ export async function configureGlobalRules(toolName: string): Promise<RuleWriteR
   return [
     await writeWorkspaceFeedbackRules(toolName),
     await writeWindsurfWorkspaceRules(toolName),
-    await writeCursorGlobalRule(toolName),
-    await writeWindsurfGlobalRule(toolName)
   ];
 }
