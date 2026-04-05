@@ -388,15 +388,11 @@ export async function deactivate(): Promise<void> {
     try {
       const ide = detectCurrentIde();
       await removeMcpConfigEntry(ide, activeToolName);
-      // Remove session-scoped rules files (best-effort)
+      // Remove session-scoped workspace rules if they reference our session tool
       const fs = await import('node:fs/promises');
-      const os = await import('node:os');
       const path = await import('node:path');
-      const rulesDir = path.join(os.homedir(), '.codeium', 'windsurf', 'rules');
-      await fs.unlink(path.join(rulesDir, `${activeToolName}.mdc`)).catch(() => {});
       const wsFolder = vscode.workspace.workspaceFolders?.[0];
       if (wsFolder) {
-        // Only clean workspace rules if they reference our session tool
         const wsRules = path.join(wsFolder.uri.fsPath, '.windsurfrules');
         const content = await fs.readFile(wsRules, 'utf8').catch(() => '');
         if (content.includes(activeToolName)) {

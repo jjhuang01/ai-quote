@@ -585,7 +585,7 @@ export class QuoteDialogPanel {
     color: var(--input-fg);
     border: 1px solid var(--input-border);
     border-radius: 8px;
-    padding: 12px 14px;
+    padding: 12px 14px 26px;
     font-family: var(--font);
     font-size: 13.5px;
     line-height: 1.5;
