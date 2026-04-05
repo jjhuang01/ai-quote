@@ -3,7 +3,7 @@
   "displayName": "Quote",
   "icon": "resources/icon.png",
   "description": "",
-  "version": "2.3.9",
+  "version": "2.6.0",
   "publisher": "opensource",
   "license": "MIT",
   "author": "EVILZIXIE",
@@ -141,7 +141,10 @@
     "vitest": "^4.1.2"
   },
   "dependencies": {
+    "highlight.js": "^11.11.1",
+    "katex": "^0.16.44",
     "mammoth": "^1.11.0",
+    "mermaid": "^11.14.0",
     "proxy-agent": "^6.3.0",
     "xlsx": "^0.18.5"
   }

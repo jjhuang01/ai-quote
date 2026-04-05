@@ -220,10 +220,10 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         const submitImages = submitVal?.['images'] as import('../core/contracts').ImageAttachment[] | undefined;
         if (sessionId && userResponse !== undefined) {
           this.bridge.resolvePendingDialog(sessionId, userResponse, submitImages);
-          // Mark editor tab panel as submitted before disposing to prevent double resolution
+          // Mark editor tab panel as submitted and show sent state (user closes manually)
           QuoteDialogPanel.markSubmitted();
-          QuoteDialogPanel.dispose();
-          this.logger.info('MCP dialog submitted from webview.', { sessionId });
+          QuoteDialogPanel.showSentState();
+          this.logger.info('MCP dialog submitted from sidebar.', { sessionId });
           this.postBootstrap();
         }
         return true;

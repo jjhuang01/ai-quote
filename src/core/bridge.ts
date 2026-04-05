@@ -59,6 +59,12 @@ function writeSseHeaders(response: http.ServerResponse): void {
   });
 }
 
+/** How often to send keepalive signals (SSE comment + MCP notifications) during dialog wait */
+const KEEPALIVE_INTERVAL_MS = 3_000;
+
+/** Grace period after SSE disconnect before discarding a pending dialog (allows Windsurf to reconnect) */
+const DIALOG_RECONNECT_GRACE_MS = 30_000;
+
 export type DialogCallback = (request: McpDialogRequest) => void;
 
 export class QuoteBridge {
@@ -346,6 +352,14 @@ export class QuoteBridge {
   private attachSseClient(response: http.ServerResponse): void {
     const sid = createId("sess");
     writeSseHeaders(response);
+
+    // TCP-level keepalive: prevent OS/firewall/proxy from killing idle connections
+    const socket = response.socket;
+    if (socket) {
+      socket.setKeepAlive(true, 15_000); // TCP probe every 15s
+      socket.setNoDelay(true); // disable Nagle — send keepalive bytes immediately
+    }
+
     this.clients.set(sid, response);
 
     // MCP SSE transport: tell client where to POST requests
@@ -367,19 +381,27 @@ export class QuoteBridge {
 
     response.on("close", () => {
       this.clients.delete(sid);
-      // B2 fix: silently discard pending dialog for this session.
-      // Do NOT call the resolver (which would try to write to the closed SSE
-      // or broadcast to other clients). Just let the waiting promise hang.
-      // The server-side await will be GC'd once the extension deactivates.
+      // Grace period: don't immediately discard pending dialog.
+      // Windsurf may reconnect with a new SSE session within seconds.
       if (this.pendingDialogResolvers.has(sid)) {
-        this.pendingDialogResolvers.delete(sid);
-        if (this.pendingDialog?.sessionId === sid) {
-          this.pendingDialog = undefined;
-        }
         this.logger.info(
-          "SSE disconnect: pending dialog discarded (no broadcast).",
+          "SSE disconnect while dialog pending — starting grace period.",
           { sessionId: sid },
         );
+        // Keep dialog state alive for DIALOG_RECONNECT_GRACE_MS.
+        // If no resolution arrives by then, silently discard.
+        setTimeout(() => {
+          if (this.pendingDialogResolvers.has(sid)) {
+            this.pendingDialogResolvers.delete(sid);
+            if (this.pendingDialog?.sessionId === sid) {
+              this.pendingDialog = undefined;
+            }
+            this.logger.info(
+              "SSE grace period expired — dialog discarded.",
+              { sessionId: sid },
+            );
+          }
+        }, DIALOG_RECONNECT_GRACE_MS);
       }
       this.logger.info("SSE client disconnected.", { sessionId: sid });
       this.sseClientChangeCallback?.();
@@ -480,16 +502,16 @@ export class QuoteBridge {
           break;
         }
 
-        // B1: Reject concurrent calls from same session
+        // B1: Handle concurrent/retry calls from same session —
+        // supersede old dialog instead of rejecting (supports Windsurf timeout retries)
         if (this.pendingDialogResolvers.has(sessionId)) {
-          pushJsonRpc(undefined, {
-            code: -32000,
-            message: "A dialog is already pending for this session",
-          });
-          this.logger.warn("tools/call: concurrent call rejected.", {
+          const oldResolver = this.pendingDialogResolvers.get(sessionId)!;
+          this.pendingDialogResolvers.delete(sessionId);
+          this.pendingDialog = undefined;
+          this.logger.info("tools/call: superseding previous dialog (retry).", {
             sessionId,
           });
-          break;
+          oldResolver("(superseded by retry)");
         }
 
         const dialogReq: McpDialogRequest = {
@@ -506,17 +528,100 @@ export class QuoteBridge {
           summaryLen: summary.length,
         });
 
-        // Notify extension to show dialog
-        if (this.dialogCallback) {
-          this.dialogCallback(dialogReq);
-        }
+        // Extract progressToken for MCP progress notifications (resets client-side timeout)
+        const meta = (params as Record<string, unknown> | undefined)?.[
+          "_meta"
+        ] as Record<string, unknown> | undefined;
+        const clientProgressToken = meta?.["progressToken"] as
+          | string
+          | number
+          | undefined;
+        // Fallback: use request id as progressToken — high hit-rate heuristic
+        // because many MCP clients (including newer SDK versions) set
+        // progressToken = requestId internally.
+        const progressToken = clientProgressToken ?? id;
 
-        // Keep SSE alive aggressively (5s) — Windsurf MCP client may have its own idle timeout
+        // Set up resolver FIRST so dialogCallback can auto-reply synchronously
+        const dialogPromise = new Promise<void>((resolve) => {
+          this.pendingDialogResolvers.set(
+            sessionId,
+            (userResponse: string, images?: ImageAttachment[]) => {
+              // Cleanup is handled by callers (resolvePendingDialog / timeout handler)
+              clearInterval(keepAlive);
+              clearTimeout(timeoutHandle);
+              const content: Record<string, unknown>[] = [
+                { type: "text", text: userResponse },
+              ];
+              if (images && images.length > 0) {
+                for (const img of images) {
+                  // MCP spec ImageContent: top-level data + mimeType
+                  content.push({
+                    type: "image",
+                    data: img.data,
+                    mimeType: img.media_type,
+                  });
+                }
+              }
+              pushJsonRpc({ content, isError: false });
+              this.logger.info("MCP dialog response sent.", {
+                sessionId,
+                responseLen: userResponse.length,
+                imageCount: images?.length ?? 0,
+              });
+              resolve();
+            },
+          );
+        });
+
+        this.logger.info("MCP tools/call: keepalive config.", {
+          sessionId,
+          clientProgressToken: clientProgressToken ?? "(none)",
+          effectiveProgressToken: progressToken ?? "(none)",
+          usingFallback: clientProgressToken === undefined,
+        });
+
+        // Multi-layer keepalive strategy:
+        // L1: SSE comment (transport-level, keeps TCP alive)
+        // L2: MCP notifications/progress (application-level, resets client SDK timeout)
+        // L3: MCP notifications/message (application-level log, resets any data-event idle timer)
+        let progressCounter = 0;
         const keepAlive = setInterval(() => {
           if (sseClient && !sseClient.writableEnded) {
-            sseClient.write(': keepalive\n\n');
+            // L1: SSE comment — keeps TCP/proxy/LB connections alive
+            sseClient.write(": keepalive\n\n");
+
+            // L2: MCP progress notification — resets client SDK request timeout.
+            // Always sent (using clientProgressToken or requestId fallback).
+            if (progressToken !== undefined) {
+              progressCounter++;
+              const progressNotification = JSON.stringify({
+                jsonrpc: "2.0",
+                method: "notifications/progress",
+                params: {
+                  progressToken,
+                  progress: progressCounter,
+                  message: "Waiting for user response...",
+                },
+              });
+              sseClient.write(`data: ${progressNotification}\n\n`);
+            }
+
+            // L3: MCP log notification — a real JSON-RPC data event.
+            // Sent less frequently (every 5th cycle ≈ 15s) to avoid overwhelming client.
+            if (progressCounter % 5 === 0) {
+              const logNotification = JSON.stringify({
+                jsonrpc: "2.0",
+                method: "notifications/message",
+                params: {
+                  level: "info",
+                  logger: "quote-keepalive",
+                  data: "Waiting for user response...",
+                },
+              });
+              sseClient.write(`data: ${logNotification}\n\n`);
+            }
           }
-        }, 5_000);
+        }, KEEPALIVE_INTERVAL_MS);
 
         // Optional auto-timeout (0 = wait indefinitely)
         let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
@@ -535,40 +640,12 @@ export class QuoteBridge {
           }, this.dialogTimeoutMs);
         }
 
-        // Wait for user response (stored in resolver map)
-        await new Promise<void>((resolve) => {
-          this.pendingDialogResolvers.set(
-            sessionId,
-            (userResponse: string, images?: ImageAttachment[]) => {
-              this.pendingDialogResolvers.delete(sessionId);
-              this.pendingDialog = undefined;
-              clearInterval(keepAlive);
-              clearTimeout(timeoutHandle);
-              const content: Record<string, unknown>[] = [
-                { type: "text", text: userResponse },
-              ];
-              if (images && images.length > 0) {
-                for (const img of images) {
-                  content.push({
-                    type: "image",
-                    source: {
-                      type: "base64",
-                      media_type: img.media_type,
-                      data: img.data,
-                    },
-                  });
-                }
-              }
-              pushJsonRpc({ content, isError: false });
-              this.logger.info("MCP dialog response sent.", {
-                sessionId,
-                responseLen: userResponse.length,
-                imageCount: images?.length ?? 0,
-              });
-              resolve();
-            },
-          );
-        });
+        // Notify extension to show dialog (resolver already registered — auto-reply works)
+        if (this.dialogCallback) {
+          this.dialogCallback(dialogReq);
+        }
+
+        await dialogPromise;
         clearInterval(keepAlive);
         clearTimeout(timeoutHandle);
         // Notify extension to refresh status bar etc.

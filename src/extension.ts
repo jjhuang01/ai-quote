@@ -123,7 +123,26 @@ export async function activate(
       statusBarItem.text = `$(pause-circle) $(comment) Quote ${bridge?.getPort() ?? '?'}`;
       statusBarItem.tooltip = '⏸ LLM 等待用户响应...';
     }
-    // Notify sidebar for queue auto-reply processing
+
+    // ── Queue auto-reply: if queue has content, consume first item automatically ──
+    const queueItems = sidebarProvider.getQueueItems();
+    if (queueItems.length > 0) {
+      const autoReply = queueItems[0];
+      sidebarProvider.replaceQueue(queueItems.slice(1));
+      bridge?.resolvePendingDialog(req.sessionId, autoReply);
+      logger?.info('Auto-replied from queue.', {
+        sessionId: req.sessionId,
+        responseLen: autoReply.length,
+        queueRemaining: queueItems.length - 1,
+      });
+      void updateStatusBar();
+      sidebarProvider.postState();
+      QuoteDialogPanel.syncQueueItems(sidebarProvider.getQueueItems());
+      return;
+    }
+
+    // ── No queue items — show dialog panel and wait for user input ──
+    // Notify sidebar for status display
     sidebarProvider.postPendingDialog(req);
     try {
       const settings = dataManager!.settings.get();
@@ -151,8 +170,8 @@ export async function activate(
   };
   bridge.registerDialogCallback(dialogHandler);
   bridge.registerDialogResolvedCallback(() => {
-    // Close editor tab dialog panel when dialog resolves from any source
-    QuoteDialogPanel.dispose();
+    // Show "sent" state in editor tab dialog panel — user closes manually via X button
+    QuoteDialogPanel.showSentState();
     void updateStatusBar();
   });
   bridge.registerSseClientChangeCallback(() => {

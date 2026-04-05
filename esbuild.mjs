@@ -1,7 +1,12 @@
 import esbuild from 'esbuild';
+import { copyFileSync, mkdirSync } from 'node:fs';
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
+
+// Copy mermaid.min.js to dist/webview/ for dialog panel
+mkdirSync('dist/webview', { recursive: true });
+copyFileSync('node_modules/mermaid/dist/mermaid.min.js', 'dist/webview/mermaid.min.js');
 
 const problemMatcherPlugin = {
   name: 'esbuild-problem-matcher',

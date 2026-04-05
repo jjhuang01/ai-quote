@@ -69,6 +69,7 @@ export interface FirebaseLoginRequest {
 
 export interface McpServerConfig {
   url: string;
+  timeout?: number;
 }
 
 export interface McpConfigFile {

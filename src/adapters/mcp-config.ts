@@ -47,10 +47,13 @@ export function detectCurrentIde(): IdeTarget {
   return IDE_TARGETS.find(target => target.appNames.some(candidate => appName.includes(candidate))) ?? IDE_TARGETS[4];
 }
 
+/** 3 days in milliseconds — long enough that no human session should hit it */
+const MCP_TIMEOUT_MS = 259_200_000;
+
 export function mergeMcpConfig(existing: McpConfigFile | undefined, toolName: string, url: string): McpConfigFile {
   const next: McpConfigFile = existing ?? { mcpServers: {} };
   next.mcpServers ??= {};
-  next.mcpServers[toolName] = { url };
+  next.mcpServers[toolName] = { url, timeout: MCP_TIMEOUT_MS };
   return next;
 }
 

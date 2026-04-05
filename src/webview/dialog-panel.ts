@@ -1,5 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
+import katex from 'katex';
+import hljs from 'highlight.js/lib/common';
 import type { McpDialogRequest, ImageAttachment } from '../core/contracts';
 
 export type DialogSubmitHandler = (sessionId: string, response: string, images?: ImageAttachment[]) => void;
@@ -13,32 +15,71 @@ function safeJsonEmbed(value: unknown): string {
   return JSON.stringify(value).replace(/<\//g, '<\\/');
 }
 
-/** Server-side markdown → HTML renderer (no external deps). */
+/** Render a LaTeX string to HTML via KaTeX (MathML output — no CSS needed). */
+function renderKatex(tex: string, displayMode: boolean): string {
+  try {
+    return katex.renderToString(tex.trim(), { displayMode, output: 'mathml', throwOnError: false });
+  } catch {
+    return `<code class="math-error">${escHtml(tex)}</code>`;
+  }
+}
+
+/** Highlight a code string with highlight.js, returning HTML. */
+function highlightCode(code: string, lang: string): string {
+  try {
+    if (lang && hljs.getLanguage(lang)) {
+      return hljs.highlight(code, { language: lang }).value;
+    }
+    return hljs.highlightAuto(code).value;
+  } catch {
+    return escHtml(code);
+  }
+}
+
+/** Server-side markdown → HTML renderer with KaTeX math, highlight.js, and Mermaid support. */
 function renderMarkdown(md: string): string {
-  // 1. Extract fenced code blocks
+  // 1. Extract fenced code blocks (including mermaid)
   const codeBlocks: string[] = [];
   let src = md.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-    codeBlocks.push(
-      `<pre><code class="lang-${escHtml(lang || 'text')}">${escHtml(code.trimEnd())}</code></pre>`,
-    );
+    const trimmed = code.trimEnd();
+    if (lang === 'mermaid') {
+      codeBlocks.push(`<pre class="mermaid">${escHtml(trimmed)}</pre>`);
+    } else {
+      const highlighted = highlightCode(trimmed, lang || '');
+      codeBlocks.push(
+        `<pre><code class="hljs lang-${escHtml(lang || 'text')}">${highlighted}</code></pre>`,
+      );
+    }
     return `\x00CB${codeBlocks.length - 1}\x00`;
   });
 
-  // 2. Extract inline code
+  // 2. Extract display math blocks: $$...$$
+  const mathBlocks: string[] = [];
+  src = src.replace(/\$\$([\s\S]*?)\$\$/g, (_, tex) => {
+    mathBlocks.push(renderKatex(tex, true));
+    return `\x00MB${mathBlocks.length - 1}\x00`;
+  });
+
+  // 3. Extract inline code
   const inlineCodes: string[] = [];
   src = src.replace(/`([^`]+)`/g, (_, code) => {
     inlineCodes.push(`<code>${escHtml(code)}</code>`);
     return `\x00IC${inlineCodes.length - 1}\x00`;
   });
 
-  // Inline formatting helper (bold, italic, links) — operates on already-escaped text
+  // 4. Process inline math: $...$  (after inline code to avoid conflicts)
+  src = src.replace(/\$([^$\n]+)\$/g, (_, tex) => renderKatex(tex, false));
+
+  // Inline formatting helper (bold, italic, links, strikethrough, images) — operates on already-escaped text
   const inlineFmt = (t: string): string =>
     escHtml(t)
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
       .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;border-radius:4px;">')
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
 
-  // 3. Process lines
+  // 5. Process lines
   const lines = src.split('\n');
   const out: string[] = [];
   let listTag = '';
@@ -54,6 +95,10 @@ function renderMarkdown(md: string): string {
     const cbMatch = line.match(/^\x00CB(\d+)\x00$/);
     if (cbMatch) { closeList(); closeTable(); out.push(codeBlocks[+cbMatch[1]]); continue; }
 
+    // Math-block placeholder
+    const mbMatch = line.match(/^\x00MB(\d+)\x00$/);
+    if (mbMatch) { closeList(); closeTable(); out.push(mathBlocks[+mbMatch[1]]); continue; }
+
     // Heading
     const hMatch = line.match(/^(#{1,6}) (.+)$/);
     if (hMatch) { closeList(); closeTable(); out.push(`<h${hMatch[1].length}>${inlineFmt(hMatch[2])}</h${hMatch[1].length}>`); continue; }
@@ -63,6 +108,10 @@ function renderMarkdown(md: string): string {
 
     // Blockquote
     if (line.startsWith('> ')) { closeList(); closeTable(); out.push(`<blockquote>${inlineFmt(line.slice(2))}</blockquote>`); continue; }
+
+    // Task list
+    const taskMatch = line.match(/^[-*] \[([ xX])\] (.+)$/);
+    if (taskMatch) { closeTable(); if (listTag !== 'ul') { closeList(); out.push('<ul class="task-list">'); listTag = 'ul'; } const checked = taskMatch[1] !== ' ' ? ' checked disabled' : ' disabled'; out.push(`<li class="task-item"><input type="checkbox"${checked}> ${inlineFmt(taskMatch[2])}</li>`); continue; }
 
     // Unordered list
     const ulMatch = line.match(/^[-*] (.+)$/);
@@ -94,9 +143,10 @@ function renderMarkdown(md: string): string {
   }
   closeList(); closeTable();
 
-  // 4. Restore placeholders
+  // 6. Restore placeholders
   let html = out.join('\n');
   codeBlocks.forEach((cb, i) => { html = html.replace(`\x00CB${i}\x00`, cb); });
+  mathBlocks.forEach((mb, i) => { html = html.replace(`\x00MB${i}\x00`, mb); });
   inlineCodes.forEach((ic, i) => { html = html.replace(`\x00IC${i}\x00`, ic); });
   return html;
 }
@@ -108,6 +158,8 @@ function renderMarkdown(md: string): string {
  */
 export class QuoteDialogPanel {
   private static instance?: QuoteDialogPanel;
+  /** Guard: max auto-reopens per dialog to prevent infinite loops. */
+  private static reopenCount = 0;
 
   private panel: vscode.WebviewPanel;
   private currentReq?: McpDialogRequest;
@@ -146,6 +198,10 @@ export class QuoteDialogPanel {
       }
       if (msg.type === 'dialogDismiss') {
         this.dismissAndResolve();
+        this.panel.dispose();
+      }
+      if (msg.type === 'dialogClose') {
+        this.panel.dispose();
       }
       if (msg.type === 'queueAdd') {
         const items = msg.value as string[];
@@ -159,12 +215,49 @@ export class QuoteDialogPanel {
           this.onQueueReplace?.(items);
         }
       }
+      if (msg.type === 'readFiles') {
+        const uris = msg.value as string[];
+        if (Array.isArray(uris)) void this.readAndSendFiles(uris);
+      }
+      if (msg.type === 'browseFiles') {
+        void this.browseAndSendFiles();
+      }
     });
 
     this.panel.onDidDispose(() => {
-      // Panel closed via tab X button — resolve with dismiss if not already submitted
-      this.dismissAndResolve();
+      const wasPending = !this.submitted && !!this.currentReq;
       QuoteDialogPanel.instance = undefined;
+
+      if (wasPending && QuoteDialogPanel.reopenCount < 3) {
+        // Tab X while dialog pending — auto-reopen to prevent accidental dismiss.
+        // Dialog is NOT resolved; LLM keeps waiting.
+        QuoteDialogPanel.reopenCount++;
+        const req = this.currentReq!;
+        const handler = this.onSubmit!;
+        const uri = this.extensionUri;
+        const opts = {
+          enterToSend: this.enterToSend,
+          queueCount: this.queueCount,
+          queueItems: [...this.queueItems],
+          onQueueAdd: this.onQueueAdd,
+          onQueueReplace: this.onQueueReplace,
+        };
+        setTimeout(() => {
+          try {
+            // If a new dialog already arrived during the delay, skip reopen
+            if (QuoteDialogPanel.instance) return;
+            QuoteDialogPanel.show(uri, req, handler, opts);
+            void vscode.window.showInformationMessage('💡 使用「取消」按钮关闭对话面板');
+          } catch { /* extension may be deactivating */ }
+        }, 80);
+        return;
+      }
+
+      // Submitted (via 发送 / 取消) or reopen limit reached — clean up.
+      // If reopen limit reached and still pending, resolve as dismissed.
+      if (wasPending) {
+        this.dismissAndResolve();
+      }
     });
   }
 
@@ -213,6 +306,16 @@ export class QuoteDialogPanel {
     }
   }
 
+  /** Transition panel to "sent" state — user closes manually via tab X button. */
+  public static showSentState(): void {
+    if (!QuoteDialogPanel.instance) return;
+    const inst = QuoteDialogPanel.instance;
+    inst.panel.title = '✓ Quote — 已发送';
+    try {
+      void inst.panel.webview.postMessage({ type: 'dialogResolved' });
+    } catch { /* panel may be disposed */ }
+  }
+
   public static dispose(): void {
     QuoteDialogPanel.instance?.panel.dispose();
     QuoteDialogPanel.instance = undefined;
@@ -222,6 +325,93 @@ export class QuoteDialogPanel {
   public static markSubmitted(): void {
     if (QuoteDialogPanel.instance) {
       QuoteDialogPanel.instance.submitted = true;
+    }
+  }
+
+  private async browseAndSendFiles(): Promise<void> {
+    const result = await vscode.window.showOpenDialog({
+      canSelectFiles: true,
+      canSelectFolders: true,
+      canSelectMany: true,
+      openLabel: '添加到对话',
+    });
+    if (!result || result.length === 0) return;
+    await this.readAndSendFiles(result.map(u => u.toString()));
+  }
+
+  private async readAndSendFiles(uris: string[]): Promise<void> {
+    for (const uri of uris) {
+      try {
+        const fileUri = vscode.Uri.parse(uri);
+        const filename = fileUri.path.split('/').pop() || 'file';
+        let stat: vscode.FileStat;
+        try {
+          stat = await vscode.workspace.fs.stat(fileUri);
+        } catch {
+          void this.panel.webview.postMessage({
+            type: 'readFileResult',
+            value: { filename, content: '', size: 0, isImage: false, error: '文件不存在或无权访问' },
+          });
+          continue;
+        }
+
+        // Directory: list contents
+        if (stat.type === vscode.FileType.Directory) {
+          const entries = await vscode.workspace.fs.readDirectory(fileUri);
+          const listing = entries
+            .map(([name, type]) => `${type === vscode.FileType.Directory ? '📁' : '📄'} ${name}`)
+            .join('\n');
+          void this.panel.webview.postMessage({
+            type: 'readFileResult',
+            value: { filename: filename + '/', content: listing, size: listing.length, isImage: false },
+          });
+          continue;
+        }
+
+        const isImage = /\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i.test(filename);
+        const isBinary = /\.(exe|dll|so|dylib|bin|o|a|lib|zip|tar|gz|bz2|xz|7z|rar|jar|war|ear|class|pyc|pyo|wasm|pdf|doc|docx|xls|xlsx|ppt|pptx|odt|ods|odp|sqlite|db|mdb|mp3|mp4|avi|mov|mkv|flv|wmv|wav|flac|aac|ogg|ttf|otf|woff|woff2|eot|ico|icns|psd|ai|sketch|fig)$/i.test(filename);
+
+        if (!isImage && isBinary) {
+          void this.panel.webview.postMessage({
+            type: 'readFileResult',
+            value: { filename, content: '', size: stat.size, isImage: false, error: `不支持的二进制文件类型` },
+          });
+          continue;
+        }
+
+        if (isImage) {
+          const data = await vscode.workspace.fs.readFile(fileUri);
+          const base64 = Buffer.from(data).toString('base64');
+          const ext = (filename.split('.').pop() ?? 'png').toLowerCase();
+          const mediaType = ext === 'svg' ? 'image/svg+xml' : `image/${ext.replace('jpg', 'jpeg')}`;
+          const dataUri = `data:${mediaType};base64,${base64}`;
+          void this.panel.webview.postMessage({
+            type: 'readFileResult',
+            value: { filename, content: '', size: data.length, isImage: true, dataUri, mediaType },
+          });
+        } else {
+          // Limit to 500KB to avoid overwhelming the webview
+          if (stat.size > 512_000) {
+            void this.panel.webview.postMessage({
+              type: 'readFileResult',
+              value: { filename, content: '', size: stat.size, isImage: false, error: `文件过大 (${(stat.size / 1024).toFixed(0)} KB)` },
+            });
+            continue;
+          }
+          const data = await vscode.workspace.fs.readFile(fileUri);
+          const content = Buffer.from(data).toString('utf8');
+          void this.panel.webview.postMessage({
+            type: 'readFileResult',
+            value: { filename, content, size: data.length, isImage: false },
+          });
+        }
+      } catch (err) {
+        const filename = uri.split('/').pop() || 'file';
+        void this.panel.webview.postMessage({
+          type: 'readFileResult',
+          value: { filename, content: '', size: 0, isImage: false, error: String(err) },
+        });
+      }
     }
   }
 
@@ -237,12 +427,16 @@ export class QuoteDialogPanel {
     this.currentReq = req;
     this.panel.title = '⏸ Quote — 等待回复';
     this.panel.webview.html = this.buildHtml(req);
+    QuoteDialogPanel.reopenCount = 0; // Reset guard for new dialog
   }
 
   private buildHtml(req: McpDialogRequest): string {
     const nonce = randomBytes(16).toString('hex');
     const dialogScriptUri = this.panel.webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview', 'dialog.js')
+    );
+    const mermaidScriptUri = this.panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview', 'mermaid.min.js')
     );
 
     const optionBtns = (req.options ?? [])
@@ -264,7 +458,7 @@ export class QuoteDialogPanel {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.panel.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${this.panel.webview.cspSource} data:; font-src data:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.panel.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'unsafe-eval'; img-src ${this.panel.webview.cspSource} data: blob:; font-src ${this.panel.webview.cspSource} data:;">
 <title>Quote Dialog</title>
 <style>
   :root {
@@ -605,6 +799,35 @@ export class QuoteDialogPanel {
     box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 100;
   }
   .toast-show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  /* highlight.js dark theme (VS Code-aligned) */
+  .hljs { color: #d4d4d4; }
+  .hljs-keyword,.hljs-selector-tag,.hljs-literal,.hljs-section,.hljs-link { color: #569cd6; }
+  .hljs-function .hljs-keyword { color: #569cd6; }
+  .hljs-string,.hljs-title.function_,.hljs-title.class_ { color: #ce9178; }
+  .hljs-comment,.hljs-quote { color: #6a9955; font-style: italic; }
+  .hljs-number,.hljs-regexp,.hljs-literal,.hljs-bullet { color: #b5cea8; }
+  .hljs-meta,.hljs-meta .hljs-keyword { color: #9cdcfe; }
+  .hljs-type,.hljs-built_in,.hljs-class .hljs-title { color: #4ec9b0; }
+  .hljs-attr,.hljs-variable,.hljs-template-variable { color: #9cdcfe; }
+  .hljs-attribute { color: #d7ba7d; }
+  .hljs-symbol,.hljs-addition { color: #b5cea8; }
+  .hljs-deletion { color: #ce9178; }
+  .hljs-title { color: #dcdcaa; }
+  .hljs-params { color: #d4d4d4; }
+  .hljs-punctuation { color: #d4d4d4; }
+  /* Mermaid diagram styling */
+  pre.mermaid { background: transparent; border: none; padding: 8px 0; text-align: center; overflow-x: auto; }
+  pre.mermaid svg { max-width: 100%; height: auto; }
+  pre.mermaid[data-processed="true"] { font-size: 0; }
+  /* Math styling */
+  .math-error { color: #ef4444; background: rgba(239,68,68,0.1); padding: 2px 6px; border-radius: 3px; }
+  .katex-display { overflow-x: auto; overflow-y: hidden; padding: 8px 0; }
+  /* Task list styling */
+  .task-list { list-style: none; padding-left: 4px; }
+  .task-item { display: flex; align-items: baseline; gap: 6px; }
+  .task-item input[type="checkbox"] { margin: 0; flex-shrink: 0; }
+  /* Strikethrough */
+  del { opacity: 0.6; }
 </style>
 </head>
 <body>
@@ -623,7 +846,7 @@ export class QuoteDialogPanel {
     <div class="input-label">回复内容 · ${this.enterToSend ? 'Enter' : 'Ctrl+Enter'} 发送 · 支持拖拽 / 粘贴文件与图片</div>
     <textarea id="reply" placeholder="输入回复… (${this.enterToSend ? 'Enter 发送, Shift+Enter 换行' : 'Ctrl+Enter 发送'})" autofocus></textarea>
   </div>
-  <div id="dropZone" class="drop-zone">拖拽文件或图片到此处 · 支持 js / ts / md / json / txt 等常用文件</div>
+  <div id="dropZone" class="drop-zone">拖拽文件或图片到此处 · 支持 100+ 种文件类型 · <a href="#" id="browseBtn" style="color:var(--accent);text-decoration:underline;cursor:pointer;">浏览文件</a></div>
   <div id="attachmentList" class="attachment-list"></div>
   <div class="actions">
     <button class="btn-primary" data-action="submitCustom">发送</button>
@@ -649,7 +872,14 @@ export class QuoteDialogPanel {
     queueItems: ${safeJsonEmbed(this.queueItems)}
   };
 </script>
+<script nonce="${nonce}" src="${mermaidScriptUri}"></script>
 <script nonce="${nonce}" src="${dialogScriptUri}"></script>
+<script nonce="${nonce}">
+  if (typeof mermaid !== 'undefined') {
+    mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose', fontFamily: 'var(--font)' });
+    mermaid.run({ querySelector: 'pre.mermaid' }).catch(function(){});
+  }
+</script>
 </body>
 </html>`;
   }

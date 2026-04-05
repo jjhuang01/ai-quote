@@ -31,7 +31,8 @@ interface Attachment {
   media_type: string;
   filename: string;
   size: number;
-  preview?: string;
+  preview?: string;      // UI preview (truncated for display)
+  fullContent?: string;  // full text sent to LLM (up to 50KB)
 }
 
 // ── Bootstrap ──────────────────────────────────────────────────────
@@ -67,16 +68,59 @@ if (tsEl) tsEl.textContent = new Date().toLocaleTimeString();
 const attachments: Attachment[] = [];
 
 const TEXT_EXTS = [
-  'js','ts','jsx','tsx','mjs','cjs','json','md','markdown','txt','css','scss',
-  'less','html','htm','xml','yaml','yml','toml','ini','cfg','conf','sh','bash',
-  'zsh','py','rb','go','rs','java','c','cpp','h','hpp','swift','kt','sql',
-  'graphql','gql','vue','svelte','astro','env','gitignore','dockerignore',
-  'dockerfile','makefile','csv','tsv','log','diff','patch',
+  // Programming languages
+  'js','ts','jsx','tsx','mjs','cjs','mts','cts',
+  'py','pyw','rb','go','rs','java','kt','kts','scala','clj','cljs',
+  'c','cpp','cc','cxx','h','hpp','hxx','cs','fs','fsx',
+  'swift','m','mm','dart','lua','r','jl','ex','exs','erl','hrl','zig','nim','v',
+  'php','pl','pm','tcl','awk','sed',
+  // Web & markup
+  'html','htm','xml','svg','xsl','xslt',
+  'css','scss','sass','less','styl','stylus',
+  'vue','svelte','astro','njk','ejs','hbs','pug','jade',
+  // Data & config
+  'json','jsonc','json5','yaml','yml','toml','ini','cfg','conf','properties',
+  'csv','tsv','env',
+  // Documentation
+  'md','markdown','mdx','txt','rst','adoc','asciidoc','org','tex','bib',
+  'log','diff','patch',
+  // Shell & scripting
+  'sh','bash','zsh','fish','ps1','psm1','bat','cmd',
+  // Query & schema
+  'sql','graphql','gql','prisma','proto','thrift','avsc',
+  // Git & Docker dotfiles (extension after last dot)
+  'gitignore','gitattributes','gitmodules','gitkeep',
+  'dockerignore',
+  // IDE & editor config dotfiles
+  'editorconfig','eslintrc','prettierrc','stylelintrc','babelrc',
+  'npmrc','nvmrc','yarnrc','node-version',
+  // AI tool config files
+  'cursorrules','windsurfrules','clinerules','mdc','mcp',
+  // Build & infra
+  'tf','tfvars','hcl','gradle','cmake',
+  // No-extension filenames (split('.').pop() returns full lowercase name)
+  'dockerfile','makefile','vagrantfile','gemfile','rakefile','procfile',
+  'license','licence','authors','contributors','codeowners',
+  'lock','snap',
 ];
+
+// Special filenames that don't match by extension alone
+const SPECIAL_FILENAMES = new Set([
+  '.env.local','.env.development','.env.production','.env.test','.env.staging',
+  'cmakelists.txt','go.sum','cargo.lock','pnpm-lock.yaml',
+  'docker-compose.yml','docker-compose.yaml',
+  '.prettierignore','.eslintignore','.gitignore','.dockerignore',
+]);
 
 function isTextFile(name: string): boolean {
   if (!name) return false;
-  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  const lower = name.toLowerCase();
+  // Dotenv family: .env, .env.local, .env.production, etc.
+  if (lower === '.env' || lower.startsWith('.env.')) return true;
+  // Special full-filename matches
+  if (SPECIAL_FILENAMES.has(lower)) return true;
+  // Extension-based check (also handles dotfiles like .gitignore → ext = "gitignore")
+  const ext = lower.split('.').pop() ?? '';
   return TEXT_EXTS.includes(ext);
 }
 
@@ -117,8 +161,9 @@ function submitCustom(): void {
   if (!text && attachments.length === 0) return;
   let fileCtx = '';
   attachments.forEach(a => {
-    if (a.kind === 'file' && a.preview) {
-      fileCtx += '\n\n--- ' + (a.filename || 'file') + ' ---\n' + a.preview;
+    if (a.kind === 'file') {
+      const content = a.fullContent || a.preview || '';
+      if (content) fileCtx += '\n\n--- ' + (a.filename || 'file') + ' ---\n' + content;
     }
   });
   let response = (text || '') + fileCtx;
@@ -169,10 +214,12 @@ function addFile(file: File): void {
     });
   } else if (isText) {
     readFileAsText(file).then(text => {
+      const maxLlm = 50_000; // 50KB limit for LLM
+      const fullContent = text.length > maxLlm ? text.slice(0, maxLlm) + '\n... (truncated at 50KB)' : text;
       const preview = text.length > 2000 ? text.slice(0, 2000) + '\n... (truncated)' : text;
       attachments.push({
         kind: 'file', filename: file.name, size: file.size,
-        preview, media_type: 'text/plain', data: '',
+        preview, fullContent, media_type: 'text/plain', data: '',
       });
       renderAttachments();
     });
@@ -237,6 +284,16 @@ function renderAttachments(): void {
   dropZone.style.display = n > 0 ? 'none' : '';
 }
 
+// ── Browse files (reliable fallback for IDE drag-drop limitation) ──
+const browseBtn = document.getElementById('browseBtn');
+if (browseBtn) {
+  browseBtn.addEventListener('click', (e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+    vscode.postMessage({ type: 'browseFiles' });
+  });
+}
+
 // ── Drag & drop ────────────────────────────────────────────────────
 ['dragenter', 'dragover'].forEach(evt => {
   document.body.addEventListener(evt, (e: Event) => {
@@ -255,9 +312,32 @@ function renderAttachments(): void {
   });
 });
 document.body.addEventListener('drop', (e: DragEvent) => {
+  // OS file manager drag: files are available directly
   const files = e.dataTransfer?.files;
-  if (files) {
+  if (files && files.length > 0) {
     for (let i = 0; i < files.length; i++) addFile(files[i]);
+    return;
+  }
+  // IDE explorer drag: files are empty, but text/uri-list has file:// URIs
+  const uriList = e.dataTransfer?.getData('text/uri-list') || '';
+  const textData = e.dataTransfer?.getData('text/plain') || '';
+  const uris: string[] = [];
+  if (uriList) {
+    uriList.split('\n').forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#')) uris.push(trimmed);
+    });
+  } else if (textData) {
+    textData.split('\n').forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('file://') || (trimmed.startsWith('/') && !trimmed.includes(' '))) {
+        uris.push(trimmed.startsWith('file://') ? trimmed : 'file://' + trimmed);
+      }
+    });
+  }
+  if (uris.length > 0) {
+    vscode.postMessage({ type: 'readFiles', value: uris });
+    showToast(`正在读取 ${uris.length} 个文件...`);
   }
 });
 
@@ -282,9 +362,34 @@ replyEl.addEventListener('dragleave', () => { replyEl.classList.remove('drag-act
 replyEl.addEventListener('drop', (e: DragEvent) => {
   e.preventDefault(); e.stopPropagation();
   replyEl.classList.remove('drag-active');
+  dropZone.classList.remove('dragover');
+  if (attachments.length > 0) dropZone.style.display = 'none';
+  // OS file manager drag
   const files = e.dataTransfer?.files;
-  if (files) {
+  if (files && files.length > 0) {
     for (let i = 0; i < files.length; i++) addFile(files[i]);
+    return;
+  }
+  // IDE explorer drag (same logic as body handler)
+  const uriList = e.dataTransfer?.getData('text/uri-list') || '';
+  const textData = e.dataTransfer?.getData('text/plain') || '';
+  const uris: string[] = [];
+  if (uriList) {
+    uriList.split('\n').forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#')) uris.push(trimmed);
+    });
+  } else if (textData) {
+    textData.split('\n').forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('file://') || (trimmed.startsWith('/') && !trimmed.includes(' '))) {
+        uris.push(trimmed.startsWith('file://') ? trimmed : 'file://' + trimmed);
+      }
+    });
+  }
+  if (uris.length > 0) {
+    vscode.postMessage({ type: 'readFiles', value: uris });
+    showToast(`正在读取 ${uris.length} 个文件...`);
   }
 });
 
@@ -444,10 +549,38 @@ if (queueAddBtn && queueInput) {
   });
 }
 
-// Listen for queue sync + other messages from extension
+// Listen for messages from extension
 window.addEventListener('message', (e: MessageEvent) => {
   const msg = e.data;
   if (!msg) return;
+  // Dialog resolved — show "sent" confirmation, keep panel open for user to close
+  if (msg.type === 'dialogResolved') {
+    const header = document.querySelector('.header-icon');
+    const title = document.querySelector('.header-title');
+    if (header) header.textContent = '✓';
+    if (title) title.textContent = '已发送 · 等待 LLM 处理';
+    // Disable input area
+    if (replyEl) { replyEl.disabled = true; replyEl.placeholder = '已发送'; }
+    // Disable send button and option buttons
+    document.querySelectorAll('.btn-primary, .opt-btn').forEach(btn => {
+      (btn as HTMLButtonElement).disabled = true;
+      (btn as HTMLButtonElement).style.opacity = '0.5';
+    });
+    const primary = document.querySelector('.btn-primary');
+    if (primary) primary.textContent = '✓ 已发送';
+    // Transform "取消" into "关闭" button — sends dialogClose (just closes panel)
+    const cancelBtn = document.querySelector('.btn-cancel') as HTMLButtonElement | null;
+    if (cancelBtn) {
+      cancelBtn.textContent = '关闭';
+      cancelBtn.style.opacity = '1';
+      cancelBtn.disabled = false;
+      // Replace old listener by cloning
+      const closeBtn = cancelBtn.cloneNode(true) as HTMLButtonElement;
+      cancelBtn.parentNode?.replaceChild(closeBtn, cancelBtn);
+      closeBtn.addEventListener('click', () => vscode.postMessage({ type: 'dialogClose' }));
+    }
+    return;
+  }
   if (msg.type === 'queueSync') {
     const items = msg.value as string[];
     if (Array.isArray(items)) {
@@ -459,6 +592,39 @@ window.addEventListener('message', (e: MessageEvent) => {
   // Legacy: queueCount (if sidebar only sends count)
   if (msg.type === 'queueCount' && queueBadge) {
     queueBadge.textContent = String(msg.value || 0);
+  }
+  // IDE file read results (from text/uri-list drag or browse)
+  if (msg.type === 'readFileResult') {
+    const result = msg.value as {
+      filename: string; content: string; size: number;
+      isImage: boolean; dataUri?: string; mediaType?: string; error?: string;
+    };
+    if (result.error) {
+      showToast(`读取失败: ${result.filename} — ${result.error}`, 3000);
+      return;
+    }
+    if (result.isImage && result.dataUri) {
+      const parts = result.dataUri.split(',');
+      const base64 = parts[1] || '';
+      attachments.push({
+        kind: 'image', dataUri: result.dataUri, data: base64,
+        media_type: result.mediaType || 'image/png',
+        filename: result.filename, size: result.size,
+      });
+    } else {
+      const maxLlm = 50_000;
+      const fullContent = result.content.length > maxLlm
+        ? result.content.slice(0, maxLlm) + '\n... (truncated at 50KB)'
+        : result.content;
+      const preview = result.content.length > 2000
+        ? result.content.slice(0, 2000) + '\n... (truncated)'
+        : result.content;
+      attachments.push({
+        kind: 'file', filename: result.filename, size: result.size,
+        preview, fullContent, media_type: 'text/plain', data: '',
+      });
+    }
+    renderAttachments();
   }
 });
 
