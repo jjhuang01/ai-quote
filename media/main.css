@@ -1314,6 +1314,44 @@ button:focus-visible {
   flex-shrink: 0;
   line-height: 1.6;
 }
+/* Expired / plan ended state — 计划已到期账号（琥珀色调，区别于耗尽的灰色） */
+.ac-card.ac-expired {
+  background: color-mix(in srgb, #92400e 8%, var(--bg));
+  border-color: color-mix(in srgb, #b45309 25%, transparent);
+  opacity: 0.55;
+  transition:
+    border-color var(--t-normal),
+    background var(--t-normal),
+    opacity var(--t-normal);
+}
+.ac-card.ac-expired:hover {
+  opacity: 0.78;
+  border-color: color-mix(in srgb, #b45309 50%, transparent);
+  background: color-mix(in srgb, #92400e 14%, var(--bg));
+}
+.ac-card.ac-expired.ac-active {
+  opacity: 0.68;
+  border-color: color-mix(in srgb, #b45309 45%, var(--border-glass));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, #b45309 40%, transparent);
+}
+/* Desaturate + warm-tint fill bars on expired cards */
+.ac-card.ac-expired .ac-fill {
+  background: color-mix(in srgb, #b45309 25%, transparent) !important;
+  filter: saturate(0.2) sepia(0.3);
+}
+/* Badge: 已过期 */
+.badge-expired {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, #b45309 20%, transparent);
+  color: #d97706;
+  flex-shrink: 0;
+  line-height: 1.6;
+}
 /* Head row: email + badges */
 .ac-head {
   display: flex;

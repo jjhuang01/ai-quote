@@ -725,15 +725,21 @@ function renderAccountItem(
     dailyText = `${Math.round(dailyFillPct)}%`;
   }
 
-  // 判断账号是否已耗尽配额（周剩余 = 0%，或日/周都是 0%）
-  const isExhausted = !!rq && (
+  // 判断账号是否已过期（planEnd 在当前时间之前 — 无论 quota 百分比如何）
+  const isExpired = !!rq && !!rq.planEndTimestamp &&
+    rq.planEndTimestamp > 0 && rq.planEndTimestamp < Date.now();
+
+  // 判断账号是否已耗尽配额（计划仍在期内，但周/日配额归零）
+  const isExhausted = !isExpired && !!rq && (
     (rq.weeklyRemainingPercent >= 0 && rq.weeklyRemainingPercent <= 0) ||
     (rq.dailyRemainingPercent  >= 0 && rq.dailyRemainingPercent  <= 0 &&
      rq.weeklyRemainingPercent  < 0)   // 无周数据但日已归零
   );
 
+  const isDisabled = isExpired || isExhausted;
+
   // fillClass based on usage% (low usage = ok, high usage = danger)
-  // exhausted 账号强制 grey — 由 CSS .ac-exhausted .ac-fill 覆盖颜色
+  // exhausted/expired 账号强制 grey — 由 CSS .ac-exhausted/.ac-expired .ac-fill 覆盖颜色
   const fillClass = (usedPct: number | null): string => {
     if (usedPct === null) return "";
     if (usedPct < 50) return "quota-fill-ok";
@@ -743,13 +749,13 @@ function renderAccountItem(
 
   const refreshing = state.quotaFetching || state.quotaFetchingId === a.id;
   return `
-    <div class="ac-card ${isCurrent ? "ac-active" : ""} ${isExhausted ? "ac-exhausted" : ""} ${q?.warningLevel === "critical" && !isExhausted ? "ac-crit" : q?.warningLevel === "warn" && !isExhausted ? "ac-warn" : ""}">
+    <div class="ac-card ${isCurrent ? "ac-active" : ""} ${isExpired ? "ac-expired" : isExhausted ? "ac-exhausted" : ""} ${q?.warningLevel === "critical" && !isDisabled ? "ac-crit" : q?.warningLevel === "warn" && !isDisabled ? "ac-warn" : ""}">
       <div class="ac-head">
         <span class="ac-email" title="${escapeHtml(a.email)}">${escapeHtml(a.email)}</span>
         <div class="ac-tags">
           <span class="plan-badge plan-${a.plan.toLowerCase()}">${planIcon(a.plan)} ${a.plan}</span>
           ${isCurrent ? '<span class="badge-active">当前</span>' : ""}
-          ${isExhausted ? '<span class="badge-exhausted">已耗尽</span>' : ""}
+          ${isExpired ? '<span class="badge-expired">已过期</span>' : isExhausted ? '<span class="badge-exhausted">已耗尽</span>' : ""}
           ${planEndText ? `<span class="ac-end">${planEndText}</span>` : ""}
         </div>
       </div>

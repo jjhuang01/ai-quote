@@ -18,23 +18,22 @@ import { fileURLToPath } from 'node:url';
 const FIREBASE_API_KEY = 'AIzaSyDsOl-1XpT5err0Tcnx8FFod1H8gVGIycY';
 
 // ── 抽样账号（来自 orders_2026-04-04.txt） ─────────────────────────
-// 注意：dailyQuotaRemainingPercent = 剩余 %（非使用 %）
-//   100 = 从未使用（全新账号）→ 可用 ✅
-//   89  = 已使用 11%（89% 剩余）→ 可用 ✅
-//   0   = 完全耗尽（0% 剩余）  → 不可用 ❌
+// 涵盖：4月新购 + 3月18日（有限速，~已过期）+ 3月10日（100积分，最老）
 const ACCOUNTS = [
-  // ── 截图账号（用于与 Windsurf Plan Info 页对比验证）
-  { email: 's1z6pkws4k@zyqwotq.shop',   password: 'br07zq5',       order: 'WEB20260402CFAT1SC5' },
-  { email: 'elzkuhyfd6@gicnsjt.shop',   password: '96ahf4w9',      order: 'WEB20260402QYA87R14' },
-  { email: 'v3g6r80qyu@zmshgwp.shop',   password: 'wt2got22q',     order: 'WEB202604024REELFKZ' },
-  { email: 'rg307927xo@bukvofm.shop',   password: 'sm4i43z',       order: 'WEB202604029T50SBAB' },
-  { email: '0gqvqg29pj@nqfffca.shop',   password: 'ca3798d1wb',    order: 'WEB20260402J908DZ8Z' },
-  // ── 新购账号
-  { email: '7sbgxp5lpu@pqubzct.shop',   password: 'mk765ww4i1',    order: 'WEB20260404VFXH7YRT' },
-  { email: 'x4bbzla7bi@fvdcfqr.shop',   password: '3bm0o7lhf7',    order: 'WEB20260404U5BQ20J8' },
-  { email: '2uyk6zvfys@fwqzotl.shop',   password: '471n4odwr3',     order: 'WEB202604036H4L0XR6' },
-  { email: 'yyegiz17p3@nzccmyq.shop',   password: 'e140bjs4k6k',   order: 'WEB20260403F9I062XM' },
-  { email: '99x2iz2zlz@palcbhk.shop',   password: '0b0b5hny45',    order: 'WEB202604038E74QT3N' },
+  // ── 4月新购（预期可用）
+  { email: 's1z6pkws4k@zyqwotq.shop',   password: 'br07zq5',       order: 'WEB20260402CFAT1SC5',  note: '4月2日' },
+  { email: 'elzkuhyfd6@gicnsjt.shop',   password: '96ahf4w9',      order: 'WEB20260402QYA87R14',  note: '4月2日' },
+  { email: '7sbgxp5lpu@pqubzct.shop',   password: 'mk765ww4i1',    order: 'WEB20260404VFXH7YRT',  note: '4月4日新购' },
+  { email: 'w7kuj84ngv@furybww.shop',   password: 'yf63f0q9',      order: 'WEB20260403KG2XRGBH',  note: '4月3日' },
+  // ── 3月19日（应已过期 ~4月2日）
+  { email: 'y5la7r2vcr@buyudazuozhan.com', password: 'r58a12ot',   order: 'WEB20260319JJ9LNE6P',  note: '3月19日/不限速' },
+  // ── 3月18日（应已过期 ~4月1日）
+  { email: 'gmbmxjyit1@zfkisry.shop',   password: 'si1997umci',    order: 'WEB20260318D578FMOO',  note: '3月18日/有限速' },
+  { email: '1mj13sfn9c@zfkisry.shop',   password: 'i38r8yrm48o',   order: 'WEB20260318C08LY5FT',  note: '3月18日/有限速' },
+  { email: 'angklmkfiv@zfkisry.shop',   password: 'fvk387a',       order: 'WEB20260318MP7ATE9I',  note: '3月18日/有限速' },
+  // ── 3月10日（应已过期 ~3月24日，最老）
+  { email: 'jjjeoq5vj4@lvjigan.shop',   password: '8f64gch0',      order: 'WEB2026031041W7Z5YE',  note: '3月10日/100积分' },
+  { email: '9b269yk9r9@lvjigan.shop',   password: '9099vi4ygia',   order: 'WEB202603109F8L74Z5',  note: '3月10日/100积分' },
 ];
 
 // ── HTTP helpers ────────────────────────────────────────────────────
@@ -95,6 +94,13 @@ async function getPlanStatus(idToken) {
 // ── Classify usability ──────────────────────────────────────────────
 function classify(ps) {
   if (!ps) return 'no_data';
+  // 过期判断（planEnd 在过去 → 无论 quota 百分比如何，账号已无效）
+  if (ps.planEnd) {
+    const end = new Date(ps.planEnd).getTime();
+    if (end > 0 && end < Date.now()) return 'expired';
+  }
+  // 非正常 gracePeriod 状态
+  if (ps.gracePeriodStatus && ps.gracePeriodStatus !== 'GRACE_PERIOD_STATUS_NONE') return 'expired';
   const daily  = ps.dailyQuotaRemainingPercent;
   const weekly = ps.weeklyQuotaRemainingPercent;
   if (daily === undefined && weekly === undefined) return 'no_data';
@@ -116,6 +122,7 @@ for (const acc of ACCOUNTS) {
   const row = {
     email: acc.email,
     order: acc.order,
+    note: acc.note ?? '',
     status: 'unknown',
     dailyRemainingPercent: null,
     weeklyRemainingPercent: null,
@@ -152,10 +159,17 @@ for (const acc of ACCOUNTS) {
       usable:   '✅',
       low:      '⚠️ ',
       exhausted:'❌',
+      expired:  '🚫',
       no_data:  '❓',
     }[row.status] ?? '?';
-    const endStr = row.planEnd ? ` 到期${new Date(row.planEnd).toLocaleDateString('zh-CN',{month:'short',day:'numeric'})}` : '';
-    console.log(`${statusIcon} ${dailyStr.padEnd(10)} ${weeklyStr.padEnd(10)} prompt:${String(promptLeft).padEnd(5)} flow:${String(flowLeft).padEnd(5)}${endStr}`);
+    const now = Date.now();
+    const endTs = row.planEnd ? new Date(row.planEnd).getTime() : 0;
+    const expiredFlag = endTs > 0 && endTs < now ? '已过期' : '';
+    const endStr = row.planEnd
+      ? ` 到期${new Date(row.planEnd).toLocaleDateString('zh-CN',{month:'short',day:'numeric'})}${expiredFlag ? '('+expiredFlag+')' : ''}`
+      : '';
+    const noteStr = acc.note ? ` [${acc.note}]` : '';
+    console.log(`${statusIcon} ${dailyStr.padEnd(10)} ${weeklyStr.padEnd(10)} grace:${String(row.rawPlanStatus?.gracePeriodStatus??'?').replace('GRACE_PERIOD_STATUS_','').padEnd(6)}${endStr}${noteStr}`);
   } catch (err) {
     row.status = 'error';
     row.error  = err.message;
