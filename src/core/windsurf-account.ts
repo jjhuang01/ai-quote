@@ -66,6 +66,19 @@ export class WindsurfAccountManager {
     return this.accounts.find(a => a.isActive);
   }
 
+  public async getRealCurrentAccountId(): Promise<string | undefined> {
+    try {
+      const result = await this.quotaFetcher.fetchFromLocalProto();
+      if (!result.success) return undefined;
+      const email = result.userEmail?.toLowerCase();
+      if (!email) return undefined;
+      const matched = this.accounts.find(a => a.email.toLowerCase() === email);
+      return matched?.id;
+    } catch {
+      return undefined;
+    }
+  }
+
   public getCurrentAccountId(): string | undefined {
     return this.currentAccountId;
   }
@@ -104,6 +117,12 @@ export class WindsurfAccountManager {
       .map(l => l.trim())
       .filter(l => l.length > 0);
 
+    // Preserve current account state — import should NEVER change which account
+    // is marked as "当前". The user may already be logged in to an account that
+    // isn't (or is) in the import list. Either way, don't touch it.
+    const hadAccounts = this.accounts.length > 0;
+    const savedCurrentId = this.currentAccountId;
+
     let added = 0;
     let skipped = 0;
 
@@ -129,6 +148,18 @@ export class WindsurfAccountManager {
       added++;
     }
 
+    // Restore: if there was already a current account, keep it unchanged.
+    // add() may have set currentAccountId to the first imported account when
+    // the list was empty; only keep that if there was truly no account before.
+    if (hadAccounts && savedCurrentId) {
+      if (this.currentAccountId !== savedCurrentId) {
+        // Undo any isActive flag changes made by add()
+        this.accounts.forEach(a => { a.isActive = a.id === savedCurrentId; });
+        this.currentAccountId = savedCurrentId;
+        await this.save();
+      }
+    }
+
     this.logger.info('Batch import done.', { added, skipped });
     return { added, skipped };
   }
@@ -151,6 +182,19 @@ export class WindsurfAccountManager {
     await this.save();
     this.logger.info('WindsurfAccount deleted.', { id });
     return true;
+  }
+
+  public async deleteBatch(ids: string[]): Promise<number> {
+    const idSet = new Set(ids);
+    const before = this.accounts.length;
+    this.accounts = this.accounts.filter(a => !idSet.has(a.id));
+    const removed = before - this.accounts.length;
+    if (idSet.has(this.currentAccountId ?? '')) {
+      this.currentAccountId = this.accounts.find(a => a.isActive)?.id ?? this.accounts[0]?.id;
+    }
+    if (removed > 0) await this.save();
+    this.logger.info('Batch delete done.', { requested: ids.length, removed });
+    return removed;
   }
 
   public async clear(): Promise<void> {

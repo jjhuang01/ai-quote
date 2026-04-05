@@ -249,6 +249,8 @@ let state = {
   importText: "",
   addEmail: "",
   addPassword: "",
+  selectMode: false,
+  selectedAccountIds: new Set<string>(),
   // Shortcut
   editingShortcutId: undefined as string | undefined,
   editingShortcutText: "",
@@ -566,8 +568,17 @@ function renderAccountTab(bs: Bootstrap): string {
             <button class="btn-xs btn-icon ${isFetching ? "disabled" : ""}" data-action="fetchAllQuotas" ${isFetching ? "disabled" : ""} title="刷新全部配额">${isFetching ? `${icon("refresh")} …` : `${icon("refresh")} 配额`}</button>
             <button class="btn-xs btn-icon" data-action="toggleAddAccount">${icon("plus")} 添加</button>
             <button class="btn-xs btn-icon" data-action="toggleImportAccount">${icon("upload")} 批量</button>
-            ${accounts.length > 0 ? `<button class="btn-xs btn-danger-xs" data-action="accountClear">清空</button>` : ""}
+            ${accounts.length > 0 ? `<button class="btn-xs btn-icon ${state.selectMode ? "btn-active" : ""}" data-action="toggleSelectMode" title="多选删除">☑ 选择</button>` : ""}
+            ${accounts.length > 0 && !state.selectMode ? `<button class="btn-xs btn-danger-xs" data-action="accountClear">清空</button>` : ""}
           </div>
+          ${state.selectMode ? `
+          <div class="btn-group select-bar">
+            <span class="hint" style="margin:0">已选 ${state.selectedAccountIds.size} 个</span>
+            <button class="btn-xs btn-icon" data-action="selectAll">全选</button>
+            <button class="btn-xs btn-icon" data-action="selectNone">取消</button>
+            <button class="btn-xs btn-danger-xs ${state.selectedAccountIds.size === 0 ? "disabled" : ""}" data-action="accountDeleteBatch" ${state.selectedAccountIds.size === 0 ? "disabled" : ""}>删除选中</button>
+            <button class="btn-xs btn-icon" data-action="toggleSelectMode">退出选择</button>
+          </div>` : ""}
         </div>
 
         ${
@@ -670,7 +681,7 @@ function renderAccountItem(
   currentId?: string,
   snapshot?: QuotaSnapshot,
 ): string {
-  const isCurrent = a.id === currentId || a.isActive;
+  const isCurrent = a.id === currentId;
   const planColors: Record<string, string> = {
     Pro: "var(--accent)",
     Max: "#8b5cf6",
@@ -748,9 +759,11 @@ function renderAccountItem(
   };
 
   const refreshing = state.quotaFetching || state.quotaFetchingId === a.id;
+  const isSelected = state.selectedAccountIds.has(a.id);
   return `
-    <div class="ac-card ${isCurrent ? "ac-active" : ""} ${isExpired ? "ac-expired" : isExhausted ? "ac-exhausted" : ""} ${q?.warningLevel === "critical" && !isDisabled ? "ac-crit" : q?.warningLevel === "warn" && !isDisabled ? "ac-warn" : ""}">
+    <div class="ac-card ${isCurrent ? "ac-active" : ""} ${isExpired ? "ac-expired" : isExhausted ? "ac-exhausted" : ""} ${q?.warningLevel === "critical" && !isDisabled ? "ac-crit" : q?.warningLevel === "warn" && !isDisabled ? "ac-warn" : ""} ${isSelected ? "ac-selected" : ""}">
       <div class="ac-head">
+        ${state.selectMode ? `<input type="checkbox" class="ac-checkbox" data-action="toggleSelect" data-id="${a.id}" ${isSelected ? "checked" : ""}>` : ""}
         <span class="ac-email" title="${escapeHtml(a.email)}">${escapeHtml(a.email)}</span>
         <div class="ac-tags">
           <span class="plan-badge plan-${a.plan.toLowerCase()}">${planIcon(a.plan)} ${a.plan}</span>
@@ -1785,6 +1798,40 @@ function handleAction(el: HTMLElement): void {
     case "accountClear":
       vscode.postMessage({ type: "accountClear" });
       break;
+    case "toggleSelectMode":
+      state.selectMode = !state.selectMode;
+      if (!state.selectMode) state.selectedAccountIds = new Set();
+      render();
+      break;
+    case "selectAll": {
+      const bs = window.__QUOTE_BOOTSTRAP__;
+      if (bs) {
+        state.selectedAccountIds = new Set(bs.accounts.map((a: WindsurfAccount) => a.id));
+        render();
+      }
+      break;
+    }
+    case "selectNone":
+      state.selectedAccountIds = new Set();
+      render();
+      break;
+    case "toggleSelect":
+      if (id) {
+        if (state.selectedAccountIds.has(id)) {
+          state.selectedAccountIds.delete(id);
+        } else {
+          state.selectedAccountIds.add(id);
+        }
+        render();
+      }
+      break;
+    case "accountDeleteBatch":
+      if (state.selectedAccountIds.size > 0) {
+        vscode.postMessage({ type: "accountDeleteBatch", value: [...state.selectedAccountIds] });
+        state.selectMode = false;
+        state.selectedAccountIds = new Set();
+      }
+      break;
     case "autoSwitchSave": {
       const enabled =
         (document.getElementById("autoSwitchEnabled") as HTMLInputElement)
@@ -2134,7 +2181,7 @@ function getSettings(): PluginSettings {
   return window.__QUOTE_BOOTSTRAP__?.settings ?? {
     theme: 'dark', panelPosition: 'right', feedbackHeight: 400, inputHeight: 100,
     fontSize: 14, cardOpacity: 80, breathingLightColor: '#00ff88',
-    enterToSend: false, showUserPrompt: false, historyLimit: 30,
+    enterToSend: true, showUserPrompt: false, historyLimit: 30,
     soundAlert: 'tada', firebaseApiKey: '', mcpWhitelist: []
   };
 }

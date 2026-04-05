@@ -470,11 +470,9 @@ export class QuoteDialogPanel {
     --input-bg: var(--vscode-input-background, #2e2e2e);
     --input-fg: var(--vscode-input-foreground, #e6e6e6);
     --input-border: var(--vscode-input-border, #555);
-    --btn-bg: var(--vscode-button-background, #0e639c);
-    --btn-fg: var(--vscode-button-foreground, #fff);
-    --btn-hover: var(--vscode-button-hoverBackground, #1177bb);
     --card: var(--vscode-editorWidget-background, #252525);
-    --accent: var(--vscode-button-background, #0e639c);
+    --accent: #10b981;
+    --accent-dim: #059669;
     --accent-subtle: color-mix(in srgb, var(--accent) 12%, transparent);
     --surface: var(--vscode-input-background, #2e2e2e);
     --surface-hover: color-mix(in srgb, var(--accent) 10%, var(--surface));
@@ -482,7 +480,7 @@ export class QuoteDialogPanel {
     --success: #22c55e;
     --danger: #ef4444;
     --danger-subtle: color-mix(in srgb, #ef4444 14%, transparent);
-    --radius: 6px;
+    --radius: 8px;
     --font: var(--vscode-font-family, system-ui, -apple-system, sans-serif);
     --mono: var(--vscode-editor-font-family, 'SF Mono', Menlo, monospace);
   }
@@ -500,22 +498,25 @@ export class QuoteDialogPanel {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 12px 20px;
+    padding: 10px 20px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
-    background: linear-gradient(180deg, color-mix(in srgb, var(--card) 100%, transparent), var(--bg));
-    backdrop-filter: blur(4px);
+    background: var(--bg);
   }
-  .header-icon {
-    width: 30px; height: 30px;
-    display: flex; align-items: center; justify-content: center;
-    background: linear-gradient(135deg, var(--accent-subtle), color-mix(in srgb, var(--accent) 20%, transparent));
-    border-radius: 8px;
-    font-size: 14px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  .header-status {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
+    flex-shrink: 0;
+    animation: pulse-dot 2s ease-in-out infinite;
   }
-  .header-title { font-weight: 600; font-size: 13px; flex: 1; letter-spacing: -0.01em; }
-  .header-ts { font-size: 11px; color: var(--muted); }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent); }
+    50% { opacity: 0.5; box-shadow: 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
+  }
+  .header-title { font-weight: 600; font-size: 12px; flex: 1; letter-spacing: 0.02em; color: var(--fg); text-transform: uppercase; }
+  .header-ts { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .body {
     flex: 1;
     overflow-y: auto;
@@ -529,11 +530,10 @@ export class QuoteDialogPanel {
     max-height: 50vh;
     overflow-y: auto;
     padding: 14px 16px;
-    background: linear-gradient(135deg, var(--card), color-mix(in srgb, var(--card) 85%, var(--bg)));
-    border-radius: 8px;
+    background: var(--card);
+    border-radius: var(--radius);
     border: 1px solid var(--border-subtle);
     font-size: 13px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.03);
   }
   .summary pre { white-space: pre-wrap; word-break: break-word; }
   .summary.md h1,.summary.md h2,.summary.md h3 { margin: 8px 0 4px; font-weight: 600; }
@@ -557,17 +557,16 @@ export class QuoteDialogPanel {
   .options { display: flex; flex-wrap: wrap; gap: 6px; }
   .opt-btn {
     padding: 6px 14px;
-    background: linear-gradient(180deg, var(--surface), color-mix(in srgb, var(--surface) 80%, var(--bg)));
+    background: var(--surface);
     color: var(--fg);
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-subtle);
     border-radius: var(--radius);
     cursor: pointer;
     font-size: 12px;
     font-family: var(--font);
     transition: all 0.15s ease;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
   }
-  .opt-btn:hover { background: var(--surface-hover); border-color: var(--accent); box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
+  .opt-btn:hover { background: var(--surface-hover); border-color: var(--accent); }
   .input-section { display: flex; flex-direction: column; gap: 6px; }
   .input-label { font-size: 12px; color: var(--fg); font-weight: 600; }
   .input-hint { font-weight: 400; font-size: 11px; color: var(--muted); margin-left: 4px; }
@@ -583,61 +582,64 @@ export class QuoteDialogPanel {
     resize: vertical;
     background: var(--input-bg);
     color: var(--input-fg);
-    border: 1px solid var(--input-border);
-    border-radius: 8px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
     padding: 12px 14px 26px;
     font-family: var(--font);
-    font-size: 13.5px;
+    font-size: 13px;
     line-height: 1.5;
     outline: none;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    transition: border-color 0.15s;
   }
-  textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-subtle); }
+  textarea:focus { border-color: var(--accent); }
   textarea.drag-active { border-color: var(--accent); background: var(--accent-subtle); }
   .btn-send {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     width: 100%;
-    padding: 13px 0;
-    background: linear-gradient(180deg, var(--btn-bg), color-mix(in srgb, var(--btn-bg) 80%, #000));
-    color: var(--btn-fg);
+    padding: 11px 0;
+    background: var(--accent);
+    color: #fff;
     border: none;
-    border-radius: 10px;
+    border-radius: var(--radius);
     cursor: pointer;
-    font-size: 14px;
+    font-size: 13px;
     font-family: var(--font);
     font-weight: 600;
-    letter-spacing: 0.02em;
-    transition: all 0.18s ease;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+    letter-spacing: 0.01em;
+    transition: all 0.15s ease;
   }
-  .btn-send:hover { background: var(--btn-hover); box-shadow: 0 3px 10px rgba(0,0,0,0.35); transform: translateY(-1px); }
-  .btn-send:active { transform: translateY(0); box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+  .btn-send:hover { background: var(--accent-dim); }
+  .btn-send:active { transform: scale(0.99); }
+  .btn-send svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .shortcut-bar {
     display: flex;
     justify-content: center;
     align-items: center;
     gap: 6px;
-    padding: 8px 0 2px;
+    padding: 6px 0 2px;
     font-size: 11px;
     color: var(--muted);
   }
   .shortcut-bar kbd {
     display: inline-block;
-    padding: 2px 6px;
+    padding: 1px 5px;
     background: var(--surface);
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-subtle);
     border-radius: 4px;
     font-family: var(--mono);
     font-size: 10px;
     line-height: 1.3;
-    color: var(--fg);
+    color: var(--muted);
   }
-  .shortcut-sep { color: var(--border); margin: 0 2px; }
+  .shortcut-sep { color: var(--border-subtle); margin: 0 2px; }
   /* Drop zone & attachments */
   .drop-zone {
-    border: 1.5px dashed var(--border);
-    border-radius: 8px;
-    padding: 12px;
+    border: 1.5px dashed var(--border-subtle);
+    border-radius: var(--radius);
+    padding: 10px;
     text-align: center;
     font-size: 11px;
     color: var(--muted);
@@ -728,14 +730,14 @@ export class QuoteDialogPanel {
   }
   .summary-wrap { position: relative; }
   .summary-wrap:hover .copy-btn { opacity: 1; }
-  .copy-btn:hover { color: var(--fg); border-color: var(--accent); background: var(--accent-subtle); }
-  .copy-btn.copied { color: var(--success); border-color: var(--success); }
+  .copy-btn:hover { color: var(--fg); border-color: var(--accent); }
+  .copy-btn.copied { color: var(--accent); border-color: var(--accent); }
   /* Queue inline */
   .queue-inline {
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius);
     padding: 8px 12px;
-    background: color-mix(in srgb, var(--card) 60%, var(--bg));
+    background: var(--card);
   }
   .queue-inline-header {
     display: flex; align-items: center; justify-content: space-between;
@@ -805,8 +807,8 @@ export class QuoteDialogPanel {
   /* Toast */
   .toast {
     position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%) translateY(20px);
-    background: var(--card); color: var(--fg); border: 1px solid var(--border);
-    padding: 6px 16px; border-radius: 6px; font-size: 12px;
+    background: var(--card); color: var(--fg); border: 1px solid var(--border-subtle);
+    padding: 6px 16px; border-radius: var(--radius); font-size: 12px;
     opacity: 0; pointer-events: none; transition: all 0.25s ease;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 100;
   }
@@ -844,8 +846,8 @@ export class QuoteDialogPanel {
 </head>
 <body>
 <div class="header">
-  <span class="header-icon">⏸</span>
-  <span class="header-title">LLM 等待回复</span>
+  <span class="header-status"></span>
+  <span class="header-title">等待回复</span>
   <span class="header-ts" id="ts"></span>
 </div>
 <div class="body">
@@ -865,7 +867,7 @@ export class QuoteDialogPanel {
     <div class="queue-inline-list" id="queueList"></div>
   </div>
   <div class="input-section">
-    <div class="input-label">✏ 反馈内容 <span class="input-hint">拖拽文件/图片 · Ctrl+V 粘贴 · 发送后可继续加入队列</span></div>
+    <div class="input-label">反馈内容 <span class="input-hint">拖拽文件/图片 · Ctrl+V 粘贴</span></div>
     <div class="textarea-wrap">
       <textarea id="reply" placeholder="输入反馈或指令..." autofocus></textarea>
       <span class="char-count" id="charCount">0 字</span>
@@ -874,7 +876,7 @@ export class QuoteDialogPanel {
   <div id="dropZone" class="drop-zone">拖拽文件或图片到此处 · 支持 100+ 种文件类型 · <a href="#" id="browseBtn" style="color:var(--accent);text-decoration:underline;cursor:pointer;">浏览文件</a></div>
   <div id="attachmentList" class="attachment-list"></div>
   <span id="attachCount" class="attach-count"></span>
-  <button class="btn-send" data-action="submitCustom">✅ 发送</button>
+  <button class="btn-send" data-action="submitCustom"><svg viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>发送</button>
   <div class="shortcut-bar">
     <kbd>${this.enterToSend ? 'Enter' : 'Ctrl+Enter'}</kbd> 发送 <span class="shortcut-sep">|</span> <kbd>Esc</kbd> 结束
   </div>

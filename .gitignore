@@ -37,3 +37,6 @@ tmp/
 
 # TypeScript cache
 *.tsbuildinfo
+
+# Sensitive account data (passwords) — do NOT commit
+data/

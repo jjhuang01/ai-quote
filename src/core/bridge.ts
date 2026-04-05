@@ -425,8 +425,12 @@ export class QuoteBridge {
     });
     httpResponse.end(JSON.stringify({ accepted: true }));
 
-    // Find the SSE client for this session to push response
-    const sseClient = sessionId ? this.clients.get(sessionId) : undefined;
+    // Helper: find the *current* SSE client for this session.
+    // MUST be called on every use — never cache the result across async boundaries,
+    // because Windsurf may drop + reconnect the SSE stream at any time.
+    const findSseClient = (): http.ServerResponse | undefined =>
+      sessionId ? this.clients.get(sessionId) : undefined;
+
     const pushJsonRpc = (result: unknown, error?: unknown): void => {
       const rpcResponse: Record<string, unknown> = {
         jsonrpc: "2.0",
@@ -435,12 +439,13 @@ export class QuoteBridge {
       if (error) rpcResponse["error"] = error;
       else rpcResponse["result"] = result;
       const data = JSON.stringify(rpcResponse);
-      if (sseClient && !sseClient.writableEnded) {
-        sseClient.write(`data: ${data}\n\n`);
+      const client = findSseClient();
+      if (client && !client.writableEnded) {
+        client.write(`data: ${data}\n\n`);
       } else {
         // Broadcast to all if no specific client
-        for (const client of this.clients.values()) {
-          if (!client.writableEnded) client.write(`data: ${data}\n\n`);
+        for (const c of this.clients.values()) {
+          if (!c.writableEnded) c.write(`data: ${data}\n\n`);
         }
       }
       this.logger.info("MCP response sent.", { method, id });
@@ -536,11 +541,6 @@ export class QuoteBridge {
           | string
           | number
           | undefined;
-        // Fallback: use request id as progressToken — high hit-rate heuristic
-        // because many MCP clients (including newer SDK versions) set
-        // progressToken = requestId internally.
-        const progressToken = clientProgressToken ?? id;
-
         // Set up resolver FIRST so dialogCallback can auto-reply synchronously
         const dialogPromise = new Promise<void>((resolve) => {
           this.pendingDialogResolvers.set(
@@ -576,38 +576,37 @@ export class QuoteBridge {
         this.logger.info("MCP tools/call: keepalive config.", {
           sessionId,
           clientProgressToken: clientProgressToken ?? "(none)",
-          effectiveProgressToken: progressToken ?? "(none)",
-          usingFallback: clientProgressToken === undefined,
         });
 
-        // Aggressive multi-layer keepalive strategy to prevent Windsurf Cascade timeout.
-        // Windsurf has an internal ~60s timeout at the Cascade transport layer (L1).
-        // We send BOTH progress AND message notifications on EVERY tick to maximize
-        // the chance that at least one resets the timeout timer.
+        // Multi-layer keepalive strategy to prevent Windsurf Cascade timeout.
+        // CRITICAL: Look up the SSE client on EVERY tick via findSseClient() —
+        // Windsurf drops + reconnects SSE frequently; a stale reference silently
+        // kills keepalive and causes the ~60s Cascade transport timeout.
         let progressCounter = 0;
         const keepAlive = setInterval(() => {
-          if (sseClient && !sseClient.writableEnded) {
+          const client = findSseClient();
+          if (client && !client.writableEnded) {
             progressCounter++;
             // L1: SSE comment — keeps TCP/proxy/LB connections alive
-            sseClient.write(": keepalive\n\n");
+            client.write(": keepalive\n\n");
 
             // L2: MCP progress notification — resets client SDK request timeout.
-            if (progressToken !== undefined) {
+            // Only send if client explicitly provided a progressToken.
+            if (clientProgressToken !== undefined) {
               const progressNotification = JSON.stringify({
                 jsonrpc: "2.0",
                 method: "notifications/progress",
                 params: {
-                  progressToken,
+                  progressToken: clientProgressToken,
                   progress: progressCounter,
                   total: progressCounter + 1,
                   message: "Waiting for user response...",
                 },
               });
-              sseClient.write(`data: ${progressNotification}\n\n`);
+              client.write(`data: ${progressNotification}\n\n`);
             }
 
             // L3: MCP log notification — a real JSON-RPC data event.
-            // Sent EVERY tick (not just every 5th) to aggressively reset any idle timer.
             const logNotification = JSON.stringify({
               jsonrpc: "2.0",
               method: "notifications/message",
@@ -617,7 +616,12 @@ export class QuoteBridge {
                 data: `Waiting for user response... (${progressCounter * 3}s)`,
               },
             });
-            sseClient.write(`data: ${logNotification}\n\n`);
+            client.write(`data: ${logNotification}\n\n`);
+          } else if (!client) {
+            // No active SSE client — broadcast keepalive to all connected clients
+            for (const c of this.clients.values()) {
+              if (!c.writableEnded) c.write(": keepalive\n\n");
+            }
           }
         }, KEEPALIVE_INTERVAL_MS);
 

@@ -34,12 +34,10 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'dist')]
     };
 
-    try {
-      this.render();
-    } catch (err) {
+    void this.renderAsync().catch(err => {
       this.logger.error('Failed to render webview.', { error: String(err) });
       webviewView.webview.html = `<!DOCTYPE html><html><body><p>加载失败，请点击刷新按钮重试。</p></body></html>`;
-    }
+    });
 
     const msgDisposable = webviewView.webview.onDidReceiveMessage(message => {
       void this.handleMessage(message);
@@ -52,13 +50,13 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
 
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
-        this.postBootstrap();
+        void this.postBootstrap();
       }
     });
   }
 
   public refresh(): void {
-    this.render();
+    void this.renderAsync();
   }
 
   public reveal(): void {
@@ -103,11 +101,11 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  public postBootstrap(): void {
+  public async postBootstrap(): Promise<void> {
     if (!this.view) return;
     void this.view.webview.postMessage({
       type: 'bootstrap',
-      value: this.buildBootstrap()
+      value: await this.buildBootstrapAsync()
     });
   }
 
@@ -119,12 +117,20 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     });
   }
 
-  private buildBootstrap(): WebviewBootstrap {
+  private async buildBootstrapAsync(): Promise<WebviewBootstrap> {
     // 过滤密码字段，不发送到 webview
     const accounts = this.dataManager.windsurfAccounts.getAll().map(a => ({
       ...a,
       password: '***'
     }));
+
+    const wa = this.dataManager.windsurfAccounts as unknown as {
+      getRealCurrentAccountId?: () => Promise<string | undefined>;
+      getCurrentAccountId?: () => string | undefined;
+    };
+    const realCurrentAccountId = wa.getRealCurrentAccountId
+      ? await wa.getRealCurrentAccountId()
+      : wa.getCurrentAccountId?.();
 
     return {
       status: this.bridge.getStatus(),
@@ -135,20 +141,20 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
       settings: this.dataManager.settings.get(),
       usageStats: this.dataManager.usageStats.get(),
       autoSwitch: this.dataManager.windsurfAccounts.getAutoSwitchConfig(),
-      currentAccountId: this.dataManager.windsurfAccounts.getCurrentAccountId(),
+      currentAccountId: realCurrentAccountId,
       quotaSnapshots: this.dataManager.windsurfAccounts.getQuotaSnapshots(),
       quotaFetching: this.dataManager.windsurfAccounts.isQuotaFetching,
       responseQueue: this.responseQueue
     };
   }
 
-  private render(): void {
+  private async renderAsync(): Promise<void> {
     if (!this.view) return;
     try {
       this.view.webview.html = buildWebviewHtml(
         this.view.webview,
         this.extensionUri,
-        this.buildBootstrap(),
+        await this.buildBootstrapAsync(),
         this.logger.getLogFilePath()
       );
     } catch (err) {
@@ -179,7 +185,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
   private async handleGeneral(action: string, value?: unknown, _payload?: unknown): Promise<boolean> {
     switch (action) {
       case 'refresh':
-        this.render();
+        void this.renderAsync();
         return true;
       case 'testFeedback':
         await this.bridge.injectTestFeedback();
@@ -358,6 +364,20 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           }
         }
         return true;
+      case 'accountDeleteBatch': {
+        const ids = value as string[];
+        if (Array.isArray(ids) && ids.length > 0) {
+          const choice = await vscode.window.showWarningMessage(
+            `确定要删除选中的 ${ids.length} 个账号吗？`, { modal: true }, '删除'
+          );
+          if (choice === '删除') {
+            const removed = await this.dataManager.windsurfAccounts.deleteBatch(ids);
+            this.postBootstrap();
+            void this.view?.webview.postMessage({ type: 'opResult', value: { message: `已删除 ${removed} 个账号` } });
+          }
+        }
+        return true;
+      }
       case 'accountClear': {
         const clearAccChoice = await vscode.window.showWarningMessage(
           '确定要清空所有账号吗？此操作不可撤销。', { modal: true }, '清空'

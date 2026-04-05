@@ -212,7 +212,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   fontSize: 14,
   cardOpacity: 80,
   breathingLightColor: '#00ff88',
-  enterToSend: false,
+  enterToSend: true,
   showUserPrompt: false,
   historyLimit: 30,
   soundAlert: 'tada',

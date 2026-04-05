@@ -1352,6 +1352,30 @@ button:focus-visible {
   flex-shrink: 0;
   line-height: 1.6;
 }
+/* Batch select mode */
+.ac-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.ac-card.ac-selected {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+.select-bar {
+  margin-top: 6px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border-glass);
+  width: 100%;
+  justify-content: flex-start;
+}
+.btn-active {
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface)) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
 /* Head row: email + badges */
 .ac-head {
   display: flex;
