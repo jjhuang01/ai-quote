@@ -194,8 +194,16 @@ function readFileAsDataURL(file: File): Promise<string> {
   });
 }
 
+function isDuplicate(file: File): boolean {
+  return attachments.some(a => a.filename === file.name && a.size === file.size);
+}
+
 function addFile(file: File): void {
   if (!file) return;
+  if (isDuplicate(file)) {
+    showToast(`已存在: ${file.name}`, 1500);
+    return;
+  }
   const isImage = file.type?.startsWith('image/');
   const isText = isTextFile(file.name);
 
@@ -294,22 +302,38 @@ if (browseBtn) {
   });
 }
 
-// ── Drag & drop ────────────────────────────────────────────────────
-['dragenter', 'dragover'].forEach(evt => {
-  document.body.addEventListener(evt, (e: Event) => {
-    e.preventDefault();
-    e.stopPropagation();
+// ── Drag & drop (counter-based to prevent child-element jitter) ───
+let dragCounter = 0;
+
+document.body.addEventListener('dragenter', (e: Event) => {
+  e.preventDefault();
+  e.stopPropagation();
+  dragCounter++;
+  if (dragCounter === 1) {
     dropZone.classList.add('dragover');
     dropZone.style.display = '';
-  });
+  }
 });
-['dragleave', 'drop'].forEach(evt => {
-  document.body.addEventListener(evt, (e: Event) => {
-    e.preventDefault();
-    e.stopPropagation();
+document.body.addEventListener('dragover', (e: Event) => {
+  e.preventDefault();
+  e.stopPropagation();
+});
+document.body.addEventListener('dragleave', (e: Event) => {
+  e.preventDefault();
+  e.stopPropagation();
+  dragCounter--;
+  if (dragCounter <= 0) {
+    dragCounter = 0;
     dropZone.classList.remove('dragover');
     if (attachments.length > 0) dropZone.style.display = 'none';
-  });
+  }
+});
+document.body.addEventListener('drop', (e: Event) => {
+  e.preventDefault();
+  e.stopPropagation();
+  dragCounter = 0;
+  dropZone.classList.remove('dragover');
+  if (attachments.length > 0) dropZone.style.display = 'none';
 });
 document.body.addEventListener('drop', (e: DragEvent) => {
   // OS file manager drag: files are available directly
@@ -355,12 +379,21 @@ replyEl.addEventListener('paste', (e: ClipboardEvent) => {
   if (handled) e.preventDefault();
 });
 
-// ── Textarea drag visual ──────────────────────────────────────────
-replyEl.addEventListener('dragenter', (e: DragEvent) => { e.preventDefault(); replyEl.classList.add('drag-active'); });
+// ── Textarea drag visual (counter-based to prevent jitter) ───────
+let textareaDragCounter = 0;
+replyEl.addEventListener('dragenter', (e: DragEvent) => {
+  e.preventDefault();
+  textareaDragCounter++;
+  if (textareaDragCounter === 1) replyEl.classList.add('drag-active');
+});
 replyEl.addEventListener('dragover', (e: DragEvent) => { e.preventDefault(); });
-replyEl.addEventListener('dragleave', () => { replyEl.classList.remove('drag-active'); });
+replyEl.addEventListener('dragleave', () => {
+  textareaDragCounter--;
+  if (textareaDragCounter <= 0) { textareaDragCounter = 0; replyEl.classList.remove('drag-active'); }
+});
 replyEl.addEventListener('drop', (e: DragEvent) => {
   e.preventDefault(); e.stopPropagation();
+  textareaDragCounter = 0;
   replyEl.classList.remove('drag-active');
   dropZone.classList.remove('dragover');
   if (attachments.length > 0) dropZone.style.display = 'none';
@@ -601,6 +634,10 @@ window.addEventListener('message', (e: MessageEvent) => {
     };
     if (result.error) {
       showToast(`读取失败: ${result.filename} — ${result.error}`, 3000);
+      return;
+    }
+    if (attachments.some(a => a.filename === result.filename && a.size === result.size)) {
+      showToast(`已存在: ${result.filename}`, 1500);
       return;
     }
     if (result.isImage && result.dataUri) {

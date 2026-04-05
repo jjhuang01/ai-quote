@@ -572,15 +572,15 @@ export class QuoteDialogPanel {
   .input-label { font-size: 11px; color: var(--muted); }
   textarea {
     width: 100%;
-    min-height: 80px;
+    min-height: 100px;
     resize: vertical;
     background: var(--input-bg);
     color: var(--input-fg);
     border: 1px solid var(--input-border);
     border-radius: 8px;
-    padding: 10px 12px;
+    padding: 12px 14px;
     font-family: var(--font);
-    font-size: 13px;
+    font-size: 13.5px;
     line-height: 1.5;
     outline: none;
     transition: border-color 0.2s, box-shadow 0.2s;
@@ -593,13 +593,13 @@ export class QuoteDialogPanel {
     align-items: center;
   }
   .btn-primary {
-    padding: 7px 20px;
+    padding: 9px 28px;
     background: linear-gradient(180deg, var(--btn-bg), color-mix(in srgb, var(--btn-bg) 80%, #000));
     color: var(--btn-fg);
     border: none;
     border-radius: 8px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 13px;
     font-family: var(--font);
     font-weight: 600;
     transition: all 0.15s;
@@ -608,13 +608,13 @@ export class QuoteDialogPanel {
   }
   .btn-primary:hover { background: var(--btn-hover); box-shadow: 0 2px 6px rgba(0,0,0,0.3); transform: translateY(-0.5px); }
   .btn-cancel {
-    padding: 7px 16px;
+    padding: 9px 20px;
     background: transparent;
     color: var(--muted);
     border: 1px solid var(--border-subtle);
     border-radius: 8px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 13px;
     font-family: var(--font);
     transition: all 0.15s;
   }
