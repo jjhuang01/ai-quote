@@ -62,9 +62,6 @@ function writeSseHeaders(response: http.ServerResponse): void {
 /** How often to send keepalive signals (SSE comment + MCP notifications) during dialog wait */
 const KEEPALIVE_INTERVAL_MS = 3_000;
 
-/** Grace period after SSE disconnect before discarding a pending dialog (allows Windsurf to reconnect) */
-const DIALOG_RECONNECT_GRACE_MS = 30_000;
-
 export type DialogCallback = (request: McpDialogRequest) => void;
 
 export class QuoteBridge {
@@ -77,8 +74,9 @@ export class QuoteBridge {
   private dialogCallback?: DialogCallback;
   private dialogResolvedCallback?: () => void;
   private sseClientChangeCallback?: () => void;
+  // Key = dialogReq.id (stable across SSE reconnections), NOT sessionId
   private pendingDialogResolvers = new Map<
-    string,
+    string | number,
     (response: string, images?: ImageAttachment[]) => void
   >();
 
@@ -198,13 +196,20 @@ export class QuoteBridge {
     response: string,
     images?: ImageAttachment[],
   ): void {
-    const resolver = this.pendingDialogResolvers.get(sessionId);
+    // Try to find resolver by pendingDialog id (primary) or sessionId (fallback)
+    const dialogId = this.pendingDialog?.sessionId === sessionId
+      ? this.pendingDialog.id
+      : sessionId;
+    const resolver = this.pendingDialogResolvers.get(dialogId)
+      ?? this.pendingDialogResolvers.get(sessionId);
     if (resolver) {
       resolver(response, images);
+      this.pendingDialogResolvers.delete(dialogId);
       this.pendingDialogResolvers.delete(sessionId);
     } else {
-      this.logger.warn("resolvePendingDialog: no resolver for sessionId.", {
+      this.logger.warn("resolvePendingDialog: no resolver found.", {
         sessionId,
+        dialogId,
       });
     }
     if (this.pendingDialog?.sessionId === sessionId) {
@@ -381,28 +386,8 @@ export class QuoteBridge {
 
     response.on("close", () => {
       this.clients.delete(sid);
-      // Grace period: don't immediately discard pending dialog.
-      // Windsurf may reconnect with a new SSE session within seconds.
-      if (this.pendingDialogResolvers.has(sid)) {
-        this.logger.info(
-          "SSE disconnect while dialog pending — starting grace period.",
-          { sessionId: sid },
-        );
-        // Keep dialog state alive for DIALOG_RECONNECT_GRACE_MS.
-        // If no resolution arrives by then, silently discard.
-        setTimeout(() => {
-          if (this.pendingDialogResolvers.has(sid)) {
-            this.pendingDialogResolvers.delete(sid);
-            if (this.pendingDialog?.sessionId === sid) {
-              this.pendingDialog = undefined;
-            }
-            this.logger.info(
-              "SSE grace period expired — dialog discarded.",
-              { sessionId: sid },
-            );
-          }
-        }, DIALOG_RECONNECT_GRACE_MS);
-      }
+      // Dialog resolvers are keyed by dialogReq.id (not sessionId),
+      // so SSE reconnection does NOT kill pending dialogs.
       this.logger.info("SSE client disconnected.", { sessionId: sid });
       this.sseClientChangeCallback?.();
     });
@@ -425,11 +410,26 @@ export class QuoteBridge {
     });
     httpResponse.end(JSON.stringify({ accepted: true }));
 
-    // Helper: find the *current* SSE client for this session.
-    // MUST be called on every use — never cache the result across async boundaries,
-    // because Windsurf may drop + reconnect the SSE stream at any time.
-    const findSseClient = (): http.ServerResponse | undefined =>
-      sessionId ? this.clients.get(sessionId) : undefined;
+    // Helper: find the best SSE client to write to.
+    // Prefers the original session, but falls back to the latest connected client.
+    // This ensures SSE reconnections (new sessionId) don't break response delivery.
+    const findSseClient = (): http.ServerResponse | undefined => {
+      if (sessionId) {
+        const original = this.clients.get(sessionId);
+        if (original && !original.writableEnded) return original;
+      }
+      // Fallback: use the most recently connected client (last in Map iteration order)
+      let latest: http.ServerResponse | undefined;
+      for (const c of this.clients.values()) {
+        if (!c.writableEnded) latest = c;
+      }
+      return latest;
+    };
+
+    // Write a JSON-RPC message to SSE with proper `event: message` prefix (MCP spec)
+    const writeSseEvent = (client: http.ServerResponse, data: string): void => {
+      client.write(`event: message\ndata: ${data}\n\n`);
+    };
 
     const pushJsonRpc = (result: unknown, error?: unknown): void => {
       const rpcResponse: Record<string, unknown> = {
@@ -440,12 +440,12 @@ export class QuoteBridge {
       else rpcResponse["result"] = result;
       const data = JSON.stringify(rpcResponse);
       const client = findSseClient();
-      if (client && !client.writableEnded) {
-        client.write(`data: ${data}\n\n`);
+      if (client) {
+        writeSseEvent(client, data);
       } else {
-        // Broadcast to all if no specific client
+        // Broadcast to all if no active client found
         for (const c of this.clients.values()) {
-          if (!c.writableEnded) c.write(`data: ${data}\n\n`);
+          if (!c.writableEnded) writeSseEvent(c, data);
         }
       }
       this.logger.info("MCP response sent.", { method, id });
@@ -507,16 +507,20 @@ export class QuoteBridge {
           break;
         }
 
-        // B1: Handle concurrent/retry calls from same session —
+        // B1: Handle concurrent/retry calls —
         // supersede old dialog instead of rejecting (supports Windsurf timeout retries)
-        if (this.pendingDialogResolvers.has(sessionId)) {
-          const oldResolver = this.pendingDialogResolvers.get(sessionId)!;
-          this.pendingDialogResolvers.delete(sessionId);
+        if (this.pendingDialog) {
+          const oldKey = this.pendingDialog.id;
+          const oldResolver = this.pendingDialogResolvers.get(oldKey);
+          if (oldResolver) {
+            this.pendingDialogResolvers.delete(oldKey);
+            this.logger.info("tools/call: superseding previous dialog (retry).", {
+              oldDialogId: oldKey,
+              sessionId,
+            });
+            oldResolver("(superseded by retry)");
+          }
           this.pendingDialog = undefined;
-          this.logger.info("tools/call: superseding previous dialog (retry).", {
-            sessionId,
-          });
-          oldResolver("(superseded by retry)");
         }
 
         const dialogReq: McpDialogRequest = {
@@ -541,10 +545,12 @@ export class QuoteBridge {
           | string
           | number
           | undefined;
+        const dialogKey = dialogReq.id;
         // Set up resolver FIRST so dialogCallback can auto-reply synchronously
+        // Key by dialogReq.id (stable) — NOT sessionId (dies on SSE reconnect)
         const dialogPromise = new Promise<void>((resolve) => {
           this.pendingDialogResolvers.set(
-            sessionId,
+            dialogKey,
             (userResponse: string, images?: ImageAttachment[]) => {
               // Cleanup is handled by callers (resolvePendingDialog / timeout handler)
               clearInterval(keepAlive);
@@ -579,13 +585,12 @@ export class QuoteBridge {
         });
 
         // Multi-layer keepalive strategy to prevent Windsurf Cascade timeout.
-        // CRITICAL: Look up the SSE client on EVERY tick via findSseClient() —
-        // Windsurf drops + reconnects SSE frequently; a stale reference silently
-        // kills keepalive and causes the ~60s Cascade transport timeout.
+        // Uses findSseClient() which auto-discovers the latest SSE connection
+        // even after Windsurf drops + reconnects with a new sessionId.
         let progressCounter = 0;
         const keepAlive = setInterval(() => {
           const client = findSseClient();
-          if (client && !client.writableEnded) {
+          if (client) {
             progressCounter++;
             // L1: SSE comment — keeps TCP/proxy/LB connections alive
             client.write(": keepalive\n\n");
@@ -603,10 +608,10 @@ export class QuoteBridge {
                   message: "Waiting for user response...",
                 },
               });
-              client.write(`data: ${progressNotification}\n\n`);
+              writeSseEvent(client, progressNotification);
             }
 
-            // L3: MCP log notification — a real JSON-RPC data event.
+            // L3: MCP log notification — a real JSON-RPC named event.
             const logNotification = JSON.stringify({
               jsonrpc: "2.0",
               method: "notifications/message",
@@ -616,9 +621,9 @@ export class QuoteBridge {
                 data: `Waiting for user response... (${progressCounter * 3}s)`,
               },
             });
-            client.write(`data: ${logNotification}\n\n`);
-          } else if (!client) {
-            // No active SSE client — broadcast keepalive to all connected clients
+            writeSseEvent(client, logNotification);
+          } else {
+            // No active SSE client — broadcast keepalive comment to all
             for (const c of this.clients.values()) {
               if (!c.writableEnded) c.write(": keepalive\n\n");
             }
@@ -629,9 +634,9 @@ export class QuoteBridge {
         let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
         if (this.dialogTimeoutMs > 0) {
           timeoutHandle = setTimeout(() => {
-            const resolver = this.pendingDialogResolvers.get(sessionId);
+            const resolver = this.pendingDialogResolvers.get(dialogKey);
             if (resolver) {
-              this.pendingDialogResolvers.delete(sessionId);
+              this.pendingDialogResolvers.delete(dialogKey);
               this.pendingDialog = undefined;
               this.logger.info("Dialog auto-dismissed due to timeout.", {
                 sessionId,
