@@ -816,6 +816,36 @@ export class QuoteDialogPanel {
   }
   .queue-edit-input:focus { border-color: var(--accent); }
   .queue-empty { font-size: 11px; color: var(--muted); padding: 4px 0; text-align: center; }
+  /* Sent message history bubbles */
+  .sent-history { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+  .sent-bubble {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 8px 10px;
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+    border-radius: var(--radius);
+    font-size: 12px;
+    animation: sentSlideIn 0.2s ease;
+  }
+  @keyframes sentSlideIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .sent-label {
+    background: var(--accent); color: #fff;
+    font-size: 10px; font-weight: 600;
+    padding: 1px 5px; border-radius: 3px;
+    flex-shrink: 0; margin-top: 1px;
+  }
+  .sent-content {
+    flex: 1; min-width: 0;
+    white-space: pre-wrap; word-break: break-word;
+    color: var(--fg); line-height: 1.5;
+  }
+  .sent-time {
+    font-size: 10px; color: var(--muted);
+    flex-shrink: 0; margin-top: 1px;
+  }
   /* Inline close button + sent status (after dialogResolved) */
   .btn-close-inline {
     padding: 1px 8px;
