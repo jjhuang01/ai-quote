@@ -7,7 +7,10 @@ vi.mock('vscode', () => ({
   default: {},
   Uri: { joinPath: (...args: string[]) => ({ fsPath: args.join('/') }) },
   commands: {
-    getCommands: vi.fn(async () => ['windsurf.provideAuthTokenToAuthProviderWithShit']),
+    getCommands: vi.fn(async () => [
+      'windsurf.provideAuthTokenToAuthProvider',
+      'windsurf.provideAuthTokenToAuthProviderWithShit',
+    ]),
     executeCommand: vi.fn(async () => undefined)
   }
 }));
