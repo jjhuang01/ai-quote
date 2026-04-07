@@ -258,9 +258,9 @@ export interface AutoSwitchConfig {
 
 export const DEFAULT_AUTO_SWITCH: AutoSwitchConfig = {
   enabled: false,
-  threshold: 5,
+  threshold: 10,
   checkInterval: 60,
-  creditWarning: 3,
+  creditWarning: 20,
   switchOnDaily: true,
   switchOnWeekly: true
 };

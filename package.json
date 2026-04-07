@@ -3,13 +3,13 @@
   "displayName": "Quote",
   "icon": "resources/icon.png",
   "description": "VS Code extension: Windsurf account switcher with quota stats, MCP Bridge, and LLM dialog panel",
-  "version": "2.9.1",
+  "version": "2.9.8",
   "publisher": "opensource",
   "license": "MIT",
   "author": "EVILZIXIE",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/jjhuang01/ai-quote"
   },
   "engines": {
     "vscode": "^1.80.0"
@@ -145,9 +145,7 @@
   "dependencies": {
     "highlight.js": "^11.11.1",
     "katex": "^0.16.44",
-    "mammoth": "^1.11.0",
     "mermaid": "^11.14.0",
-    "proxy-agent": "^6.3.0",
-    "xlsx": "^0.18.5"
+    "proxy-agent": "^6.3.0"
   }
 }

@@ -129,11 +129,13 @@ async function main() {
       execSync('npm run build', { stdio: 'inherit' });
       break;
     case 'release':
-      // 先归档，再发布
+      // 先归档，再 patch 版本号，再打包
       await archiveExistingBuilds();
       await cleanupOldArchives();
-      console.log('🚀 开始发布新版本...');
-      execSync('npm run release', { stdio: 'inherit' });
+      console.log('🚀 开始发布新版本 (patch)...');
+      execSync('npm version patch --no-git-tag-version', { stdio: 'inherit' });
+      execSync('npm run build', { stdio: 'inherit' });
+      execSync('npx vsce package --no-dependencies --allow-missing-repository', { stdio: 'inherit' });
       break;
     default:
       console.log(`

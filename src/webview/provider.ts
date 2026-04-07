@@ -255,6 +255,16 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         } catch (err) {
           this.logger.warn('Failed to re-write rules after rotation.', { error: String(err) });
         }
+        // 清理旧 .mdc 规则文件（与 extension.ts quote.rotateName 对齐）
+        try {
+          const { cleanupStaleRules } = await import('../adapters/rules');
+          const removed = await cleanupStaleRules(newName);
+          if (removed.length > 0) {
+            this.logger.info('Stale rule files cleaned up after webview rotation.', { removed });
+          }
+        } catch (err) {
+          this.logger.warn('cleanupStaleRules after webview rotation failed (non-fatal).', { error: String(err) });
+        }
 
         this.postBootstrap();
         void this.view?.webview.postMessage({ type: 'opResult', value: { message: `工具名已旋转为: ${newName}` } });

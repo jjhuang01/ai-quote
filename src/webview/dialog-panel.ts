@@ -907,7 +907,7 @@ export class QuoteDialogPanel {
   <span id="attachCount" class="attach-count"></span>
   <div class="btn-row">
     <button class="btn-send" data-action="submitCustom"><svg viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>发送</button>
-    <button class="btn-cancel" data-action="cancelDialog"><svg viewBox="0 0 24 24"><path d="M18 6L6 18"/><path d="M6 6L18 18"/></svg>取消</button>
+    <button class="btn-cancel" data-action="closeDialog"><svg viewBox="0 0 24 24"><path d="M18 6L6 18"/><path d="M6 6L18 18"/></svg>关闭</button>
   </div>
   <div class="shortcut-bar">
     <kbd>${this.enterToSend ? 'Enter' : 'Ctrl+Enter'}</kbd> 发送 <span class="shortcut-sep">|</span> <kbd>Esc</kbd> 结束

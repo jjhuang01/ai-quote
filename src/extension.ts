@@ -9,7 +9,7 @@ import { QuoteSidebarProvider } from "./webview/provider";
 import { QuoteDialogPanel } from "./webview/dialog-panel";
 import { loadOrCreateToolName, rotateToolName } from "./utils/tool-name";
 import { configureGlobalRules } from "./adapters/rules";
-import { WindsurfPatchService } from "./adapters/windsurf-patch";
+// windsurf-patch 仅供 provider.ts 调试面板查询状态，此文件不再需要
 
 let statusBarItem: vscode.StatusBarItem | undefined;
 let logger: QuoteLogger | undefined;
@@ -244,6 +244,16 @@ export async function activate(
       } catch (err) {
         logger?.warn('Re-write after rotation partially failed.', { error: String(err) });
       }
+      // 清理旧 .mdc 规则文件（保留新名称，删除旧的 Quote 生成文件）
+      try {
+        const { cleanupStaleRules } = await import('./adapters/rules');
+        const removed = await cleanupStaleRules(newName);
+        if (removed.length > 0) {
+          logger?.info('Stale rule files cleaned up after rotation.', { removed });
+        }
+      } catch (err) {
+        logger?.warn('cleanupStaleRules after rotation failed (non-fatal).', { error: String(err) });
+      }
       await updateStatusBar();
       sidebarProvider.postBootstrap();
       void vscode.window.showInformationMessage(`工具名已旋转为: ${newName}`);
@@ -283,6 +293,43 @@ export async function activate(
     "workbench.view.extension.quote-sidebar",
   );
 
+  // ── autoSwitch 定时器：按 checkInterval 轮询，动态读取最新配置 ─────────
+  // 使用固定10s轮询判断是否到达下次检查时间，避免配置变化后需要重建定时器
+  let lastAutoSwitchCheckAt = 0;
+  const autoSwitchPollInterval = setInterval(async () => {
+    if (!dataManager) return;
+    const cfg = dataManager.windsurfAccounts.getAutoSwitchConfig();
+    if (!cfg.enabled) return;
+    const intervalMs = Math.max(10, cfg.checkInterval) * 1000;
+    if (Date.now() - lastAutoSwitchCheckAt < intervalMs) return;
+    lastAutoSwitchCheckAt = Date.now();
+    const switched = await dataManager.windsurfAccounts.autoSwitchIfNeeded();
+    if (switched) {
+      sidebarProvider.postBootstrap();
+      logger?.info('Auto-switch triggered by timer.');
+    }
+  }, 10_000);
+  context.subscriptions.push({ dispose: () => clearInterval(autoSwitchPollInterval) });
+
+  // ── 配额自动刷新（每5分钟）：确保 realQuota 数据新鲜，供 autoSwitch 使用 ──
+  const QUOTA_AUTO_REFRESH_MS = 5 * 60_000;
+  const quotaRefreshInterval = setInterval(async () => {
+    if (!dataManager) return;
+    const accounts = dataManager.windsurfAccounts.getAll();
+    if (accounts.filter(a => a.password).length === 0) return;
+    await dataManager.windsurfAccounts.fetchAllRealQuotas();
+    sidebarProvider.postBootstrap();
+    const cfg = dataManager.windsurfAccounts.getAutoSwitchConfig();
+    if (cfg.enabled) {
+      const switched = await dataManager.windsurfAccounts.autoSwitchIfNeeded();
+      if (switched) {
+        sidebarProvider.postBootstrap();
+        logger?.info('Auto-switch triggered after quota refresh.');
+      }
+    }
+  }, QUOTA_AUTO_REFRESH_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(quotaRefreshInterval) });
+
   // 延迟刷新状态：等待 MCP 客户端连接后更新 SSE 计数
   setTimeout(() => {
     void updateStatusBar();
@@ -296,43 +343,11 @@ export async function activate(
     autoConfigureRules: config.autoConfigureRules,
   });
 
-  // ── 提前应用 Windsurf 补丁，避免切号时才触发重启 ────────────────────
-  void ensurePatchApplied(logger);
-
   // ── 备用渠道：如果有 pending 切换则完成（兼容旧逻辑） ───────────────
   const pendingId = dataManager.windsurfAccounts.getPendingSwitchId();
   if (pendingId) {
     void completePendingSwitch(dataManager, sidebarProvider, logger, pendingId);
   }
-}
-
-async function ensurePatchApplied(log: QuoteLogger): Promise<void> {
-  try {
-    const result = await WindsurfPatchService.checkAndApply(log);
-    if (result.needsRestart) {
-      log.info('Windsurf patch applied at activation, reloading window.');
-      void vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: '切号功能初始化（仅首次），即将刷新...' },
-        () => new Promise<void>(r => setTimeout(r, 1500))
-      );
-      setTimeout(() => {
-        void vscode.commands.executeCommand('workbench.action.reloadWindow');
-      }, 1800);
-    }
-  } catch (err) {
-    log.warn('Patch check at activation failed (non-fatal).', { error: String(err) });
-  }
-}
-
-async function waitForPatchedCommand(maxWaitMs = 30_000): Promise<boolean> {
-  const PATCHED_CMD = "windsurf.provideAuthTokenToAuthProviderWithShit";
-  const start = Date.now();
-  while (Date.now() - start < maxWaitMs) {
-    const cmds = await vscode.commands.getCommands(true);
-    if (cmds.includes(PATCHED_CMD)) return true;
-    await new Promise<void>((resolve) => setTimeout(resolve, 2000));
-  }
-  return false;
 }
 
 async function completePendingSwitch(
@@ -341,30 +356,11 @@ async function completePendingSwitch(
   log: QuoteLogger,
   pendingId: string,
 ): Promise<void> {
-  // 等待补丁命令注册就绪（最多 30 秒，每 2 秒检查一次）
-  const ready = await waitForPatchedCommand(30_000);
-  if (!ready) {
-    await dataManager.windsurfAccounts.clearPendingSwitchId();
-    vscode.window.showErrorMessage(
-      "切换失败：Windsurf 补丁命令未加载，请手动重启后再次点击切换。",
-    );
-    log.warn(
-      "Pending switch aborted: patched command not found after 30s wait.",
-    );
-    return;
-  }
+  // 无补丁方案：等待 Windsurf 完全加载（最多 15 秒）
+  await new Promise<void>((r) => setTimeout(r, 5000));
 
   log.info("Resuming pending switch after reload.", { pendingId });
   const result = await dataManager.windsurfAccounts.switchTo(pendingId);
-
-  if (!result.success && result.needsRestart) {
-    // 理论上不会再次触发 needsRestart（补丁刚写入），保底清除避免死循环
-    await dataManager.windsurfAccounts.clearPendingSwitchId();
-    vscode.window.showErrorMessage(
-      "切换失败：补丁未生效，请手动重启 Windsurf 后再次点击切换。",
-    );
-    return;
-  }
 
   // 清除 pending 标记
   await dataManager.windsurfAccounts.clearPendingSwitchId();

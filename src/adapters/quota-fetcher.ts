@@ -849,9 +849,13 @@ export class WindsurfQuotaFetcher {
       candidates.push(path.join(appData, 'Windsurf', 'User', 'globalStorage', 'state.vscdb'));
     }
 
-    // 按平台优先返回（实际存在性在调用处用 fs.access 检查）
+    // 按平台返回对应路径（实际存在性在调用处用 fs.access 检查）
     if (process.platform === 'win32') {
-      return candidates[2] ?? candidates[0];
+      // Windows: 只使用 APPDATA 路径（candidates[2]）；若 APPDATA 未设置则无法确定路径
+      if (appData && appData.length > 1) {
+        return path.join(appData, 'Windsurf', 'User', 'globalStorage', 'state.vscdb');
+      }
+      return null;
     }
     if (process.platform === 'darwin') {
       return candidates[0];

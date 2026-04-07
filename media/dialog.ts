@@ -485,16 +485,12 @@ document.querySelectorAll('[data-action]').forEach(btn => {
     const action = btn.getAttribute('data-action');
     if (action === 'submitCustom') submitCustom();
     else if (action === 'dismiss') dismiss();
-    else if (action === 'cancelDialog') cancelDialog();
+    else if (action === 'closeDialog') closeDialog();
     else if (action === 'submitOption') submitOption(btn.getAttribute('data-idx') || '0');
   });
 });
 
-function cancelDialog(): void {
-  const msg = dialogResolved
-    ? '确定要关闭对话框吗？'
-    : '确定要取消本次回复吗？LLM 将收到空回复（dismiss）。';
-  if (!confirm(msg)) return;
+function closeDialog(): void {
   if (dialogResolved) {
     vscode.postMessage({ type: 'dialogClose' });
   } else {

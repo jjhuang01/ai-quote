@@ -1,16 +1,34 @@
-import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import * as vscode from 'vscode';
-import type { WindsurfAccount, AutoSwitchConfig, QuotaSnapshot, AccountQuota, RealQuotaInfo } from './contracts';
-import { DEFAULT_AUTO_SWITCH, DEFAULT_QUOTA } from './contracts';
-import type { LoggerLike } from './logger';
-import { WindsurfAuth } from '../adapters/windsurf-auth';
-import { WindsurfQuotaFetcher } from '../adapters/quota-fetcher';
-import type { WindsurfPlanInfo } from '../adapters/quota-fetcher';
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import * as vscode from "vscode";
+import type {
+  WindsurfAccount,
+  AutoSwitchConfig,
+  QuotaSnapshot,
+  AccountQuota,
+  RealQuotaInfo,
+} from "./contracts";
+import { DEFAULT_AUTO_SWITCH, DEFAULT_QUOTA } from "./contracts";
+import type { LoggerLike } from "./logger";
+import { WindsurfAuth } from "../adapters/windsurf-auth";
+import { WindsurfQuotaFetcher } from "../adapters/quota-fetcher";
+import type { WindsurfPlanInfo } from "../adapters/quota-fetcher";
 
-const WINDSURF_API_SERVER = 'https://server.codeium.com';
-const PATCHED_COMMAND = 'windsurf.provideAuthTokenToAuthProviderWithShit';
+const WINDSURF_API_SERVER = "https://server.codeium.com";
+
+/**
+ * 运行时发现 Windsurf 原生的 auth 命令（无需补丁）
+ * Windsurf 内部命令名由 metadata 动态生成，通过模式匹配获取
+ */
+async function findWindsurfAuthCommand(): Promise<string | undefined> {
+  const cmds = await vscode.commands.getCommands(true);
+  return cmds.find(
+    (c) =>
+      c.toLowerCase().includes('provideauthtokentoauthprovider') &&
+      !c.toLowerCase().includes('shit'),
+  );
+}
 
 export interface SwitchResult {
   success: boolean;
@@ -31,7 +49,10 @@ export class WindsurfAccountManager {
   private _quotaFetching = false;
 
   public constructor(context: vscode.ExtensionContext, logger: LoggerLike) {
-    this.filePath = path.join(context.globalStorageUri.fsPath, 'windsurf-accounts.json');
+    this.filePath = path.join(
+      context.globalStorageUri.fsPath,
+      "windsurf-accounts.json",
+    );
     this.logger = logger;
     this.auth = new WindsurfAuth(logger);
     this.quotaFetcher = new WindsurfQuotaFetcher(this.auth, logger);
@@ -56,12 +77,12 @@ export class WindsurfAccountManager {
   }
 
   public getById(id: string): WindsurfAccount | undefined {
-    return this.accounts.find(a => a.id === id);
+    return this.accounts.find((a) => a.id === id);
   }
 
   public getCurrentAccount(): WindsurfAccount | undefined {
     if (!this.currentAccountId) return undefined;
-    return this.accounts.find(a => a.id === this.currentAccountId);
+    return this.accounts.find((a) => a.id === this.currentAccountId);
   }
 
   public async getRealCurrentAccountId(): Promise<string | undefined> {
@@ -70,7 +91,9 @@ export class WindsurfAccountManager {
       if (!result.success) return undefined;
       const email = result.userEmail?.toLowerCase();
       if (!email) return undefined;
-      const matched = this.accounts.find(a => a.email.toLowerCase() === email);
+      const matched = this.accounts.find(
+        (a) => a.email.toLowerCase() === email,
+      );
       return matched?.id;
     } catch {
       return undefined;
@@ -92,28 +115,30 @@ export class WindsurfAccountManager {
       id: `ws_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       email,
       password,
-      plan: 'Free',
+      plan: "Free",
       creditsUsed: 0,
       creditsTotal: 0,
       quota: { ...DEFAULT_QUOTA },
-      expiresAt: '',
+      expiresAt: "",
       isActive: this.accounts.length === 0,
-      addedAt: new Date().toISOString()
+      addedAt: new Date().toISOString(),
     };
     this.accounts.push(account);
     if (account.isActive) {
       this.currentAccountId = account.id;
     }
     await this.save();
-    this.logger.info('WindsurfAccount added.', { id: account.id, email });
+    this.logger.info("WindsurfAccount added.", { id: account.id, email });
     return account;
   }
 
-  public async importBatch(lines: string): Promise<{ added: number; skipped: number }> {
+  public async importBatch(
+    lines: string,
+  ): Promise<{ added: number; skipped: number }> {
     const entries = lines
-      .split('\n')
-      .map(l => l.trim())
-      .filter(l => l.length > 0);
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
 
     // Preserve current account state — import should NEVER change which account
     // is marked as "当前". The user may already be logged in to an account that
@@ -125,7 +150,11 @@ export class WindsurfAccountManager {
     let skipped = 0;
 
     for (const entry of entries) {
-      const sep = entry.includes('----') ? '----' : entry.includes(':') ? ':' : null;
+      const sep = entry.includes("----")
+        ? "----"
+        : entry.includes(":")
+          ? ":"
+          : null;
       let email: string;
       let password: string;
       if (sep) {
@@ -134,14 +163,23 @@ export class WindsurfAccountManager {
         password = entry.slice(idx + sep.length).trim();
       } else {
         // 空格分隔: "email password"
-        const spaceIdx = entry.indexOf(' ');
-        if (spaceIdx <= 0) { skipped++; continue; }
+        const spaceIdx = entry.indexOf(" ");
+        if (spaceIdx <= 0) {
+          skipped++;
+          continue;
+        }
         email = entry.slice(0, spaceIdx).trim();
         password = entry.slice(spaceIdx + 1).trim();
       }
-      if (!email || !password) { skipped++; continue; }
-      const exists = this.accounts.some(a => a.email === email);
-      if (exists) { skipped++; continue; }
+      if (!email || !password) {
+        skipped++;
+        continue;
+      }
+      const exists = this.accounts.some((a) => a.email === email);
+      if (exists) {
+        skipped++;
+        continue;
+      }
       await this.add(email, password);
       added++;
     }
@@ -152,18 +190,33 @@ export class WindsurfAccountManager {
     if (hadAccounts && savedCurrentId) {
       if (this.currentAccountId !== savedCurrentId) {
         // Undo any isActive flag changes made by add()
-        this.accounts.forEach(a => { a.isActive = a.id === savedCurrentId; });
+        this.accounts.forEach((a) => {
+          a.isActive = a.id === savedCurrentId;
+        });
         this.currentAccountId = savedCurrentId;
         await this.save();
       }
     }
 
-    this.logger.info('Batch import done.', { added, skipped });
+    this.logger.info("Batch import done.", { added, skipped });
     return { added, skipped };
   }
 
-  public async update(id: string, partial: Partial<Pick<WindsurfAccount, 'plan' | 'creditsUsed' | 'creditsTotal' | 'expiresAt' | 'lastCheckedAt' | 'quota'>>): Promise<boolean> {
-    const account = this.accounts.find(a => a.id === id);
+  public async update(
+    id: string,
+    partial: Partial<
+      Pick<
+        WindsurfAccount,
+        | "plan"
+        | "creditsUsed"
+        | "creditsTotal"
+        | "expiresAt"
+        | "lastCheckedAt"
+        | "quota"
+      >
+    >,
+  ): Promise<boolean> {
+    const account = this.accounts.find((a) => a.id === id);
     if (!account) return false;
     Object.assign(account, partial);
     await this.save();
@@ -171,27 +224,28 @@ export class WindsurfAccountManager {
   }
 
   public async delete(id: string): Promise<boolean> {
-    const index = this.accounts.findIndex(a => a.id === id);
+    const index = this.accounts.findIndex((a) => a.id === id);
     if (index === -1) return false;
     this.accounts.splice(index, 1);
     if (this.currentAccountId === id) {
       this.currentAccountId = this.accounts[0]?.id;
     }
     await this.save();
-    this.logger.info('WindsurfAccount deleted.', { id });
+    this.logger.info("WindsurfAccount deleted.", { id });
     return true;
   }
 
   public async deleteBatch(ids: string[]): Promise<number> {
     const idSet = new Set(ids);
     const before = this.accounts.length;
-    this.accounts = this.accounts.filter(a => !idSet.has(a.id));
+    this.accounts = this.accounts.filter((a) => !idSet.has(a.id));
     const removed = before - this.accounts.length;
-    if (idSet.has(this.currentAccountId ?? '')) {
-      this.currentAccountId = this.accounts.find(a => a.isActive)?.id ?? this.accounts[0]?.id;
+    if (idSet.has(this.currentAccountId ?? "")) {
+      this.currentAccountId =
+        this.accounts.find((a) => a.isActive)?.id ?? this.accounts[0]?.id;
     }
     if (removed > 0) await this.save();
-    this.logger.info('Batch delete done.', { requested: ids.length, removed });
+    this.logger.info("Batch delete done.", { requested: ids.length, removed });
     return removed;
   }
 
@@ -204,54 +258,68 @@ export class WindsurfAccountManager {
   // --- Switch ---
 
   /**
-   * 切换到指定账号，执行真实的 Windsurf session 注入
-   * 流程: 获取 apiKey → 验证命令 → 注入 session（补丁已在 activate 时应用）
+   * 切换到指定账号，执行真实的 Windsurf session 注入（无补丁方案）
+   * 流程: Firebase signIn → 获取 idToken → 调用 Windsurf 原生命令注入 session
    */
   public async switchTo(id: string): Promise<SwitchResult> {
-    const account = this.accounts.find(a => a.id === id);
-    if (!account) return { success: false, error: '账号不存在' };
+    const account = this.accounts.find((a) => a.id === id);
+    if (!account) return { success: false, error: "账号不存在" };
 
-    // ── 步骤1: 获取/刷新该账号的 Windsurf API Key ────────────────────────
-    if (!account.apiKey) {
-      try {
-        const auth = await this.auth.signIn(account.email, account.password, account.id);
-        const reg  = await this.auth.registerUser(auth.idToken);
-        account.apiKey       = reg.apiKey;
-        account.apiServerUrl = reg.apiServerUrl || WINDSURF_API_SERVER;
-        await this.save();
-        this.logger.info('RegisterUser OK, apiKey cached.', { email: account.email });
-      } catch (err) {
-        return { success: false, error: `获取 API Key 失败: ${String(err)}` };
-      }
-    }
-
-    // ── 步骤2: 验证补丁命令已注册 + 注入 session ────────────────────────
-    const registeredCmds = await vscode.commands.getCommands(true);
-    if (!registeredCmds.includes(PATCHED_COMMAND)) {
-      return {
-        success: false,
-        error: '切号功能尚未就绪，请稍候再试（等待 Windsurf 完全加载）。'
-      };
-    }
-
+    // ── 步骤1: Firebase 登录获取 idToken ──────────────────────────────────
+    let idToken: string;
     try {
-      try { await vscode.commands.executeCommand('windsurf.logout'); } catch { /* ignore */ }
-      await vscode.commands.executeCommand(PATCHED_COMMAND, {
-        apiKey:       account.apiKey,
-        name:         account.email,
-        apiServerUrl: account.apiServerUrl ?? WINDSURF_API_SERVER
+      const auth = await this.auth.signIn(
+        account.email,
+        account.password,
+        account.id,
+      );
+      idToken = auth.idToken;
+      this.logger.info("Firebase signIn OK for switch.", {
+        email: account.email,
       });
     } catch (err) {
-      account.apiKey = undefined;
-      await this.save();
+      return { success: false, error: `Firebase 登录失败: ${String(err)}` };
+    }
+
+    // ── 步骤2: 发现 Windsurf 原生 auth 命令 ──────────────────────────────
+    const authCmd = await findWindsurfAuthCommand();
+    if (!authCmd) {
+      return {
+        success: false,
+        error: "未找到 Windsurf 认证命令，请确保 Windsurf 已完全加载。",
+      };
+    }
+    this.logger.info("Found Windsurf auth command.", { command: authCmd });
+
+    // ── 步骤3: 登出 + 注入新 session ─────────────────────────────────────
+    try {
+      try {
+        await vscode.commands.executeCommand("windsurf.logout");
+      } catch {
+        /* ignore */
+      }
+      // 传入 idToken，Windsurf 内部 handleAuthToken → registerUser(idToken) 完成注册
+      const result = await vscode.commands.executeCommand<{
+        session?: unknown;
+        error?: unknown;
+      }>(authCmd, idToken);
+      if (result?.error) {
+        this.logger.warn("Windsurf auth command returned error.", { error: result.error });
+        return { success: false, error: `Windsurf 认证失败: ${JSON.stringify(result.error)}` };
+      }
+    } catch (err) {
       return { success: false, error: `Session 注入失败: ${String(err)}` };
     }
 
-    // ── 步骤3: 更新内部状态 ──────────────────────────────────────────────
-    this.accounts.forEach(a => { a.isActive = a.id === id; });
+    // ── 步骤4: 更新内部状态 ──────────────────────────────────────────────
+    this.accounts.forEach((a) => {
+      a.isActive = a.id === id;
+    });
     this.currentAccountId = id;
+    // 清除缓存的 apiKey，下次 quota 获取时会重新通过 registerUser 获取
+    account.apiKey = undefined;
     await this.save();
-    this.logger.info('Switched to account.', { id, email: account.email });
+    this.logger.info("Switched to account (no-patch).", { id, email: account.email });
     return { success: true };
   }
 
@@ -261,7 +329,9 @@ export class WindsurfAccountManager {
     // Refresh currentAccountId from real Windsurf login state
     const realId = await this.getRealCurrentAccountId();
     if (realId && realId !== this.currentAccountId) {
-      this.accounts.forEach(a => { a.isActive = a.id === realId; });
+      this.accounts.forEach((a) => {
+        a.isActive = a.id === realId;
+      });
       this.currentAccountId = realId;
       await this.save();
     }
@@ -269,44 +339,104 @@ export class WindsurfAccountManager {
     const current = this.getCurrentAccount();
     if (!current) return false;
 
-    const q = current.quota;
-    const dailyRemaining = q.dailyLimit > 0 ? q.dailyLimit - q.dailyUsed : Infinity;
-    const weeklyRemaining = q.weeklyLimit > 0 ? q.weeklyLimit - q.weeklyUsed : Infinity;
+    // ── 判断当前账号是否需要切换 ──────────────────────────────────────────
+    const needSwitch = this._accountNeedsSwitch(current);
+    if (!needSwitch) return false;
 
-    const needSwitch =
-      (this.autoSwitch.switchOnDaily && dailyRemaining <= this.autoSwitch.threshold) ||
-      (this.autoSwitch.switchOnWeekly && weeklyRemaining <= this.autoSwitch.threshold);
-
-    if (!needSwitch) {
-      // 回退检查旧 credits 字段
-      const legacyRemaining = current.creditsTotal - current.creditsUsed;
-      if (current.creditsTotal > 0 && legacyRemaining > this.autoSwitch.threshold) return false;
-      if (current.creditsTotal === 0 && !needSwitch) return false;
-    }
-
-    const next = this.accounts.find(a => {
+    // ── 找余量充足的候选账号 ──────────────────────────────────────────────
+    const next = this.accounts.find((a) => {
       if (a.id === current.id) return false;
-      const aq = a.quota;
-      const dr = aq.dailyLimit > 0 ? aq.dailyLimit - aq.dailyUsed : Infinity;
-      const wr = aq.weeklyLimit > 0 ? aq.weeklyLimit - aq.weeklyUsed : Infinity;
-      return dr > this.autoSwitch.threshold && wr > this.autoSwitch.threshold;
+      return this._accountHasSufficientQuota(a);
     });
 
     if (!next) {
-      this.logger.warn('Auto-switch: no available account with sufficient quota.');
+      this.logger.warn(
+        "Auto-switch: no available account with sufficient quota.",
+      );
       return false;
     }
 
     const switchResult = await this.switchTo(next.id);
     if (!switchResult.success) {
-      this.logger.warn('Auto-switch failed.', { error: switchResult.error });
+      this.logger.warn("Auto-switch failed.", { error: switchResult.error });
       return false;
     }
-    this.logger.info('Auto-switched account.', { from: current.id, to: next.id });
+    this.logger.info("Auto-switched account.", {
+      from: current.id,
+      to: next.id,
+    });
     return true;
   }
 
-  public async updateAutoSwitch(config: Partial<AutoSwitchConfig>): Promise<AutoSwitchConfig> {
+  /**
+   * 判断账号是否需要切换（配额不足）
+   * 优先使用 realQuota（API 实时数据），fallback 到本地计数器
+   */
+  private _accountNeedsSwitch(account: WindsurfAccount): boolean {
+    const rq = account.realQuota;
+    const threshold = this.autoSwitch.threshold;
+
+    if (rq) {
+      // realQuota 可用：用 remainingMessages 与 threshold 对比，同时检查百分比
+      const dailyExhausted =
+        this.autoSwitch.switchOnDaily &&
+        ((rq.remainingMessages >= 0 && rq.remainingMessages <= threshold) ||
+          (rq.dailyRemainingPercent >= 0 && rq.dailyRemainingPercent <= 5));
+      const weeklyExhausted =
+        this.autoSwitch.switchOnWeekly &&
+        rq.weeklyRemainingPercent >= 0 &&
+        rq.weeklyRemainingPercent <= 5;
+      return dailyExhausted || weeklyExhausted;
+    }
+
+    // fallback: 本地计数器
+    const q = account.quota;
+    const dailyRemaining =
+      q.dailyLimit > 0 ? q.dailyLimit - q.dailyUsed : Infinity;
+    const weeklyRemaining =
+      q.weeklyLimit > 0 ? q.weeklyLimit - q.weeklyUsed : Infinity;
+    if (
+      (this.autoSwitch.switchOnDaily && dailyRemaining <= threshold) ||
+      (this.autoSwitch.switchOnWeekly && weeklyRemaining <= threshold)
+    ) {
+      return true;
+    }
+
+    // fallback: 旧 credits 字段
+    if (account.creditsTotal > 0) {
+      return account.creditsTotal - account.creditsUsed <= threshold;
+    }
+
+    return false;
+  }
+
+  /**
+   * 判断账号是否有足够配额可以切入
+   * 优先使用 realQuota，fallback 到本地计数器
+   */
+  private _accountHasSufficientQuota(account: WindsurfAccount): boolean {
+    const rq = account.realQuota;
+    const threshold = this.autoSwitch.threshold;
+
+    if (rq) {
+      const dailyOk =
+        !this.autoSwitch.switchOnDaily ||
+        (rq.remainingMessages > threshold && rq.dailyRemainingPercent > 5);
+      const weeklyOk =
+        !this.autoSwitch.switchOnWeekly || rq.weeklyRemainingPercent > 5;
+      return dailyOk && weeklyOk;
+    }
+
+    // fallback: 本地计数器
+    const aq = account.quota;
+    const dr = aq.dailyLimit > 0 ? aq.dailyLimit - aq.dailyUsed : Infinity;
+    const wr = aq.weeklyLimit > 0 ? aq.weeklyLimit - aq.weeklyUsed : Infinity;
+    return dr > threshold && wr > threshold;
+  }
+
+  public async updateAutoSwitch(
+    config: Partial<AutoSwitchConfig>,
+  ): Promise<AutoSwitchConfig> {
     this.autoSwitch = { ...this.autoSwitch, ...config };
     await this.save();
     return this.getAutoSwitchConfig();
@@ -317,7 +447,7 @@ export class WindsurfAccountManager {
   public async recordPrompt(accountId?: string): Promise<void> {
     const id = accountId ?? this.currentAccountId;
     if (!id) return;
-    const account = this.accounts.find(a => a.id === id);
+    const account = this.accounts.find((a) => a.id === id);
     if (!account) return;
 
     this.autoResetIfNeeded(account);
@@ -328,8 +458,12 @@ export class WindsurfAccountManager {
     await this.save();
   }
 
-  public async setQuotaLimits(id: string, dailyLimit: number, weeklyLimit: number): Promise<boolean> {
-    const account = this.accounts.find(a => a.id === id);
+  public async setQuotaLimits(
+    id: string,
+    dailyLimit: number,
+    weeklyLimit: number,
+  ): Promise<boolean> {
+    const account = this.accounts.find((a) => a.id === id);
     if (!account) return false;
     account.quota.dailyLimit = dailyLimit;
     account.quota.weeklyLimit = weeklyLimit;
@@ -344,23 +478,25 @@ export class WindsurfAccountManager {
   }
 
   public getQuotaSnapshots(): QuotaSnapshot[] {
-    return this.accounts.map(a => {
+    return this.accounts.map((a) => {
       this.autoResetIfNeeded(a);
       const q = a.quota;
       const rq = a.realQuota;
 
       // 优先使用真实配额数据计算 warningLevel
-      let warningLevel: QuotaSnapshot['warningLevel'] = 'ok';
+      let warningLevel: QuotaSnapshot["warningLevel"] = "ok";
       if (rq) {
-        if (rq.dailyRemainingPercent <= 0) warningLevel = 'critical';
-        else if (rq.dailyRemainingPercent <= 10) warningLevel = 'warn';
-        else if (rq.weeklyRemainingPercent <= 10) warningLevel = 'warn';
+        if (rq.dailyRemainingPercent <= 0) warningLevel = "critical";
+        else if (rq.dailyRemainingPercent <= 10) warningLevel = "warn";
+        else if (rq.weeklyRemainingPercent <= 10) warningLevel = "warn";
       } else {
         const dr = q.dailyLimit > 0 ? q.dailyLimit - q.dailyUsed : 0;
         const wr = q.weeklyLimit > 0 ? q.weeklyLimit - q.weeklyUsed : 0;
-        if (q.dailyLimit > 0 && dr <= 0) warningLevel = 'critical';
-        else if (q.dailyLimit > 0 && dr <= this.autoSwitch.creditWarning) warningLevel = 'warn';
-        else if (q.weeklyLimit > 0 && wr <= this.autoSwitch.creditWarning) warningLevel = 'warn';
+        if (q.dailyLimit > 0 && dr <= 0) warningLevel = "critical";
+        else if (q.dailyLimit > 0 && dr <= this.autoSwitch.creditWarning)
+          warningLevel = "warn";
+        else if (q.weeklyLimit > 0 && wr <= this.autoSwitch.creditWarning)
+          warningLevel = "warn";
       }
 
       const dr = q.dailyLimit > 0 ? q.dailyLimit - q.dailyUsed : 0;
@@ -375,15 +511,19 @@ export class WindsurfAccountManager {
         dailyRemaining: Math.max(0, dr),
         dailyResetIn: rq
           ? this.humanCountdownUnix(rq.dailyResetAtUnix)
-          : (q.dailyResetAt ? this.humanCountdown(q.dailyResetAt) : '--'),
+          : q.dailyResetAt
+            ? this.humanCountdown(q.dailyResetAt)
+            : "--",
         weeklyUsed: q.weeklyUsed,
         weeklyLimit: q.weeklyLimit,
         weeklyRemaining: Math.max(0, wr),
         weeklyResetIn: rq
           ? this.humanCountdownUnix(rq.weeklyResetAtUnix)
-          : (q.weeklyResetAt ? this.humanCountdown(q.weeklyResetAt) : '--'),
+          : q.weeklyResetAt
+            ? this.humanCountdown(q.weeklyResetAt)
+            : "--",
         warningLevel,
-        real: rq
+        real: rq,
       };
     });
   }
@@ -393,11 +533,13 @@ export class WindsurfAccountManager {
   /**
    * 获取单个账号的真实配额
    */
-  public async fetchRealQuota(accountId?: string): Promise<{ success: boolean; error?: string }> {
+  public async fetchRealQuota(
+    accountId?: string,
+  ): Promise<{ success: boolean; error?: string }> {
     const id = accountId ?? this.currentAccountId;
-    const account = id ? this.accounts.find(a => a.id === id) : undefined;
+    const account = id ? this.accounts.find((a) => a.id === id) : undefined;
     if (!account) {
-      return { success: false, error: '账号不存在' };
+      return { success: false, error: "账号不存在" };
     }
 
     this._quotaFetching = true;
@@ -407,20 +549,30 @@ export class WindsurfAccountManager {
       // 有密码 → 优先 Channel B (GetPlanStatus API, 实时数据)
       if (account.password) {
         result = await this.quotaFetcher.fetchFromGetPlanStatus(
-          account.id, account.email, account.password
+          account.id,
+          account.email,
+          account.password,
         );
       }
 
       // Channel B 失败或无密码 → 降级到 fetchQuota (E → D → A → B)
       if (!result?.success) {
         result = await this.quotaFetcher.fetchQuota(
-          account.id, account.email, account.password, { forceRefresh: true }
+          account.id,
+          account.email,
+          account.password,
+          { forceRefresh: true },
         );
       }
 
       if (result.success && result.planInfo) {
-        account.realQuota = this.planInfoToRealQuota(result.planInfo, result.source, result.fetchedAt);
-        account.plan = (result.planInfo.planName as WindsurfAccount['plan']) || account.plan;
+        account.realQuota = this.planInfoToRealQuota(
+          result.planInfo,
+          result.source,
+          result.fetchedAt,
+        );
+        account.plan =
+          (result.planInfo.planName as WindsurfAccount["plan"]) || account.plan;
         account.lastCheckedAt = result.fetchedAt;
         await this.save();
         return { success: true };
@@ -440,7 +592,11 @@ export class WindsurfAccountManager {
    * 优先级: Channel B (GetPlanStatus API, 实时) > Channel E/A (本地缓存, 可能过期)
    * Channel E/A 仅用于无密码账号的兜底
    */
-  public async fetchAllRealQuotas(): Promise<{ success: number; failed: number; errors: string[] }> {
+  public async fetchAllRealQuotas(): Promise<{
+    success: number;
+    failed: number;
+    errors: string[];
+  }> {
     this._quotaFetching = true;
     let success = 0;
     let failed = 0;
@@ -453,23 +609,37 @@ export class WindsurfAccountManager {
         if (!account.password) continue;
 
         const result = await this.quotaFetcher.fetchFromGetPlanStatus(
-          account.id, account.email, account.password
+          account.id,
+          account.email,
+          account.password,
         );
 
         if (result.success && result.planInfo) {
-          account.realQuota = this.planInfoToRealQuota(result.planInfo, result.source, result.fetchedAt);
-          account.plan = (result.planInfo.planName as WindsurfAccount['plan']) || account.plan;
+          account.realQuota = this.planInfoToRealQuota(
+            result.planInfo,
+            result.source,
+            result.fetchedAt,
+          );
+          account.plan =
+            (result.planInfo.planName as WindsurfAccount["plan"]) ||
+            account.plan;
           account.lastCheckedAt = result.fetchedAt;
           updatedIds.add(account.id);
           success++;
-          this.logger.info('Channel B quota applied.', { email: account.email, daily: result.planInfo.quotaUsage?.dailyRemainingPercent });
+          this.logger.info("Channel B quota applied.", {
+            email: account.email,
+            daily: result.planInfo.quotaUsage?.dailyRemainingPercent,
+          });
         } else {
-          this.logger.warn('Channel B failed.', { email: account.email, error: result.error });
+          this.logger.warn("Channel B failed.", {
+            email: account.email,
+            error: result.error,
+          });
         }
 
         // 避免 rate limit
         if (this.accounts.length > 1) {
-          await new Promise(r => setTimeout(r, 500));
+          await new Promise((r) => setTimeout(r, 500));
         }
       }
 
@@ -479,19 +649,31 @@ export class WindsurfAccountManager {
 
         // Channel E (proto) → Channel D (apikey) → Channel A (cachedPlanInfo)
         const result = await this.quotaFetcher.fetchQuota(
-          account.id, account.email, account.password, { preferLocal: true }
+          account.id,
+          account.email,
+          account.password,
+          { preferLocal: true },
         );
 
         if (result.success && result.planInfo) {
-          account.realQuota = this.planInfoToRealQuota(result.planInfo, result.source, result.fetchedAt);
-          account.plan = (result.planInfo.planName as WindsurfAccount['plan']) || account.plan;
+          account.realQuota = this.planInfoToRealQuota(
+            result.planInfo,
+            result.source,
+            result.fetchedAt,
+          );
+          account.plan =
+            (result.planInfo.planName as WindsurfAccount["plan"]) ||
+            account.plan;
           account.lastCheckedAt = result.fetchedAt;
           updatedIds.add(account.id);
           success++;
-          this.logger.info('Fallback quota applied.', { email: account.email, source: result.source });
+          this.logger.info("Fallback quota applied.", {
+            email: account.email,
+            source: result.source,
+          });
         } else {
           failed++;
-          errors.push(`${account.email}: ${result.error ?? '未知错误'}`);
+          errors.push(`${account.email}: ${result.error ?? "未知错误"}`);
         }
       }
 
@@ -505,9 +687,14 @@ export class WindsurfAccountManager {
     }
   }
 
-  private planInfoToRealQuota(info: WindsurfPlanInfo, source: 'local' | 'api' | 'apikey' | 'cache' | 'proto', fetchedAt: string): RealQuotaInfo {
+  private planInfoToRealQuota(
+    info: WindsurfPlanInfo,
+    source: "local" | "api" | "apikey" | "cache" | "proto",
+    fetchedAt: string,
+  ): RealQuotaInfo {
     // -1 = API 未返回此字段（无数据），0 = 耗尽，100 = 满额
-    const clampPct = (v: number | undefined) => v === undefined ? -1 : Math.max(0, Math.min(100, v));
+    const clampPct = (v: number | undefined) =>
+      v === undefined ? -1 : Math.max(0, Math.min(100, v));
     return {
       planName: info.planName,
       billingStrategy: info.billingStrategy,
@@ -524,14 +711,14 @@ export class WindsurfAccountManager {
       overageBalanceMicros: info.quotaUsage?.overageBalanceMicros ?? 0,
       planEndTimestamp: info.endTimestamp ?? 0,
       fetchedAt,
-      source
+      source,
     };
   }
 
   private humanCountdownUnix(unixSeconds: number): string {
-    if (!unixSeconds) return '--';
+    if (!unixSeconds) return "--";
     const ms = unixSeconds * 1000 - Date.now();
-    if (ms <= 0) return '即将重置';
+    if (ms <= 0) return "即将重置";
     const h = Math.floor(ms / 3600000);
     const m = Math.floor((ms % 3600000) / 60000);
     if (h > 24) return `${Math.floor(h / 24)}天${h % 24}时`;
@@ -540,11 +727,17 @@ export class WindsurfAccountManager {
 
   private autoResetIfNeeded(account: WindsurfAccount): void {
     const now = Date.now();
-    if (account.quota.dailyResetAt && now >= new Date(account.quota.dailyResetAt).getTime()) {
+    if (
+      account.quota.dailyResetAt &&
+      now >= new Date(account.quota.dailyResetAt).getTime()
+    ) {
       account.quota.dailyUsed = 0;
       account.quota.dailyResetAt = this.nextDailyReset();
     }
-    if (account.quota.weeklyResetAt && now >= new Date(account.quota.weeklyResetAt).getTime()) {
+    if (
+      account.quota.weeklyResetAt &&
+      now >= new Date(account.quota.weeklyResetAt).getTime()
+    ) {
       account.quota.weeklyUsed = 0;
       account.quota.weeklyResetAt = this.nextWeeklyReset();
     }
@@ -568,7 +761,7 @@ export class WindsurfAccountManager {
 
   private humanCountdown(isoTarget: string): string {
     const ms = new Date(isoTarget).getTime() - Date.now();
-    if (ms <= 0) return '即将重置';
+    if (ms <= 0) return "即将重置";
     const h = Math.floor(ms / 3600000);
     const m = Math.floor((ms % 3600000) / 60000);
     if (h > 24) return `${Math.floor(h / 24)}天${h % 24}时`;
@@ -577,29 +770,32 @@ export class WindsurfAccountManager {
 
   // --- Machine ID Reset ---
 
-  public async resetMachineId(): Promise<{ success: boolean; message: string }> {
+  public async resetMachineId(): Promise<{
+    success: boolean;
+    message: string;
+  }> {
     const machineIdPaths = [
-      path.join(os.homedir(), '.windsurf', 'machineid'),
-      path.join(os.homedir(), '.config', 'windsurf', 'machineid'),
-      path.join(process.env.APPDATA ?? os.homedir(), 'Windsurf', 'machineid')
+      path.join(os.homedir(), ".windsurf", "machineid"),
+      path.join(os.homedir(), ".config", "windsurf", "machineid"),
+      path.join(process.env.APPDATA ?? os.homedir(), "Windsurf", "machineid"),
     ];
 
     const newId = Array.from({ length: 64 }, () =>
-      Math.floor(Math.random() * 16).toString(16)
-    ).join('');
+      Math.floor(Math.random() * 16).toString(16),
+    ).join("");
 
     for (const p of machineIdPaths) {
       try {
         await fs.access(p);
-        await fs.writeFile(p, newId, 'utf8');
-        this.logger.info('Machine ID reset.', { path: p });
+        await fs.writeFile(p, newId, "utf8");
+        this.logger.info("Machine ID reset.", { path: p });
         return { success: true, message: `已重置: ${p}` };
       } catch {
         // file doesn't exist at this path, try next
       }
     }
 
-    return { success: false, message: '未找到 Windsurf machineId 文件' };
+    return { success: false, message: "未找到 Windsurf machineId 文件" };
   }
 
   // --- Persistence ---
@@ -617,16 +813,18 @@ export class WindsurfAccountManager {
 
   private async load(): Promise<void> {
     try {
-      const raw = await fs.readFile(this.filePath, 'utf8');
+      const raw = await fs.readFile(this.filePath, "utf8");
       const data = JSON.parse(raw) as {
         accounts: WindsurfAccount[];
         currentId?: string;
         autoSwitch?: AutoSwitchConfig;
         pendingSwitchId?: string;
       };
-      this.accounts = (data.accounts ?? []).map(a => ({
+      this.accounts = (data.accounts ?? []).map((a) => ({
         ...a,
-        quota: a.quota ? { ...DEFAULT_QUOTA, ...a.quota } : { ...DEFAULT_QUOTA }
+        quota: a.quota
+          ? { ...DEFAULT_QUOTA, ...a.quota }
+          : { ...DEFAULT_QUOTA },
       }));
       this.currentAccountId = data.currentId;
       this.autoSwitch = { ...DEFAULT_AUTO_SWITCH, ...(data.autoSwitch ?? {}) };
@@ -641,11 +839,11 @@ export class WindsurfAccountManager {
     const payload: Record<string, unknown> = {
       accounts: this.accounts,
       currentId: this.currentAccountId,
-      autoSwitch: this.autoSwitch
+      autoSwitch: this.autoSwitch,
     };
     if (this.pendingSwitchId) {
       payload.pendingSwitchId = this.pendingSwitchId;
     }
-    await fs.writeFile(this.filePath, JSON.stringify(payload, null, 2), 'utf8');
+    await fs.writeFile(this.filePath, JSON.stringify(payload, null, 2), "utf8");
   }
 }

@@ -10,26 +10,26 @@ const PATCH_KEYWORD_2 = 'handleAuthTokenWithShit';
 // ─── 原始 handleAuthToken 函数（精确匹配当前 Windsurf 混淆代码）──────────────────
 const ORIGINAL_HANDLE_AUTH_TOKEN =
   'async handleAuthToken(A){const e=await(0,E.registerUser)(A),{apiKey:t,name:i}=e,' +
-  'g=(0,B.getApiServerUrl)(e.apiServerUrl);if(!t)throw new s.AuthMalformedLanguageServerResponseError' +
+  'n=(0,B.getApiServerUrl)(e.apiServerUrl);if(!t)throw new s.AuthMalformedLanguageServerResponseError' +
   '("Auth login failure: empty api_key");if(!i)throw new s.AuthMalformedLanguageServerResponseError' +
-  '("Auth login failure: empty name");const r={id:(0,o.v4)(),accessToken:t,account:{label:i,id:i},' +
+  '("Auth login failure: empty name");const r={id:(0,g.v4)(),accessToken:t,account:{label:i,id:i},' +
   'scopes:[]},I=(0,B.isStaging)((0,a.getConfig)(a.Config.API_SERVER_URL))?"apiServerUrl.staging":"apiServerUrl";' +
-  'return await this.context.globalState.update(I,g),(0,n.isString)(g)&&!(0,n.isEmpty)(g)&&' +
-  'await this.context.secrets.store(u.getApiServerUrlSecretKey(),g),this._cachedSessions=[r],' +
+  'return await this.context.globalState.update(I,n),(0,o.isString)(n)&&!(0,o.isEmpty)(n)&&' +
+  'await this.context.secrets.store(u.getApiServerUrlSecretKey(),n),this._cachedSessions=[r],' +
   'await this.context.secrets.store(u.getSessionsSecretKey(),JSON.stringify([r])),' +
-  'await this.restartLanguageServerIfNeeded(g),this._sessionChangeEmitter.fire({added:[r],removed:[],changed:[]}),r}';
+  'await this.restartLanguageServerIfNeeded(n),this._sessionChangeEmitter.fire({added:[r],removed:[],changed:[]}),r}';
 
 // ─── 新注入的 handleAuthTokenWithShit 函数（直接使用传入的 apiKey，跳过 registerUser）
 const NEW_HANDLE_AUTH_TOKEN_WITH_SHIT =
   'async handleAuthTokenWithShit(A){const{apiKey:t,name:i}=A,' +
-  'g=(0,B.getApiServerUrl)(A.apiServerUrl);if(!t)throw new s.AuthMalformedLanguageServerResponseError' +
+  'n=(0,B.getApiServerUrl)(A.apiServerUrl);if(!t)throw new s.AuthMalformedLanguageServerResponseError' +
   '("Auth login failure: empty api_key");if(!i)throw new s.AuthMalformedLanguageServerResponseError' +
-  '("Auth login failure: empty name");const r={id:(0,o.v4)(),accessToken:t,account:{label:i,id:i},' +
+  '("Auth login failure: empty name");const r={id:(0,g.v4)(),accessToken:t,account:{label:i,id:i},' +
   'scopes:[]},I=(0,B.isStaging)((0,a.getConfig)(a.Config.API_SERVER_URL))?"apiServerUrl.staging":"apiServerUrl";' +
-  'return await this.context.globalState.update(I,g),(0,n.isString)(g)&&!(0,n.isEmpty)(g)&&' +
-  'await this.context.secrets.store(u.getApiServerUrlSecretKey(),g),this._cachedSessions=[r],' +
+  'return await this.context.globalState.update(I,n),(0,o.isString)(n)&&!(0,o.isEmpty)(n)&&' +
+  'await this.context.secrets.store(u.getApiServerUrlSecretKey(),n),this._cachedSessions=[r],' +
   'await this.context.secrets.store(u.getSessionsSecretKey(),JSON.stringify([r])),' +
-  'await this.restartLanguageServerIfNeeded(g),this._sessionChangeEmitter.fire({added:[r],removed:[],changed:[]}),r}';
+  'await this.restartLanguageServerIfNeeded(n),this._sessionChangeEmitter.fire({added:[r],removed:[],changed:[]}),r}';
 
 // ─── 原始命令注册块（当前 Windsurf 版本）────────────────────────────────────────
 const ORIGINAL_COMMAND_REGISTRATION =
