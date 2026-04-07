@@ -170,6 +170,7 @@ export class QuoteDialogPanel {
   private enterToSend = false;
   private queueCount = 0;
   private queueItems: string[] = [];
+  private recentHistory: { summary: string; response: string; time: string }[] = [];
 
   private constructor(
     private readonly extensionUri: vscode.Uri,
@@ -265,13 +266,14 @@ export class QuoteDialogPanel {
     extensionUri: vscode.Uri,
     req: McpDialogRequest,
     onSubmit: DialogSubmitHandler,
-    options?: { enterToSend?: boolean; queueCount?: number; queueItems?: string[]; onQueueAdd?: (items: string[]) => void; onQueueReplace?: (items: string[]) => void }
+    options?: { enterToSend?: boolean; queueCount?: number; queueItems?: string[]; recentHistory?: { summary: string; response: string; time: string }[]; onQueueAdd?: (items: string[]) => void; onQueueReplace?: (items: string[]) => void }
   ): void {
     if (QuoteDialogPanel.instance) {
       QuoteDialogPanel.instance.onSubmit = onSubmit;
       QuoteDialogPanel.instance.enterToSend = options?.enterToSend ?? false;
       QuoteDialogPanel.instance.queueCount = options?.queueCount ?? 0;
       QuoteDialogPanel.instance.queueItems = options?.queueItems ?? [];
+      QuoteDialogPanel.instance.recentHistory = options?.recentHistory ?? [];
       QuoteDialogPanel.instance.onQueueAdd = options?.onQueueAdd;
       QuoteDialogPanel.instance.onQueueReplace = options?.onQueueReplace;
       QuoteDialogPanel.instance.update(req);
@@ -282,6 +284,7 @@ export class QuoteDialogPanel {
     inst.enterToSend = options?.enterToSend ?? false;
     inst.queueCount = options?.queueCount ?? 0;
     inst.queueItems = options?.queueItems ?? [];
+    inst.recentHistory = options?.recentHistory ?? [];
     inst.onQueueAdd = options?.onQueueAdd;
     inst.onQueueReplace = options?.onQueueReplace;
     QuoteDialogPanel.instance = inst;
@@ -816,6 +819,48 @@ export class QuoteDialogPanel {
   }
   .queue-edit-input:focus { border-color: var(--accent); }
   .queue-empty { font-size: 11px; color: var(--muted); padding: 4px 0; text-align: center; }
+  /* Dialog history section (past conversations) */
+  .history-section { margin-bottom: 8px; }
+  .history-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 8px; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    font-size: 12px; color: var(--muted);
+    transition: all 0.15s;
+  }
+  .history-header:hover { color: var(--fg); border-color: var(--border); }
+  .history-toggle-icon { font-size: 10px; transition: transform 0.2s; }
+  .history-list { max-height: 300px; overflow-y: auto; }
+  .history-list.collapsed { display: none; }
+  .history-item {
+    padding: 6px 8px; border-bottom: 1px solid var(--border-subtle);
+    font-size: 11px;
+  }
+  .history-item:last-child { border-bottom: none; }
+  .history-item-llm, .history-item-user {
+    display: flex; align-items: flex-start; gap: 6px;
+    margin-bottom: 2px;
+  }
+  .history-role {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    color: var(--accent); font-size: 9px; font-weight: 600;
+    padding: 1px 4px; border-radius: 3px; flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .history-role-user {
+    background: color-mix(in srgb, var(--success) 20%, transparent);
+    color: var(--success);
+  }
+  .history-text {
+    flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: var(--fg); opacity: 0.8;
+  }
+  .history-item-time {
+    font-size: 10px; color: var(--muted); text-align: right;
+    margin-top: 2px;
+  }
   /* Sent message history bubbles */
   .sent-history { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
   .sent-bubble {
@@ -910,6 +955,23 @@ export class QuoteDialogPanel {
   <span class="header-ts" id="ts"></span>
 </div>
 <div class="body">
+  ${this.recentHistory.length > 0 ? `
+  <div class="history-section" id="historySection">
+    <div class="history-header" id="historyToggle">
+      <span>📜 对话历史 (${this.recentHistory.length})</span>
+      <span class="history-toggle-icon" id="historyIcon">▶</span>
+    </div>
+    <div class="history-list collapsed" id="historyList">${this.recentHistory.map(h => {
+      const ts = new Date(h.time).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const summaryPreview = escHtml(h.summary.replace(/[#*`\n]/g, ' ').trim().slice(0, 100));
+      const responsePreview = escHtml(h.response.slice(0, 100));
+      return `<div class="history-item">
+        <div class="history-item-llm"><span class="history-role">LLM</span><span class="history-text">${summaryPreview}</span></div>
+        <div class="history-item-user"><span class="history-role history-role-user">你</span><span class="history-text">${responsePreview}</span></div>
+        <div class="history-item-time">${ts}</div>
+      </div>`;
+    }).join('')}</div>
+  </div>` : ''}
   <div class="summary-wrap">
     ${summaryHtml}
     <button class="copy-btn" id="copySummary" title="复制 LLM 摘要">复制</button>
@@ -948,7 +1010,8 @@ export class QuoteDialogPanel {
     sessionId: ${sessionId},
     enterToSend: ${this.enterToSend ? 'true' : 'false'},
     options: ${safeJsonEmbed(req.options ?? [])},
-    queueItems: ${safeJsonEmbed(this.queueItems)}
+    queueItems: ${safeJsonEmbed(this.queueItems)},
+    historyCount: ${this.recentHistory.length}
   };
 </script>
 <script nonce="${nonce}" src="${mermaidScriptUri}"></script>

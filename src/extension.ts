@@ -159,14 +159,28 @@ export async function activate(
     sidebarProvider.postPendingDialog(req);
     try {
       const settings = dataManager!.settings.get();
+      // Load recent conversation history for display in dialog panel
+      const recentHistory = dataManager!.history.getByType('conversation').slice(0, 20);
       QuoteDialogPanel.show(context.extensionUri, req, (sessionId, response, images) => {
         bridge?.resolvePendingDialog(sessionId, response, images);
+        // Save this exchange to history
+        void dataManager!.history.add({
+          type: 'conversation',
+          title: req.summary.slice(0, 80),
+          content: JSON.stringify({ summary: req.summary, response, sessionId }),
+        });
         void updateStatusBar();
         sidebarProvider.postState();
       }, {
         enterToSend: settings.enterToSend,
         queueCount: sidebarProvider.getQueueCount(),
         queueItems: sidebarProvider.getQueueItems(),
+        recentHistory: recentHistory.map(h => {
+          try {
+            const data = JSON.parse(h.content) as { summary: string; response: string };
+            return { summary: data.summary, response: data.response, time: h.createdAt };
+          } catch { return null; }
+        }).filter((h): h is { summary: string; response: string; time: string } => h !== null),
         onQueueAdd: (items) => {
           sidebarProvider.addToQueue(items);
           QuoteDialogPanel.syncQueueItems(sidebarProvider.getQueueItems());

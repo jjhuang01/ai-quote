@@ -990,6 +990,17 @@ window.addEventListener("message", (e: MessageEvent) => {
   }
 });
 
+// ── History toggle ──────────────────────────────────────────────
+const historyToggle = document.getElementById('historyToggle');
+const historyList = document.getElementById('historyList');
+const historyIcon = document.getElementById('historyIcon');
+if (historyToggle && historyList && historyIcon) {
+  historyToggle.addEventListener('click', () => {
+    historyList.classList.toggle('collapsed');
+    historyIcon.textContent = historyList.classList.contains('collapsed') ? '▶' : '▼';
+  });
+}
+
 // Initial render
 renderQueue();
 
