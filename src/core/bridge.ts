@@ -231,14 +231,15 @@ export class QuoteBridge {
       this.pendingDialog &&
       this.pendingDialog.sessionId.startsWith("test_")
     ) {
-      const old = this.pendingDialog.sessionId;
-      if (this.pendingDialogResolvers.has(old)) {
-        this.pendingDialogResolvers.get(old)?.("(replaced by new test)");
-        this.pendingDialogResolvers.delete(old);
+      const oldKey = this.pendingDialog.id;
+      if (this.pendingDialogResolvers.has(oldKey)) {
+        this.pendingDialogResolvers.get(oldKey)?.("(replaced by new test)");
+        this.pendingDialogResolvers.delete(oldKey);
       }
     }
     this.pendingDialog = req;
-    this.pendingDialogResolvers.set(req.sessionId, (response: string) => {
+    // Use req.id as key (consistent with MCP code path)
+    this.pendingDialogResolvers.set(req.id, (response: string) => {
       onResponse(response);
       if (this.pendingDialog?.sessionId === req.sessionId) {
         this.pendingDialog = undefined;

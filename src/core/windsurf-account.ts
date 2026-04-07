@@ -32,9 +32,7 @@ async function findWindsurfAuthCommand(): Promise<string | undefined> {
 
 export interface SwitchResult {
   success: boolean;
-  needsRestart?: boolean;
   error?: string;
-  permissionHint?: string;
 }
 
 export class WindsurfAccountManager {

@@ -342,18 +342,6 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           const switchResult = await this.dataManager.windsurfAccounts.switchTo(value);
           void this.view?.webview.postMessage({ type: 'switchLoading', value: false });
 
-          if (switchResult.needsRestart) {
-            // 补丁已写入，静默自动 reload，reload 后 activate() 自动完成切换
-            void vscode.window.withProgress(
-              { location: vscode.ProgressLocation.Notification, title: '正在切换账号，Windsurf 即将刷新...' },
-              () => new Promise<void>(resolve => setTimeout(() => { resolve(); }, 1500))
-            );
-            setTimeout(() => {
-              void vscode.commands.executeCommand('workbench.action.reloadWindow');
-            }, 1800);
-            return true;
-          }
-
           if (switchResult.success && account) {
             this.postBootstrap();
             const msg = `已切换到 ${account.email}`;
@@ -362,15 +350,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           } else {
             const errMsg = switchResult.error ?? '切换失败：未知错误';
             void this.view?.webview.postMessage({ type: 'switchResult', value: { success: false, message: errMsg } });
-            if (switchResult.permissionHint) {
-              vscode.window.showErrorMessage(`切换失败: ${errMsg}`, '查看权限修复').then(choice => {
-                if (choice === '查看权限修复') {
-                  void vscode.window.showInformationMessage(switchResult.permissionHint ?? '');
-                }
-              });
-            } else {
-              vscode.window.showErrorMessage(`切换失败: ${errMsg}`);
-            }
+            vscode.window.showErrorMessage(`切换失败: ${errMsg}`);
           }
         }
         return true;
