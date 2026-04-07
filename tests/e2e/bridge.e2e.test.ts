@@ -91,7 +91,7 @@ describe('QuoteBridge', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' } } })
     });
-    expect(rpcRes.status).toBe(202);
+    expect(rpcRes.status).toBe(200);
   });
 
   it('getSseUrl 返回正确格式', () => {

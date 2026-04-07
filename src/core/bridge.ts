@@ -404,22 +404,13 @@ export class QuoteBridge {
 
     this.logger.info("MCP request received.", { method, id, sessionId });
 
-    // Always ack immediately with 202
-    httpResponse.writeHead(202, {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-    });
-    httpResponse.end(JSON.stringify({ accepted: true }));
-
     // Helper: find the best SSE client to write to.
     // Prefers the original session, but falls back to the latest connected client.
-    // This ensures SSE reconnections (new sessionId) don't break response delivery.
     const findSseClient = (): http.ServerResponse | undefined => {
       if (sessionId) {
         const original = this.clients.get(sessionId);
         if (original && !original.writableEnded) return original;
       }
-      // Fallback: use the most recently connected client (last in Map iteration order)
       let latest: http.ServerResponse | undefined;
       for (const c of this.clients.values()) {
         if (!c.writableEnded) latest = c;
@@ -432,29 +423,30 @@ export class QuoteBridge {
       client.write(`event: message\ndata: ${data}\n\n`);
     };
 
-    const pushJsonRpc = (result: unknown, error?: unknown): void => {
+    // Build a JSON-RPC response object
+    const buildRpcResponse = (result: unknown, error?: unknown): string => {
       const rpcResponse: Record<string, unknown> = {
         jsonrpc: "2.0",
         id: id ?? null,
       };
       if (error) rpcResponse["error"] = error;
       else rpcResponse["result"] = result;
-      const data = JSON.stringify(rpcResponse);
+      return JSON.stringify(rpcResponse);
+    };
+
+    // For non-dialog methods: send result via SSE AND respond 200 directly.
+    // Matching old plugin behavior — fast methods get direct HTTP responses.
+    const pushAndRespond = (result: unknown, error?: unknown): void => {
+      const data = buildRpcResponse(result, error);
       const client = findSseClient();
-      if (client) {
-        writeSseEvent(client, data);
-      } else {
-        // Broadcast to all if no active client found
-        for (const c of this.clients.values()) {
-          if (!c.writableEnded) writeSseEvent(c, data);
-        }
-      }
-      this.logger.info("MCP response sent.", { method, id });
+      if (client) writeSseEvent(client, data);
+      writeJson(httpResponse, 200, JSON.parse(data));
+      this.logger.info("MCP response sent (direct).", { method, id });
     };
 
     switch (method) {
       case "initialize": {
-        pushJsonRpc({
+        pushAndRespond({
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
           serverInfo: { name: this.toolName, version: "1.0.0" },
@@ -464,16 +456,25 @@ export class QuoteBridge {
         break;
       }
       case "notifications/initialized":
-        // No response needed for notifications
+        // No response needed for notifications — just ack the POST
+        httpResponse.writeHead(202, { "Access-Control-Allow-Origin": "*" });
+        httpResponse.end();
         break;
       case "tools/list":
       case "tools/list/": {
-        pushJsonRpc({
+        pushAndRespond({
           tools: [this.buildToolDef()],
         });
         break;
       }
       case "tools/call": {
+        // ═══════════════════════════════════════════════════════════════
+        // CRITICAL: Do NOT close httpResponse yet!
+        // The POST stays open until the dialog resolves.
+        // This prevents Cascade's internal MCP request timeout —
+        // Cascade won't start its timeout timer until the POST closes.
+        // Old plugin uses the same pattern: await result → SSE → 202.
+        // ═══════════════════════════════════════════════════════════════
         const params = body["params"] as Record<string, unknown> | undefined;
         const args = params?.["arguments"] as
           | Record<string, unknown>
@@ -487,7 +488,7 @@ export class QuoteBridge {
           (args?.["is_markdown"] as boolean | undefined) ?? true;
 
         if (!sessionId) {
-          pushJsonRpc(undefined, {
+          pushAndRespond(undefined, {
             code: -32000,
             message: "tools/call requires SSE session",
           });
@@ -497,7 +498,7 @@ export class QuoteBridge {
         // B3: Validate tool name
         const calledName = params?.["name"] as string | undefined;
         if (calledName && calledName !== this.toolName) {
-          pushJsonRpc(undefined, {
+          pushAndRespond(undefined, {
             code: -32601,
             message: `Tool not found: ${calledName}`,
           });
@@ -547,13 +548,16 @@ export class QuoteBridge {
           | number
           | undefined;
         const dialogKey = dialogReq.id;
+
+        // Capture the JSON-RPC result data when resolver fires
+        let rpcResultData: string | undefined;
+
         // Set up resolver FIRST so dialogCallback can auto-reply synchronously
         // Key by dialogReq.id (stable) — NOT sessionId (dies on SSE reconnect)
         const dialogPromise = new Promise<void>((resolve) => {
           this.pendingDialogResolvers.set(
             dialogKey,
             (userResponse: string, images?: ImageAttachment[]) => {
-              // Cleanup is handled by callers (resolvePendingDialog / timeout handler)
               clearInterval(keepAlive);
               clearTimeout(timeoutHandle);
               const content: Record<string, unknown>[] = [
@@ -561,7 +565,6 @@ export class QuoteBridge {
               ];
               if (images && images.length > 0) {
                 for (const img of images) {
-                  // MCP spec ImageContent: top-level data + mimeType
                   content.push({
                     type: "image",
                     data: img.data,
@@ -569,8 +572,8 @@ export class QuoteBridge {
                   });
                 }
               }
-              pushJsonRpc({ content, isError: false });
-              this.logger.info("MCP dialog response sent.", {
+              rpcResultData = buildRpcResponse({ content, isError: false });
+              this.logger.info("MCP dialog response prepared.", {
                 sessionId,
                 responseLen: userResponse.length,
                 imageCount: images?.length ?? 0,
@@ -586,8 +589,6 @@ export class QuoteBridge {
         });
 
         // Multi-layer keepalive strategy to prevent Windsurf Cascade timeout.
-        // Uses findSseClient() which auto-discovers the latest SSE connection
-        // even after Windsurf drops + reconnects with a new sessionId.
         let progressCounter = 0;
         const keepAlive = setInterval(() => {
           const client = findSseClient();
@@ -597,7 +598,6 @@ export class QuoteBridge {
             client.write(": keepalive\n\n");
 
             // L2: MCP progress notification — resets client SDK request timeout.
-            // Only send if client explicitly provided a progressToken.
             if (clientProgressToken !== undefined) {
               const progressNotification = JSON.stringify({
                 jsonrpc: "2.0",
@@ -653,18 +653,42 @@ export class QuoteBridge {
           this.dialogCallback(dialogReq);
         }
 
+        // ── Await dialog resolution (POST stays open the entire time) ──
         await dialogPromise;
         clearInterval(keepAlive);
         clearTimeout(timeoutHandle);
-        // Notify extension to refresh status bar etc.
+
+        // ── Send result: SSE first, then close POST (matches old plugin pattern) ──
+        if (rpcResultData) {
+          const sseClient = findSseClient();
+          if (sseClient) {
+            // SSE delivery succeeded — ack POST with 202 (empty)
+            writeSseEvent(sseClient, rpcResultData);
+            httpResponse.writeHead(202, { "Access-Control-Allow-Origin": "*" });
+            httpResponse.end();
+            this.logger.info("MCP dialog response sent via SSE → 202.", {
+              sessionId,
+            });
+          } else {
+            // SSE unavailable — fall back to direct HTTP 200 + JSON body
+            writeJson(httpResponse, 200, JSON.parse(rpcResultData));
+            this.logger.info("MCP dialog response sent via HTTP fallback → 200.", {
+              sessionId,
+            });
+          }
+        } else {
+          // Resolver fired without result (bridge stopping, etc.)
+          httpResponse.writeHead(202, { "Access-Control-Allow-Origin": "*" });
+          httpResponse.end();
+        }
         this.dialogResolvedCallback?.();
         break;
       }
       case "ping":
-        pushJsonRpc({});
+        pushAndRespond({});
         break;
       default:
-        pushJsonRpc(undefined, {
+        pushAndRespond(undefined, {
           code: -32601,
           message: `Method not found: ${method ?? "unknown"}`,
         });
