@@ -1,9 +1,9 @@
-import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { PluginSettings } from './contracts';
 import { DEFAULT_SETTINGS } from './contracts';
 import type { LoggerLike } from './logger';
+import { safeWriteJson, safeReadJson } from '../utils/safe-json';
 
 export class SettingsManager {
   private readonly settingsFile: string;
@@ -38,17 +38,11 @@ export class SettingsManager {
   }
 
   private async load(): Promise<void> {
-    try {
-      const raw = await fs.readFile(this.settingsFile, 'utf8');
-      const data = JSON.parse(raw) as Partial<PluginSettings>;
-      this.settings = { ...DEFAULT_SETTINGS, ...data };
-    } catch {
-      this.settings = { ...DEFAULT_SETTINGS };
-    }
+    const data = await safeReadJson<Partial<PluginSettings>>(this.settingsFile);
+    this.settings = { ...DEFAULT_SETTINGS, ...(data ?? {}) };
   }
 
   private async save(): Promise<void> {
-    await fs.mkdir(path.dirname(this.settingsFile), { recursive: true });
-    await fs.writeFile(this.settingsFile, JSON.stringify(this.settings, null, 2), 'utf8');
+    await safeWriteJson(this.settingsFile, this.settings);
   }
 }

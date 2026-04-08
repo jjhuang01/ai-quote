@@ -11,6 +11,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'quoteView';
   private view?: vscode.WebviewView;
   private responseQueue: string[] = [];
+  private bootstrapTimer?: ReturnType<typeof setTimeout>;
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
@@ -101,7 +102,16 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  public async postBootstrap(): Promise<void> {
+  public postBootstrap(): void {
+    if (!this.view) return;
+    if (this.bootstrapTimer) clearTimeout(this.bootstrapTimer);
+    this.bootstrapTimer = setTimeout(() => {
+      this.bootstrapTimer = undefined;
+      void this._doPostBootstrap();
+    }, 150);
+  }
+
+  private async _doPostBootstrap(): Promise<void> {
     if (!this.view) return;
     void this.view.webview.postMessage({
       type: 'bootstrap',
@@ -131,6 +141,34 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     const realCurrentAccountId = wa.getRealCurrentAccountId
       ? await wa.getRealCurrentAccountId()
       : wa.getCurrentAccountId?.();
+
+    // 排序: 当前账号置顶 → 有配额优先 → 按剩余配额降序 → addedAt 稳定排序
+    // 注: quota 制下 remainingMessages 不可靠（Free plan availablePromptCredits=0 但 dailyRemainingPercent=100）
+    //     必须以 dailyRemainingPercent 为准
+    const getRemain = (acc: typeof accounts[number]): number => {
+      const rq = acc.realQuota;
+      if (rq) {
+        // -1 = API 未返回百分比字段；用 dailyRemainingPercent 排序（0=耗尽, 100=满额）
+        if (rq.dailyRemainingPercent >= 0) return rq.dailyRemainingPercent;
+        // 无百分比但有 remainingMessages（credits 制 Enterprise）
+        if (rq.remainingMessages > 0) return 50 + Math.min(50, rq.remainingMessages);
+        // 有 realQuota 但无任何有效数据
+        return 50;
+      }
+      // 未获取过配额: 给中性分值 (50)，排在有余量之后、耗尽之前
+      if (!acc.quota || acc.quota.dailyLimit === 0) return 50;
+      // 本地计数器 fallback: 转换为 0-100 等效分值
+      const used = acc.quota.dailyUsed;
+      const limit = acc.quota.dailyLimit;
+      return Math.max(0, Math.min(100, ((limit - used) / limit) * 100));
+    };
+    accounts.sort((a, b) => {
+      if (a.id === realCurrentAccountId) return -1;
+      if (b.id === realCurrentAccountId) return 1;
+      const diff = getRemain(b) - getRemain(a);
+      if (diff !== 0) return diff;
+      return (a.addedAt ?? '').localeCompare(b.addedAt ?? '');
+    });
 
     return {
       status: this.bridge.getStatus(),

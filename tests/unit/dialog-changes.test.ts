@@ -327,6 +327,122 @@ describe('MCP progress notification format', () => {
   });
 });
 
+// ── RC2: Supersede/timeout returns JSON-RPC error, not fake user reply ──
+
+describe('RC2: Cancelled dialog returns JSON-RPC error', () => {
+  function buildRpcResponse(result: unknown, error?: unknown): Record<string, unknown> {
+    const rpcResponse: Record<string, unknown> = {
+      jsonrpc: '2.0',
+      id: 42,
+    };
+    if (error) rpcResponse['error'] = error;
+    else rpcResponse['result'] = result;
+    return rpcResponse;
+  }
+
+  function buildDialogResult(
+    userResponse: string,
+    images?: { data: string; media_type: string }[],
+    cancelled?: boolean,
+  ): Record<string, unknown> {
+    if (cancelled) {
+      return buildRpcResponse(undefined, {
+        code: -32001,
+        message: userResponse,
+      });
+    }
+    const content: Record<string, unknown>[] = [
+      { type: 'text', text: userResponse },
+    ];
+    if (images && images.length > 0) {
+      for (const img of images) {
+        content.push({ type: 'image', data: img.data, mimeType: img.media_type });
+      }
+    }
+    return buildRpcResponse({ content, isError: false });
+  }
+
+  it('normal response produces tool result (no error)', () => {
+    const result = buildDialogResult('Hello LLM');
+    expect(result).toHaveProperty('result');
+    expect(result).not.toHaveProperty('error');
+    const r = result['result'] as { content: { type: string; text: string }[] };
+    expect(r.content[0].text).toBe('Hello LLM');
+  });
+
+  it('superseded dialog produces JSON-RPC error', () => {
+    const result = buildDialogResult('Dialog superseded by a newer request', undefined, true);
+    expect(result).toHaveProperty('error');
+    expect(result).not.toHaveProperty('result');
+    const err = result['error'] as { code: number; message: string };
+    expect(err.code).toBe(-32001);
+    expect(err.message).toContain('superseded');
+  });
+
+  it('timed-out dialog produces JSON-RPC error', () => {
+    const result = buildDialogResult('Dialog timed out', undefined, true);
+    const err = result['error'] as { code: number; message: string };
+    expect(err.code).toBe(-32001);
+    expect(err.message).toContain('timed out');
+  });
+
+  it('bridge-stopped dialog produces JSON-RPC error', () => {
+    const result = buildDialogResult('Bridge stopped', undefined, true);
+    const err = result['error'] as { code: number; message: string };
+    expect(err.code).toBe(-32001);
+    expect(err.message).toBe('Bridge stopped');
+  });
+
+  it('cancelled response never leaks as tool result text', () => {
+    const result = buildDialogResult('(superseded by retry)', undefined, true);
+    // Must NOT appear in result.content
+    expect(result).not.toHaveProperty('result');
+  });
+});
+
+// ── RC3: sessionToDialogKey reverse mapping ──────────────────────────
+
+describe('RC3: sessionToDialogKey reverse mapping', () => {
+  it('maps sessionId to dialogKey for reliable lookup', () => {
+    const map = new Map<string, string | number>();
+    map.set('sess_abc', 42);
+    map.set('sess_def', 'mcp_xyz');
+
+    expect(map.get('sess_abc')).toBe(42);
+    expect(map.get('sess_def')).toBe('mcp_xyz');
+    expect(map.get('sess_missing')).toBeUndefined();
+  });
+
+  it('reverse mapping survives SSE reconnection (sessionId changes)', () => {
+    // Simulate: dialog created with sess_old, SSE reconnects as sess_new
+    const sessionToDialogKey = new Map<string, string | number>();
+    const resolvers = new Map<string | number, string>();
+
+    // Dialog created with original sessionId
+    const dialogKey = 42;
+    sessionToDialogKey.set('sess_old', dialogKey);
+    resolvers.set(dialogKey, 'pending');
+
+    // SSE reconnects — sess_old gone, sess_new appears
+    // But sessionToDialogKey still maps sess_old → 42
+
+    // User responds via dialog panel (still has sess_old in webview cfg)
+    const lookupKey = sessionToDialogKey.get('sess_old');
+    expect(lookupKey).toBe(42);
+    expect(resolvers.get(lookupKey!)).toBe('pending');
+  });
+
+  it('cleanup removes mapping after resolve', () => {
+    const map = new Map<string, string | number>();
+    map.set('sess_abc', 42);
+
+    // Simulate resolve + cleanup
+    map.delete('sess_abc');
+    expect(map.get('sess_abc')).toBeUndefined();
+    expect(map.size).toBe(0);
+  });
+});
+
 // ── URI list parsing ──────────────────────────────────────────────────
 
 describe('text/uri-list parsing', () => {

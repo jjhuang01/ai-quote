@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { safeWriteJson, safeReadJson } from '../utils/safe-json';
 
 export interface HistoryItem {
   id: string;
@@ -96,23 +97,14 @@ export class HistoryManager {
 
   private async load(): Promise<void> {
     const filePath = path.join(this.historyDir, 'history.json');
-    try {
-      const raw = await fs.readFile(filePath, 'utf8');
-      const data = JSON.parse(raw) as { items: HistoryItem[]; limit: number };
-      this.items = data.items ?? [];
-      this.limit = data.limit ?? DEFAULT_LIMIT;
-    } catch {
-      this.items = [];
-    }
+    const data = await safeReadJson<{ items: HistoryItem[]; limit: number }>(filePath);
+    this.items = data?.items ?? [];
+    this.limit = data?.limit ?? DEFAULT_LIMIT;
   }
 
   private async save(): Promise<void> {
     const filePath = path.join(this.historyDir, 'history.json');
-    const data = {
-      items: this.items,
-      limit: this.limit
-    };
-    await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8');
+    await safeWriteJson(filePath, { items: this.items, limit: this.limit });
   }
 
   private generateId(): string {

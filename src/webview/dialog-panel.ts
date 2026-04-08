@@ -857,6 +857,16 @@ export class QuoteDialogPanel {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     color: var(--fg); opacity: 0.8;
   }
+  .history-copy, .sent-copy {
+    background: none; border: none; cursor: pointer;
+    font-size: 11px; color: var(--muted); padding: 1px 2px;
+    border-radius: 3px; flex-shrink: 0; transition: color 0.12s;
+    opacity: 0;
+  }
+  .history-item-llm:hover .history-copy,
+  .history-item-user:hover .history-copy,
+  .sent-bubble:hover .sent-copy { opacity: 1; }
+  .history-copy:hover, .sent-copy:hover { color: var(--accent); }
   .history-item-time {
     font-size: 10px; color: var(--muted); text-align: right;
     margin-top: 2px;
@@ -965,9 +975,11 @@ export class QuoteDialogPanel {
       const ts = new Date(h.time).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       const summaryPreview = escHtml(h.summary.replace(/[#*`\n]/g, ' ').trim().slice(0, 100));
       const responsePreview = escHtml(h.response.slice(0, 100));
+      const summaryFull = escHtml(h.summary);
+      const responseFull = escHtml(h.response);
       return `<div class="history-item">
-        <div class="history-item-llm"><span class="history-role">LLM</span><span class="history-text">${summaryPreview}</span></div>
-        <div class="history-item-user"><span class="history-role history-role-user">你</span><span class="history-text">${responsePreview}</span></div>
+        <div class="history-item-llm"><span class="history-role">LLM</span><span class="history-text">${summaryPreview}</span><button class="history-copy" data-copy="${summaryFull}" title="复制 LLM 摘要">📋</button></div>
+        <div class="history-item-user"><span class="history-role history-role-user">你</span><span class="history-text">${responsePreview}</span><button class="history-copy" data-copy="${responseFull}" title="复制用户回复">📋</button></div>
         <div class="history-item-time">${ts}</div>
       </div>`;
     }).join('')}</div>

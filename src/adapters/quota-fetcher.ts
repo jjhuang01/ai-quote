@@ -603,7 +603,7 @@ export class WindsurfQuotaFetcher {
                 const msgs = ps.availablePromptCredits ?? 0;
                 const flows = ps.availableFlexCredits ?? ps.availableFlowCredits ?? 0;
                 planInfo = {
-                  planName: 'Pro',
+                  planName: '',  // 空串，让 account.plan 保持原值（|| account.plan fallback）
                   startTimestamp: 0,
                   endTimestamp: 0,
                   usage: {
@@ -784,6 +784,9 @@ export class WindsurfQuotaFetcher {
               });
               const dailyResetAtUnix  = Number(ps.dailyQuotaResetAtUnix  ?? 0);
               const weeklyResetAtUnix = Number(ps.weeklyQuotaResetAtUnix ?? 0);
+              // NOTE: availablePromptCredits 在旧 credit 制下为 centi-credits（需 /100），
+              //       在新 quota 制下语义不同（可能是 token 预算）。
+              //       当前 remainingMessages 仅用于 credits 制 Enterprise 判断，quota 制下以百分比为准。
               const promptCredits = ps.availablePromptCredits ?? ps.planInfo?.monthlyPromptCredits ?? 0;
               const flowCredits   = ps.availableFlowCredits   ?? ps.planInfo?.monthlyFlowCredits   ?? 0;
               const startMs = ps.planStart ? new Date(ps.planStart).getTime() : 0;
@@ -812,7 +815,7 @@ export class WindsurfQuotaFetcher {
                 },
                 hasBillingWritePermissions: false,
                 gracePeriodStatus: 0,
-                billingStrategy: 'quota',
+                billingStrategy: ps.planInfo?.billingStrategy ?? (dailyRemainingPercent !== undefined ? 'quota' : 'credits'),
                 quotaUsage: {
                   dailyRemainingPercent,
                   weeklyRemainingPercent,

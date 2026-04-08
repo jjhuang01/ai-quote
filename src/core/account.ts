@@ -1,8 +1,8 @@
-import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { AccountInfo, AccountStats } from './contracts';
 import type { LoggerLike } from './logger';
+import { safeWriteJson, safeReadJson } from '../utils/safe-json';
 
 export class AccountManager {
   private readonly accountFile: string;
@@ -93,23 +93,16 @@ export class AccountManager {
   }
 
   private async load(): Promise<void> {
-    try {
-      const raw = await fs.readFile(this.accountFile, 'utf8');
-      const data = JSON.parse(raw) as { accounts: AccountInfo[]; currentId?: string };
-      this.accounts = data.accounts ?? [];
-      this.currentAccountId = data.currentId;
-    } catch {
-      this.accounts = [];
-    }
+    const data = await safeReadJson<{ accounts: AccountInfo[]; currentId?: string }>(this.accountFile);
+    this.accounts = data?.accounts ?? [];
+    this.currentAccountId = data?.currentId;
   }
 
   private async save(): Promise<void> {
-    await fs.mkdir(path.dirname(this.accountFile), { recursive: true });
-    const data = {
+    await safeWriteJson(this.accountFile, {
       accounts: this.accounts,
       currentId: this.currentAccountId
-    };
-    await fs.writeFile(this.accountFile, JSON.stringify(data, null, 2), 'utf8');
+    });
   }
 
   private generateId(): string {

@@ -393,25 +393,27 @@ async function completePendingSwitch(
 }
 
 export async function deactivate(): Promise<void> {
-  // Clean up session-scoped MCP entry and rules for secondary instances
-  if (secondaryInstance && activeToolName) {
+  // Clean up MCP config entry and workspace rules for ALL instances (prevents zombie entries on dead ports)
+  if (activeToolName) {
     try {
       const ide = detectCurrentIde();
       await removeMcpConfigEntry(ide, activeToolName);
-      // Remove session-scoped workspace rules if they reference our session tool
+      // Remove workspace rules only if they reference OUR toolName (not another window's)
       const fs = await import('node:fs/promises');
       const path = await import('node:path');
       const wsFolder = vscode.workspace.workspaceFolders?.[0];
       if (wsFolder) {
-        const wsRules = path.join(wsFolder.uri.fsPath, '.windsurfrules');
-        const content = await fs.readFile(wsRules, 'utf8').catch(() => '');
-        if (content.includes(activeToolName)) {
-          await fs.unlink(wsRules).catch(() => {});
+        for (const rulesFile of ['.windsurfrules', 'AI_FEEDBACK_RULES.md']) {
+          const rulesPath = path.join(wsFolder.uri.fsPath, rulesFile);
+          const content = await fs.readFile(rulesPath, 'utf8').catch(() => '');
+          if (content.includes(activeToolName)) {
+            await fs.unlink(rulesPath).catch(() => {});
+          }
         }
       }
-      logger?.info('Secondary instance cleanup done.', { activeToolName });
+      logger?.info('Deactivate cleanup done.', { activeToolName, secondaryInstance });
     } catch (err) {
-      logger?.warn('Secondary instance cleanup failed (non-fatal).', { error: String(err) });
+      logger?.warn('Deactivate cleanup failed (non-fatal).', { error: String(err) });
     }
   }
   dataManager?.endSession();

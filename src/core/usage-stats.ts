@@ -1,8 +1,8 @@
-import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { UsageStats } from './contracts';
 import type { LoggerLike } from './logger';
+import { safeWriteJson, safeReadJson } from '../utils/safe-json';
 
 const DEFAULT_STATS: UsageStats = {
   totalConversations: 0,
@@ -76,17 +76,11 @@ export class UsageStatsManager {
   }
 
   private async load(): Promise<void> {
-    try {
-      const raw = await fs.readFile(this.filePath, 'utf8');
-      const data = JSON.parse(raw) as Partial<UsageStats>;
-      this.stats = { ...DEFAULT_STATS, ...data };
-    } catch {
-      this.stats = { ...DEFAULT_STATS };
-    }
+    const data = await safeReadJson<Partial<UsageStats>>(this.filePath);
+    this.stats = { ...DEFAULT_STATS, ...(data ?? {}) };
   }
 
   private async save(): Promise<void> {
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    await fs.writeFile(this.filePath, JSON.stringify(this.stats, null, 2), 'utf8');
+    await safeWriteJson(this.filePath, this.stats);
   }
 }

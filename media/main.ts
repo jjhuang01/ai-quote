@@ -276,6 +276,7 @@ let state = {
   maintenanceLoadingAction: undefined as string | undefined,
   // Switch loading
   switchLoadingId: undefined as string | undefined,
+  accountPageSize: 50,
   // MCP pending dialog
   pendingDialog: undefined as McpDialogRequest | undefined,
   dialogInput: "",
@@ -613,6 +614,7 @@ function renderAccountTab(bs: Bootstrap): string {
           ${
             accounts.length > 0
               ? accounts
+                  .slice(0, state.accountPageSize)
                   .map((a) =>
                     renderAccountItem(
                       a,
@@ -620,7 +622,10 @@ function renderAccountTab(bs: Bootstrap): string {
                       snapshotMap.get(a.id),
                     ),
                   )
-                  .join("")
+                  .join("") +
+                (accounts.length > state.accountPageSize
+                  ? `<div style="text-align:center;padding:8px"><button class="btn-xs btn-icon" data-action="accountLoadMore">显示更多 (${state.accountPageSize}/${accounts.length})</button></div>`
+                  : "")
               : `<div class="empty-state">${icon("inbox", "empty-icon")} <p>暂无账号，点击“添加”或“批量导入”</p></div>`
           }
         </div>
@@ -1798,6 +1803,10 @@ function handleAction(el: HTMLElement): void {
     case "accountClear":
       vscode.postMessage({ type: "accountClear" });
       break;
+    case "accountLoadMore":
+      state.accountPageSize += 50;
+      render();
+      break;
     case "toggleSelectMode":
       state.selectMode = !state.selectMode;
       if (!state.selectMode) state.selectedAccountIds = new Set();
@@ -1807,6 +1816,10 @@ function handleAction(el: HTMLElement): void {
       const bs = window.__QUOTE_BOOTSTRAP__;
       if (bs) {
         state.selectedAccountIds = new Set(bs.accounts.map((a: WindsurfAccount) => a.id));
+        // 展开全部分页，让用户能看到所有被选中的账号
+        if (bs.accounts.length > state.accountPageSize) {
+          state.accountPageSize = bs.accounts.length;
+        }
         render();
       }
       break;

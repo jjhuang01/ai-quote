@@ -1,12 +1,15 @@
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import * as vscode from 'vscode';
+import * as path from 'node:path';
 import type { FeedbackItem } from './contracts';
 import type { LoggerLike } from './logger';
+import { safeWriteJson, safeReadJson } from '../utils/safe-json';
+
+const DEFAULT_LIMIT = 200;
 
 export class FeedbackManager {
   private readonly feedbackFile: string;
   private items: FeedbackItem[] = [];
+  private limit = DEFAULT_LIMIT;
   private readonly logger: LoggerLike;
 
   public constructor(context: vscode.ExtensionContext, logger: LoggerLike) {
@@ -25,6 +28,7 @@ export class FeedbackManager {
       createdAt: new Date().toISOString()
     };
     this.items.unshift(newItem);
+    this.trim();
     await this.save();
     this.logger.info('Feedback added.', { id: newItem.id, rating: newItem.rating });
     return newItem;
@@ -67,19 +71,20 @@ export class FeedbackManager {
     };
   }
 
-  private async load(): Promise<void> {
-    try {
-      const raw = await fs.readFile(this.feedbackFile, 'utf8');
-      const data = JSON.parse(raw) as { items: FeedbackItem[] };
-      this.items = data.items ?? [];
-    } catch {
-      this.items = [];
+  private trim(): void {
+    if (this.items.length > this.limit) {
+      this.items = this.items.slice(0, this.limit);
     }
   }
 
+  private async load(): Promise<void> {
+    const data = await safeReadJson<{ items: FeedbackItem[]; limit?: number }>(this.feedbackFile);
+    this.items = data?.items ?? [];
+    this.limit = data?.limit ?? DEFAULT_LIMIT;
+  }
+
   private async save(): Promise<void> {
-    await fs.mkdir(path.dirname(this.feedbackFile), { recursive: true });
-    await fs.writeFile(this.feedbackFile, JSON.stringify({ items: this.items }, null, 2), 'utf8');
+    await safeWriteJson(this.feedbackFile, { items: this.items, limit: this.limit });
   }
 
   private generateId(): string {

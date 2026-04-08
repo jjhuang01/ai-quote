@@ -77,8 +77,10 @@ export class QuoteBridge {
   // Key = dialogReq.id (stable across SSE reconnections), NOT sessionId
   private pendingDialogResolvers = new Map<
     string | number,
-    (response: string, images?: ImageAttachment[]) => void
+    (response: string, images?: ImageAttachment[], cancelled?: boolean) => void
   >();
+  // Reverse mapping: sessionId → dialogKey for reliable resolver lookup (RC3)
+  private sessionToDialogKey = new Map<string, string | number>();
 
   public constructor(
     private readonly logger: LoggerLike,
@@ -124,9 +126,10 @@ export class QuoteBridge {
     this.pendingDialog = undefined;
     // Resolve all pending dialog awaits so handleMcpRequest coroutines can exit cleanly.
     for (const resolver of this.pendingDialogResolvers.values()) {
-      resolver("(bridge stopped)");
+      resolver("Bridge stopped", undefined, true);
     }
     this.pendingDialogResolvers.clear();
+    this.sessionToDialogKey.clear();
 
     await new Promise<void>((resolve, reject) => {
       this.server?.close((error) => (error ? reject(error) : resolve()));
@@ -196,22 +199,25 @@ export class QuoteBridge {
     response: string,
     images?: ImageAttachment[],
   ): void {
-    // Try to find resolver by pendingDialog id (primary) or sessionId (fallback)
-    const dialogId = this.pendingDialog?.sessionId === sessionId
-      ? this.pendingDialog.id
-      : sessionId;
-    const resolver = this.pendingDialogResolvers.get(dialogId)
+    // Try reverse mapping first (RC3), then pendingDialog id, then sessionId
+    const dialogKey = this.sessionToDialogKey.get(sessionId)
+      ?? (this.pendingDialog?.sessionId === sessionId ? this.pendingDialog.id : undefined);
+    const resolver = (dialogKey != null ? this.pendingDialogResolvers.get(dialogKey) : undefined)
       ?? this.pendingDialogResolvers.get(sessionId);
     if (resolver) {
       resolver(response, images);
-      this.pendingDialogResolvers.delete(dialogId);
+      if (dialogKey != null) this.pendingDialogResolvers.delete(dialogKey);
       this.pendingDialogResolvers.delete(sessionId);
     } else {
-      this.logger.warn("resolvePendingDialog: no resolver found.", {
+      this.logger.warn("resolvePendingDialog: no resolver found — user response dropped!", {
         sessionId,
-        dialogId,
+        dialogKey,
+        responseLen: response.length,
+        hasPendingDialog: !!this.pendingDialog,
+        pendingDialogSessionId: this.pendingDialog?.sessionId,
       });
     }
+    this.sessionToDialogKey.delete(sessionId);
     if (this.pendingDialog?.sessionId === sessionId) {
       this.pendingDialog = undefined;
     }
@@ -232,12 +238,15 @@ export class QuoteBridge {
       this.pendingDialog.sessionId.startsWith("test_")
     ) {
       const oldKey = this.pendingDialog.id;
+      const oldSessionId = this.pendingDialog.sessionId;
       if (this.pendingDialogResolvers.has(oldKey)) {
-        this.pendingDialogResolvers.get(oldKey)?.("(replaced by new test)");
+        this.pendingDialogResolvers.get(oldKey)?.("Replaced by new test", undefined, true);
         this.pendingDialogResolvers.delete(oldKey);
       }
+      this.sessionToDialogKey.delete(oldSessionId);
     }
     this.pendingDialog = req;
+    this.sessionToDialogKey.set(req.sessionId, req.id);
     // Use req.id as key (consistent with MCP code path)
     this.pendingDialogResolvers.set(req.id, (response: string) => {
       onResponse(response);
@@ -411,9 +420,16 @@ export class QuoteBridge {
         const original = this.clients.get(sessionId);
         if (original && !original.writableEnded) return original;
       }
+      // Fallback: pick latest connected client (SSE reconnection recovery)
       let latest: http.ServerResponse | undefined;
       for (const c of this.clients.values()) {
         if (!c.writableEnded) latest = c;
+      }
+      if (latest) {
+        this.logger.warn("findSseClient: using fallback (SSE reconnected?).", {
+          originalSessionId: sessionId,
+          activeClients: this.clients.size,
+        });
       }
       return latest;
     };
@@ -513,14 +529,16 @@ export class QuoteBridge {
         // supersede old dialog instead of rejecting (supports Windsurf timeout retries)
         if (this.pendingDialog) {
           const oldKey = this.pendingDialog.id;
+          const oldSessionId = this.pendingDialog.sessionId;
           const oldResolver = this.pendingDialogResolvers.get(oldKey);
           if (oldResolver) {
             this.pendingDialogResolvers.delete(oldKey);
+            this.sessionToDialogKey.delete(oldSessionId);
             this.logger.info("tools/call: superseding previous dialog (retry).", {
               oldDialogId: oldKey,
               sessionId,
             });
-            oldResolver("(superseded by retry)");
+            oldResolver("Dialog superseded by a newer request", undefined, true);
           }
           this.pendingDialog = undefined;
         }
@@ -534,6 +552,7 @@ export class QuoteBridge {
           receivedAt: new Date().toISOString(),
         };
         this.pendingDialog = dialogReq;
+        if (sessionId) this.sessionToDialogKey.set(sessionId, dialogReq.id);
         this.logger.info("MCP tools/call: awaiting dialog response.", {
           sessionId,
           summaryLen: summary.length,
@@ -557,9 +576,22 @@ export class QuoteBridge {
         const dialogPromise = new Promise<void>((resolve) => {
           this.pendingDialogResolvers.set(
             dialogKey,
-            (userResponse: string, images?: ImageAttachment[]) => {
+            (userResponse: string, images?: ImageAttachment[], cancelled?: boolean) => {
               clearInterval(keepAlive);
               clearTimeout(timeoutHandle);
+              if (cancelled) {
+                // RC2: Return JSON-RPC error instead of fake user response
+                rpcResultData = buildRpcResponse(undefined, {
+                  code: -32001,
+                  message: userResponse,
+                });
+                this.logger.info("MCP dialog cancelled.", {
+                  sessionId,
+                  reason: userResponse,
+                });
+                resolve();
+                return;
+              }
               const content: Record<string, unknown>[] = [
                 { type: "text", text: userResponse },
               ];
@@ -638,12 +670,13 @@ export class QuoteBridge {
             const resolver = this.pendingDialogResolvers.get(dialogKey);
             if (resolver) {
               this.pendingDialogResolvers.delete(dialogKey);
+              if (sessionId) this.sessionToDialogKey.delete(sessionId);
               this.pendingDialog = undefined;
               this.logger.info("Dialog auto-dismissed due to timeout.", {
                 sessionId,
                 timeoutMs: this.dialogTimeoutMs,
               });
-              resolver("(timeout)");
+              resolver("Dialog timed out", undefined, true);
             }
           }, this.dialogTimeoutMs);
         }
@@ -664,19 +697,21 @@ export class QuoteBridge {
           if (sseClient) {
             // SSE delivery succeeded — ack POST with 202 (empty)
             writeSseEvent(sseClient, rpcResultData);
-            httpResponse.writeHead(202, { "Access-Control-Allow-Origin": "*" });
-            httpResponse.end();
+            if (!httpResponse.writableEnded) {
+              httpResponse.writeHead(202, { "Access-Control-Allow-Origin": "*" });
+              httpResponse.end();
+            }
             this.logger.info("MCP dialog response sent via SSE → 202.", {
               sessionId,
             });
-          } else {
+          } else if (!httpResponse.writableEnded) {
             // SSE unavailable — fall back to direct HTTP 200 + JSON body
             writeJson(httpResponse, 200, JSON.parse(rpcResultData));
             this.logger.info("MCP dialog response sent via HTTP fallback → 200.", {
               sessionId,
             });
           }
-        } else {
+        } else if (!httpResponse.writableEnded) {
           // Resolver fired without result (bridge stopping, etc.)
           httpResponse.writeHead(202, { "Access-Control-Allow-Origin": "*" });
           httpResponse.end();
@@ -698,7 +733,8 @@ export class QuoteBridge {
   private buildToolDef(): Record<string, unknown> {
     return {
       name: this.toolName,
-      description: "Send a structured response to the user interface.",
+      description:
+        "Send a structured response to the user interface. The tool result contains the user's direct reply that should be addressed in your next response.",
       inputSchema: {
         type: "object",
         properties: {

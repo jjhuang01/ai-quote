@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { safeWriteJson, safeReadJson } from "../utils/safe-json";
 import type {
   WindsurfAccount,
   AutoSwitchConfig,
@@ -138,11 +139,9 @@ export class WindsurfAccountManager {
       .map((l) => l.trim())
       .filter((l) => l.length > 0);
 
-    // Preserve current account state — import should NEVER change which account
-    // is marked as "当前". The user may already be logged in to an account that
-    // isn't (or is) in the import list. Either way, don't touch it.
+    // Build email lookup Set for O(1) dedup
+    const existingEmails = new Set(this.accounts.map((a) => a.email));
     const hadAccounts = this.accounts.length > 0;
-    const savedCurrentId = this.currentAccountId;
 
     let added = 0;
     let skipped = 0;
@@ -160,7 +159,6 @@ export class WindsurfAccountManager {
         email = entry.slice(0, idx).trim();
         password = entry.slice(idx + sep.length).trim();
       } else {
-        // 空格分隔: "email password"
         const spaceIdx = entry.indexOf(" ");
         if (spaceIdx <= 0) {
           skipped++;
@@ -173,27 +171,32 @@ export class WindsurfAccountManager {
         skipped++;
         continue;
       }
-      const exists = this.accounts.some((a) => a.email === email);
-      if (exists) {
+      if (existingEmails.has(email)) {
         skipped++;
         continue;
       }
-      await this.add(email, password);
+      existingEmails.add(email);
+      const account: WindsurfAccount = {
+        id: `ws_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        email,
+        password,
+        plan: "Free",
+        creditsUsed: 0,
+        creditsTotal: 0,
+        quota: { ...DEFAULT_QUOTA },
+        expiresAt: "",
+        isActive: !hadAccounts && added === 0,
+        addedAt: new Date().toISOString(),
+      };
+      this.accounts.push(account);
+      if (account.isActive) {
+        this.currentAccountId = account.id;
+      }
       added++;
     }
 
-    // Restore: if there was already a current account, keep it unchanged.
-    // add() may have set currentAccountId to the first imported account when
-    // the list was empty; only keep that if there was truly no account before.
-    if (hadAccounts && savedCurrentId) {
-      if (this.currentAccountId !== savedCurrentId) {
-        // Undo any isActive flag changes made by add()
-        this.accounts.forEach((a) => {
-          a.isActive = a.id === savedCurrentId;
-        });
-        this.currentAccountId = savedCurrentId;
-        await this.save();
-      }
+    if (added > 0) {
+      await this.save();
     }
 
     this.logger.info("Batch import done.", { added, skipped });
@@ -289,13 +292,8 @@ export class WindsurfAccountManager {
     }
     this.logger.info("Found Windsurf auth command.", { command: authCmd });
 
-    // ── 步骤3: 登出 + 注入新 session ─────────────────────────────────────
+    // ── 步骤3: 注入新 session（不先 logout，避免中断当前会话） ──────────
     try {
-      try {
-        await vscode.commands.executeCommand("windsurf.logout");
-      } catch {
-        /* ignore */
-      }
       // 传入 idToken，Windsurf 内部 handleAuthToken → registerUser(idToken) 完成注册
       const result = await vscode.commands.executeCommand<{
         session?: unknown;
@@ -310,6 +308,9 @@ export class WindsurfAccountManager {
     }
 
     // ── 步骤4: 更新内部状态 ──────────────────────────────────────────────
+    // 注: 不需要重启 LS。handleAuthToken 内部已执行:
+    //   _cachedSessions=[newSession] + secrets.store + _sessionChangeEmitter.fire
+    //   LS 的下一次请求会自动读取新 session。
     this.accounts.forEach((a) => {
       a.isActive = a.id === id;
     });
@@ -375,14 +376,18 @@ export class WindsurfAccountManager {
     const threshold = this.autoSwitch.threshold;
 
     if (rq) {
-      // realQuota 可用：用 remainingMessages 与 threshold 对比，同时检查百分比
+      // realQuota 可用: 优先用百分比判断（quota 制下 remainingMessages 不可靠：
+      // Free plan availablePromptCredits=0 导致 remainingMessages=0，但 dailyRemainingPercent=100）
+      const hasDailyPct = rq.dailyRemainingPercent >= 0;
+      const hasWeeklyPct = rq.weeklyRemainingPercent >= 0;
       const dailyExhausted =
         this.autoSwitch.switchOnDaily &&
-        ((rq.remainingMessages >= 0 && rq.remainingMessages <= threshold) ||
-          (rq.dailyRemainingPercent >= 0 && rq.dailyRemainingPercent <= 5));
+        (hasDailyPct
+          ? rq.dailyRemainingPercent <= 5
+          : rq.billingStrategy === 'credits' && rq.remainingMessages <= threshold);
       const weeklyExhausted =
         this.autoSwitch.switchOnWeekly &&
-        rq.weeklyRemainingPercent >= 0 &&
+        hasWeeklyPct &&
         rq.weeklyRemainingPercent <= 5;
       return dailyExhausted || weeklyExhausted;
     }
@@ -417,11 +422,19 @@ export class WindsurfAccountManager {
     const threshold = this.autoSwitch.threshold;
 
     if (rq) {
+      // quota 制下 remainingMessages 不可靠，优先用百分比判断
+      const hasDailyPct = rq.dailyRemainingPercent >= 0;
       const dailyOk =
         !this.autoSwitch.switchOnDaily ||
-        (rq.remainingMessages > threshold && rq.dailyRemainingPercent > 5);
+        (hasDailyPct
+          ? rq.dailyRemainingPercent > 5
+          : rq.billingStrategy === 'credits'
+            ? rq.remainingMessages > threshold
+            : true);  // 无百分比且非 credits 制，默认允许切入
       const weeklyOk =
-        !this.autoSwitch.switchOnWeekly || rq.weeklyRemainingPercent > 5;
+        !this.autoSwitch.switchOnWeekly ||
+        rq.weeklyRemainingPercent < 0 ||  // -1 = 无数据，不阻止切入
+        rq.weeklyRemainingPercent > 5;
       return dailyOk && weeklyOk;
     }
 
@@ -484,9 +497,10 @@ export class WindsurfAccountManager {
       // 优先使用真实配额数据计算 warningLevel
       let warningLevel: QuotaSnapshot["warningLevel"] = "ok";
       if (rq) {
-        if (rq.dailyRemainingPercent <= 0) warningLevel = "critical";
-        else if (rq.dailyRemainingPercent <= 10) warningLevel = "warn";
-        else if (rq.weeklyRemainingPercent <= 10) warningLevel = "warn";
+        // -1 = API 未返回百分比字段（无数据），不应触发 warning
+        if (rq.dailyRemainingPercent >= 0 && rq.dailyRemainingPercent <= 0) warningLevel = "critical";
+        else if (rq.dailyRemainingPercent >= 0 && rq.dailyRemainingPercent <= 10) warningLevel = "warn";
+        else if (rq.weeklyRemainingPercent >= 0 && rq.weeklyRemainingPercent <= 10) warningLevel = "warn";
       } else {
         const dr = q.dailyLimit > 0 ? q.dailyLimit - q.dailyUsed : 0;
         const wr = q.weeklyLimit > 0 ? q.weeklyLimit - q.weeklyUsed : 0;
@@ -569,8 +583,7 @@ export class WindsurfAccountManager {
           result.source,
           result.fetchedAt,
         );
-        account.plan =
-          (result.planInfo.planName as WindsurfAccount["plan"]) || account.plan;
+        account.plan = this.validPlan(result.planInfo.planName, account.plan);
         account.lastCheckedAt = result.fetchedAt;
         await this.save();
         return { success: true };
@@ -618,9 +631,7 @@ export class WindsurfAccountManager {
             result.source,
             result.fetchedAt,
           );
-          account.plan =
-            (result.planInfo.planName as WindsurfAccount["plan"]) ||
-            account.plan;
+          account.plan = this.validPlan(result.planInfo.planName, account.plan);
           account.lastCheckedAt = result.fetchedAt;
           updatedIds.add(account.id);
           success++;
@@ -659,9 +670,7 @@ export class WindsurfAccountManager {
             result.source,
             result.fetchedAt,
           );
-          account.plan =
-            (result.planInfo.planName as WindsurfAccount["plan"]) ||
-            account.plan;
+          account.plan = this.validPlan(result.planInfo.planName, account.plan);
           account.lastCheckedAt = result.fetchedAt;
           updatedIds.add(account.id);
           success++;
@@ -683,6 +692,16 @@ export class WindsurfAccountManager {
     } finally {
       this._quotaFetching = false;
     }
+  }
+
+  private static readonly VALID_PLANS: ReadonlySet<string> = new Set([
+    'Trial', 'Pro', 'Enterprise', 'Free', 'Max', 'Teams'
+  ]);
+
+  private validPlan(apiPlanName: string, fallback: WindsurfAccount['plan']): WindsurfAccount['plan'] {
+    return WindsurfAccountManager.VALID_PLANS.has(apiPlanName)
+      ? (apiPlanName as WindsurfAccount['plan'])
+      : fallback;
   }
 
   private planInfoToRealQuota(
@@ -810,30 +829,24 @@ export class WindsurfAccountManager {
   }
 
   private async load(): Promise<void> {
-    try {
-      const raw = await fs.readFile(this.filePath, "utf8");
-      const data = JSON.parse(raw) as {
-        accounts: WindsurfAccount[];
-        currentId?: string;
-        autoSwitch?: AutoSwitchConfig;
-        pendingSwitchId?: string;
-      };
-      this.accounts = (data.accounts ?? []).map((a) => ({
-        ...a,
-        quota: a.quota
-          ? { ...DEFAULT_QUOTA, ...a.quota }
-          : { ...DEFAULT_QUOTA },
-      }));
-      this.currentAccountId = data.currentId;
-      this.autoSwitch = { ...DEFAULT_AUTO_SWITCH, ...(data.autoSwitch ?? {}) };
-      this.pendingSwitchId = data.pendingSwitchId;
-    } catch {
-      this.accounts = [];
-    }
+    const data = await safeReadJson<{
+      accounts: WindsurfAccount[];
+      currentId?: string;
+      autoSwitch?: AutoSwitchConfig;
+      pendingSwitchId?: string;
+    }>(this.filePath);
+    this.accounts = (data?.accounts ?? []).map((a) => ({
+      ...a,
+      quota: a.quota
+        ? { ...DEFAULT_QUOTA, ...a.quota }
+        : { ...DEFAULT_QUOTA },
+    }));
+    this.currentAccountId = data?.currentId;
+    this.autoSwitch = { ...DEFAULT_AUTO_SWITCH, ...(data?.autoSwitch ?? {}) };
+    this.pendingSwitchId = data?.pendingSwitchId;
   }
 
   private async save(): Promise<void> {
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
     const payload: Record<string, unknown> = {
       accounts: this.accounts,
       currentId: this.currentAccountId,
@@ -842,6 +855,6 @@ export class WindsurfAccountManager {
     if (this.pendingSwitchId) {
       payload.pendingSwitchId = this.pendingSwitchId;
     }
-    await fs.writeFile(this.filePath, JSON.stringify(payload, null, 2), "utf8");
+    await safeWriteJson(this.filePath, payload);
   }
 }

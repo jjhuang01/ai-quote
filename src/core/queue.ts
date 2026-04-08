@@ -21,6 +21,8 @@ const DEFAULT_CONFIG: QueueConfig = {
   concurrency: 1
 };
 
+const MAX_COMPLETED_KEEP = 20;
+
 export class QueueManager {
   private queue: QueueItem[] = [];
   private processing: Set<string> = new Set();
@@ -121,6 +123,7 @@ export class QueueManager {
       next.status = 'completed';
       next.processedAt = new Date().toISOString();
       this.logger.info('Queue item completed.', { id: next.id, type: next.type });
+      this.trimCompleted();
     } catch (error) {
       next.retries += 1;
       if (next.retries >= this.config.maxRetries) {
@@ -135,6 +138,15 @@ export class QueueManager {
       this.processing.delete(next.id);
       void this.processNext();
     }
+  }
+
+  private trimCompleted(): void {
+    const completed = this.queue.filter(i => i.status === 'completed' || i.status === 'failed');
+    if (completed.length <= MAX_COMPLETED_KEEP) return;
+    const toRemove = new Set(
+      completed.slice(MAX_COMPLETED_KEEP).map(i => i.id)
+    );
+    this.queue = this.queue.filter(i => !toRemove.has(i.id));
   }
 
   private generateId(): string {

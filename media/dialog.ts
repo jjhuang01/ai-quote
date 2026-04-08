@@ -470,12 +470,30 @@ function appendSentBubble(text: string): void {
   const time = document.createElement("span");
   time.className = "sent-time";
   time.textContent = new Date().toLocaleTimeString();
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "sent-copy";
+  copyBtn.textContent = "📋";
+  copyBtn.title = "复制";
+  copyBtn.onclick = () => copyToClipboard(text, copyBtn);
   bubble.appendChild(label);
   bubble.appendChild(content);
+  bubble.appendChild(copyBtn);
   bubble.appendChild(time);
   historyEl.appendChild(bubble);
   // Scroll to show latest sent message
   bubble.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+// ── Clipboard helper ──────────────────────────────────────────────
+function copyToClipboard(text: string, btn?: HTMLElement): void {
+  navigator.clipboard.writeText(text).then(() => {
+    showToast("已复制");
+    if (btn) {
+      const orig = btn.textContent;
+      btn.textContent = "✓";
+      setTimeout(() => { btn.textContent = orig; }, 1200);
+    }
+  }).catch(() => { /* clipboard API may not be available */ });
 }
 
 // ── Toast feedback ─────────────────────────────────────────────────
@@ -781,6 +799,12 @@ function renderQueue(): void {
     // Action buttons (edit + delete only, compact)
     const actions = document.createElement("div");
     actions.className = "queue-item-actions";
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "queue-act";
+    copyBtn.textContent = "📋";
+    copyBtn.title = "复制";
+    copyBtn.onclick = () => copyToClipboard(item, copyBtn);
+    actions.appendChild(copyBtn);
     const editBtn = document.createElement("button");
     editBtn.className = "queue-act";
     editBtn.textContent = "✎";
@@ -987,6 +1011,14 @@ window.addEventListener("message", (e: MessageEvent) => {
       });
     }
     renderAttachments();
+  }
+});
+
+// ── History copy buttons (event delegation) ────────────────────
+document.addEventListener('click', (e: Event) => {
+  const target = e.target as HTMLElement;
+  if (target.classList.contains('history-copy') && target.dataset.copy) {
+    copyToClipboard(target.dataset.copy, target);
   }
 });
 

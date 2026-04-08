@@ -1,12 +1,15 @@
-import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { ShortcutItem } from './contracts';
 import type { LoggerLike } from './logger';
+import { safeWriteJson, safeReadJson } from '../utils/safe-json';
+
+const DEFAULT_LIMIT = 50;
 
 export class ShortcutManager {
   private readonly filePath: string;
   private items: ShortcutItem[] = [];
+  private limit = DEFAULT_LIMIT;
   private readonly logger: LoggerLike;
 
   public constructor(context: vscode.ExtensionContext, logger: LoggerLike) {
@@ -29,6 +32,7 @@ export class ShortcutManager {
       createdAt: new Date().toISOString()
     };
     this.items.push(item);
+    this.trim();
     await this.save();
     this.logger.info('Shortcut added.', { id: item.id });
     return item;
@@ -56,18 +60,19 @@ export class ShortcutManager {
     await this.save();
   }
 
-  private async load(): Promise<void> {
-    try {
-      const raw = await fs.readFile(this.filePath, 'utf8');
-      const data = JSON.parse(raw) as { items: ShortcutItem[] };
-      this.items = data.items ?? [];
-    } catch {
-      this.items = [];
+  private trim(): void {
+    if (this.items.length > this.limit) {
+      this.items = this.items.slice(0, this.limit);
     }
   }
 
+  private async load(): Promise<void> {
+    const data = await safeReadJson<{ items: ShortcutItem[]; limit?: number }>(this.filePath);
+    this.items = data?.items ?? [];
+    this.limit = data?.limit ?? DEFAULT_LIMIT;
+  }
+
   private async save(): Promise<void> {
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    await fs.writeFile(this.filePath, JSON.stringify({ items: this.items }, null, 2), 'utf8');
+    await safeWriteJson(this.filePath, { items: this.items, limit: this.limit });
   }
 }

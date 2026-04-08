@@ -35,12 +35,15 @@ vi.mock('../../src/adapters/windsurf-patch', () => ({
   }
 }));
 
-// Mock fs
+// Mock fs (safeWriteJson uses rename + copyFile for atomic writes)
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
   writeFile: vi.fn(),
   mkdir: vi.fn(),
-  access: vi.fn()
+  access: vi.fn(),
+  rename: vi.fn(),
+  copyFile: vi.fn(),
+  unlink: vi.fn()
 }));
 
 import { WindsurfAccountManager } from '../../src/core/windsurf-account';
@@ -288,6 +291,139 @@ describe('WindsurfAccountManager', () => {
       await manager.add('a@test.com', 'p');
       const result = await manager.switchTo('nonexistent');
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe('importBatch 边缘 case', () => {
+    it('已有账号时导入不改变 currentAccountId', async () => {
+      await manager.initialize();
+      const existing = await manager.add('existing@test.com', 'p');
+      const result = await manager.importBatch('new1@test.com----p1\nnew2@test.com----p2');
+      expect(result.added).toBe(2);
+      expect(manager.getCurrentAccountId()).toBe(existing.id);
+      // 新导入的不应 isActive
+      const newAccounts = manager.getAll().filter(a => a.id !== existing.id);
+      expect(newAccounts.every(a => !a.isActive)).toBe(true);
+    });
+
+    it('空列表导入时第一个设为 active', async () => {
+      await manager.initialize();
+      await manager.importBatch('a@test.com----p1\nb@test.com----p2');
+      const all = manager.getAll();
+      expect(all[0].isActive).toBe(true);
+      expect(all[1].isActive).toBe(false);
+      expect(manager.getCurrentAccountId()).toBe(all[0].id);
+    });
+
+    it('导入支持冒号分隔符', async () => {
+      await manager.initialize();
+      const result = await manager.importBatch('user@mail.com:mypass');
+      expect(result.added).toBe(1);
+      expect(manager.getAll()[0].email).toBe('user@mail.com');
+    });
+
+    it('批量导入内部去重（同批次重复邮箱）', async () => {
+      await manager.initialize();
+      const result = await manager.importBatch('a@test.com----p1\na@test.com----p2');
+      expect(result.added).toBe(1);
+      expect(result.skipped).toBe(1);
+    });
+
+    it('导入0条有效数据不触发 save', async () => {
+      await manager.initialize();
+      (fs.writeFile as any).mockClear();
+      await manager.importBatch('invalid-line\n\n');
+      // importBatch 内只在 added > 0 时 save；无有效数据不调用
+      // 注: initialize 和 importBatch 内的 save 逻辑
+      const writeCalls = (fs.writeFile as any).mock.calls;
+      // 初始化后无额外 writeFile 调用（importBatch 跳过 save）
+      expect(writeCalls.length).toBe(0);
+    });
+  });
+
+  describe('warningLevel 边缘 (realQuota)', () => {
+    it('dailyRemainingPercent = -1 (无数据) 不触发 critical', async () => {
+      await manager.initialize();
+      const account = await manager.add('test@test.com', 'p');
+      // 模拟 realQuota: -1 = API 未返回百分比
+      (account as any).realQuota = {
+        planName: 'Free', billingStrategy: 'quota',
+        dailyRemainingPercent: -1, weeklyRemainingPercent: -1,
+        dailyResetAtUnix: 0, weeklyResetAtUnix: 0,
+        messages: 0, usedMessages: 0, remainingMessages: 0,
+        flowActions: 0, usedFlowActions: 0, remainingFlowActions: 0,
+        overageBalanceMicros: 0, fetchedAt: new Date().toISOString(), source: 'proto'
+      };
+      const snapshots = manager.getQuotaSnapshots();
+      expect(snapshots[0].warningLevel).toBe('ok');
+    });
+
+    it('dailyRemainingPercent = 0 触发 critical', async () => {
+      await manager.initialize();
+      const account = await manager.add('test@test.com', 'p');
+      (account as any).realQuota = {
+        planName: 'Pro', billingStrategy: 'quota',
+        dailyRemainingPercent: 0, weeklyRemainingPercent: 50,
+        dailyResetAtUnix: 0, weeklyResetAtUnix: 0,
+        messages: 500, usedMessages: 500, remainingMessages: 0,
+        flowActions: 0, usedFlowActions: 0, remainingFlowActions: 0,
+        overageBalanceMicros: 0, fetchedAt: new Date().toISOString(), source: 'api'
+      };
+      const snapshots = manager.getQuotaSnapshots();
+      expect(snapshots[0].warningLevel).toBe('critical');
+    });
+
+    it('dailyRemainingPercent = 100 (Free 新号满额) 不触发 warning', async () => {
+      await manager.initialize();
+      const account = await manager.add('test@test.com', 'p');
+      (account as any).realQuota = {
+        planName: 'Free', billingStrategy: 'quota',
+        dailyRemainingPercent: 100, weeklyRemainingPercent: 100,
+        dailyResetAtUnix: 0, weeklyResetAtUnix: 0,
+        messages: 0, usedMessages: 0, remainingMessages: 0,
+        flowActions: 0, usedFlowActions: 0, remainingFlowActions: 0,
+        overageBalanceMicros: 0, fetchedAt: new Date().toISOString(), source: 'api'
+      };
+      const snapshots = manager.getQuotaSnapshots();
+      expect(snapshots[0].warningLevel).toBe('ok');
+    });
+  });
+
+  describe('自动切号 realQuota 百分比优先', () => {
+    it('Free 新号 remainingMessages=0 但 dailyRemainingPercent=100 不触发切号', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a1@test.com', 'p');
+      await manager.updateAutoSwitch({ enabled: true, switchOnDaily: true, threshold: 5 });
+      // 模拟 Free 新号: remainingMessages=0 但百分比满额
+      (a1 as any).realQuota = {
+        planName: 'Free', billingStrategy: 'quota',
+        dailyRemainingPercent: 100, weeklyRemainingPercent: 100,
+        dailyResetAtUnix: 0, weeklyResetAtUnix: 0,
+        messages: 0, usedMessages: 0, remainingMessages: 0,
+        flowActions: 0, usedFlowActions: 0, remainingFlowActions: 0,
+        overageBalanceMicros: 0, fetchedAt: new Date().toISOString(), source: 'api'
+      };
+      const switched = await manager.autoSwitchIfNeeded();
+      expect(switched).toBe(false);
+    });
+
+    it('Pro 日配额耗尽 (dailyRemainingPercent=0) 触发切号', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a1@test.com', 'p');
+      const a2 = await manager.add('a2@test.com', 'p');
+      await manager.setQuotaLimits(a2.id, 50, 200);
+      await manager.updateAutoSwitch({ enabled: true, switchOnDaily: true, threshold: 5 });
+      (a1 as any).realQuota = {
+        planName: 'Pro', billingStrategy: 'quota',
+        dailyRemainingPercent: 0, weeklyRemainingPercent: 50,
+        dailyResetAtUnix: 0, weeklyResetAtUnix: 0,
+        messages: 500, usedMessages: 500, remainingMessages: 0,
+        flowActions: 0, usedFlowActions: 0, remainingFlowActions: 0,
+        overageBalanceMicros: 0, fetchedAt: new Date().toISOString(), source: 'api'
+      };
+      const switched = await manager.autoSwitchIfNeeded();
+      expect(switched).toBe(true);
+      expect(manager.getCurrentAccountId()).toBe(a2.id);
     });
   });
 
