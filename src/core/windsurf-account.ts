@@ -586,7 +586,11 @@ export class WindsurfAccountManager {
           result.source,
           result.fetchedAt,
         );
-        account.plan = this.validPlan(result.planInfo.planName, account.plan);
+        // cache/proto 数据属于当前 Windsurf 登录账号，不一定是被查询账号
+        // 只有 api/apikey 来源才可信地更新 plan
+        if (result.source === 'api' || result.source === 'apikey') {
+          account.plan = this.validPlan(result.planInfo.planName, account.plan);
+        }
         account.lastCheckedAt = result.fetchedAt;
         await this.save();
         return { success: true };
@@ -634,7 +638,10 @@ export class WindsurfAccountManager {
             result.source,
             result.fetchedAt,
           );
-          account.plan = this.validPlan(result.planInfo.planName, account.plan);
+          // Channel B source = 'api'，可信更新 plan
+          if (result.source === 'api' || result.source === 'apikey') {
+            account.plan = this.validPlan(result.planInfo.planName, account.plan);
+          }
           account.lastCheckedAt = result.fetchedAt;
           updatedIds.add(account.id);
           success++;
@@ -673,7 +680,10 @@ export class WindsurfAccountManager {
             result.source,
             result.fetchedAt,
           );
-          account.plan = this.validPlan(result.planInfo.planName, account.plan);
+          // cache/proto 数据可能属于其他账号，不更新 plan
+          if (result.source === 'api' || result.source === 'apikey') {
+            account.plan = this.validPlan(result.planInfo.planName, account.plan);
+          }
           account.lastCheckedAt = result.fetchedAt;
           updatedIds.add(account.id);
           success++;

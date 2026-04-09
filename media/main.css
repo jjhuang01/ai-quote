@@ -500,64 +500,7 @@ button:focus-visible {
   color: var(--muted);
 }
 
-/* === Queue Section (原始: .queue-*, .queue-head, .queue-clear, .queue-item) === */
-.queue-section {
-  margin-top: var(--sp-3);
-  background: var(--surface);
-  border: 1px solid var(--border-glass);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-
-.queue-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px var(--sp-3);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.queue-clear {
-  background: transparent;
-  color: var(--muted);
-  padding: 3px var(--sp-2);
-  font-size: var(--fs-sm);
-  min-height: auto;
-}
-
-.queue-item {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: 9px var(--sp-3);
-  background: transparent;
-  border-radius: 0;
-  margin-bottom: 0;
-  font-size: var(--fs-base);
-  border-left: 2px solid transparent;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.queue-item:last-child {
-  border-bottom: none;
-}
-
-.queue-item.pending {
-  border-left-color: var(--accent);
-}
-
-.queue-item.processing {
-  border-left-color: var(--warning);
-}
-
-.queue-item.completed {
-  border-left-color: var(--success);
-  opacity: 0.65;
-}
-
-.queue-item.failed {
-  border-left-color: var(--danger);
-}
+/* === Queue Section (legacy, removed - now uses .queue-list/.queue-item below) === */
 
 /* === Waiting Card (原始: .waiting-card / .waiting-gl / .waiting-spinner) === */
 .waiting-card {
@@ -2426,8 +2369,8 @@ button:focus-visible {
 .queue-item {
   display: flex;
   align-items: center;
-  gap: var(--sp-1);
-  padding: 4px 6px;
+  gap: var(--sp-2);
+  padding: 6px 8px;
   background: var(--input);
   border-radius: var(--radius-sm);
   font-size: var(--fs-xs);
@@ -2444,8 +2387,9 @@ button:focus-visible {
 }
 .queue-item-btns {
   display: flex;
-  gap: 3px;
+  gap: 4px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 .queue-item-editing {
   flex-direction: column;
@@ -2571,20 +2515,6 @@ button:focus-visible {
   font-size: var(--fs-xs);
 }
 
-.btn-danger-xs {
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--danger, #f87171);
-  background: transparent;
-  color: var(--danger, #f87171);
-  font-size: 11px;
-  cursor: pointer;
-  line-height: 1;
-}
-.btn-danger-xs:hover {
-  background: var(--danger, #f87171);
-  color: #fff;
-}
 .badge-neutral {
   background: color-mix(in srgb, var(--muted) 20%, transparent);
   color: var(--muted);
