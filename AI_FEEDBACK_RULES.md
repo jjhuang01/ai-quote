@@ -1,13 +1,13 @@
 # Available Tools
 
-## vlcs_deb0137a
+## rhjq_b2932ef6
 
 Parameters:
 - summary (required): Put your COMPLETE response here in Markdown format (supports tables, code blocks, lists)
 - reason (optional)
 
-ALWAYS call vlcs_deb0137a at the end of EVERY response.
+ALWAYS call rhjq_b2932ef6 at the end of EVERY response.
 
 ## Format
 
-{"tool": "vlcs_deb0137a", "arguments": {"summary": "Your full Markdown response here"}}
+{"tool": "rhjq_b2932ef6", "arguments": {"summary": "Your full Markdown response here"}}

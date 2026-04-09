@@ -322,6 +322,22 @@ describe('WindsurfAccountManager', () => {
       expect(manager.getAll()[0].email).toBe('user@mail.com');
     });
 
+    it('7个连字符分隔符正确解析密码（不残留前缀）', async () => {
+      await manager.initialize();
+      const result = await manager.importBatch('user@test.com-------Aa263646');
+      expect(result.added).toBe(1);
+      const acc = manager.getAll()[0];
+      expect(acc.email).toBe('user@test.com');
+      expect(acc.password).toBe('Aa263646');
+    });
+
+    it('5个连字符分隔符也正确解析', async () => {
+      await manager.initialize();
+      const result = await manager.importBatch('user@test.com-----mypass');
+      expect(result.added).toBe(1);
+      expect(manager.getAll()[0].password).toBe('mypass');
+    });
+
     it('批量导入内部去重（同批次重复邮箱）', async () => {
       await manager.initialize();
       const result = await manager.importBatch('a@test.com----p1\na@test.com----p2');

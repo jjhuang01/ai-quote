@@ -147,8 +147,11 @@ export class WindsurfAccountManager {
     let skipped = 0;
 
     for (const entry of entries) {
-      const sep = entry.includes("----")
-        ? "----"
+      // 分隔符优先级: 连续4+个连字符 > 冒号 > 空格
+      // 贪婪匹配连字符：-------（7个）整体作为分隔符，而非只匹配前4个
+      const dashMatch = entry.match(/-{4,}/);
+      const sep = dashMatch
+        ? dashMatch[0]
         : entry.includes(":")
           ? ":"
           : null;
