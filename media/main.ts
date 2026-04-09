@@ -715,8 +715,9 @@ function renderAccountItem(
       rq.weeklyRemainingPercent >= 0
         ? Math.max(0, Math.min(100, 100 - rq.weeklyRemainingPercent))
         : null;
-    dailyText = dailyFillPct !== null ? `${Math.floor(dailyFillPct)}%` : "";
-    weeklyText = weeklyFillPct !== null ? `${Math.floor(weeklyFillPct)}%` : "";
+    // 文本显示剩余%（用户直觉: 数字越大=配额越多），bar fill 仍表示已用%
+    dailyText = rq.dailyRemainingPercent >= 0 ? `${Math.floor(rq.dailyRemainingPercent)}%` : "";
+    weeklyText = rq.weeklyRemainingPercent >= 0 ? `${Math.floor(rq.weeklyRemainingPercent)}%` : "";
     if (rq.dailyResetAtUnix)
       dailyResetText = formatResetDateTime(rq.dailyResetAtUnix * 1000);
     if (rq.weeklyResetAtUnix)
