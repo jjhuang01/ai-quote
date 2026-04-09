@@ -289,6 +289,8 @@ let state = {
   editingQueueText: "",
   // Sent history: last N items sent (manual + auto-queue)
   sentHistory: [] as Array<{ text: string; sentAt: string; mode: 'manual' | 'queue' }>,
+  // Debug log filter: "all" | "error" | "warn" | "info"
+  debugLogFilter: "all" as "all" | "error" | "warn" | "info",
   // Diagnose result
   diagnoseResult: undefined as
     | {
@@ -493,7 +495,7 @@ function renderStatusTab(bs: Bootstrap): string {
           <div class="btn-group">
             <span class="badge ${state.responseQueue.length > 0 ? 'badge-ok' : 'badge-neutral'}">${state.responseQueue.length} 条</span>
             <button class="btn-xs" data-action="queueToggle" title="${state.queueCollapsed ? '展开' : '折叠'}">${state.queueCollapsed ? '▶' : '▼'}</button>
-            ${state.responseQueue.length > 0 ? `<button class="btn-xs btn-danger-xs" data-action="queueClear" title="清空队列">🗑</button>` : ''}
+            ${state.responseQueue.length > 0 ? `<button class="btn-xs btn-danger-xs" data-action="queueClear" title="清空队列">${icon('trash-2')} 清空</button>` : ''}
           </div>
         </div>
 
@@ -529,7 +531,7 @@ function renderStatusTab(bs: Bootstrap): string {
                 <textarea class="queue-edit-input" id="queue-edit-${i}" rows="2">${escapeHtml(state.editingQueueText)}</textarea>
                 <div class="queue-edit-btns">
                   <button class="btn-xs" data-action="queueEditSave" data-idx="${i}">✓</button>
-                  <button class="btn-xs btn-danger-xs" data-action="queueEditCancel">✕</button>
+                  <button class="btn-xs btn-danger-xs" data-action="queueEditCancel">${icon('x')}</button>
                 </div>
               </li>`;
             }
@@ -542,7 +544,7 @@ function renderStatusTab(bs: Bootstrap): string {
                 ${i < total - 1 ? `<button class="btn-xs" data-action="queueMoveDown" data-idx="${i}" title="下移">↓</button>` : ''}
                 <button class="btn-xs btn-copy-inline" data-action="queueCopy" data-idx="${i}" title="复制">${icon('copy')}</button>
                 <button class="btn-xs" data-action="queueEdit" data-idx="${i}" title="编辑">✎</button>
-                <button class="btn-xs btn-danger-xs" data-action="queueRemove" data-idx="${i}" title="删除">×</button>
+                <button class="btn-xs btn-danger-xs" data-action="queueRemove" data-idx="${i}" title="删除">${icon('x')}</button>
               </div>
             </li>`;
           }).join('')}
@@ -706,7 +708,7 @@ function renderAccountItem(
   let planEndText = "";
 
   if (rq) {
-    // -1 = API 未返回此字段（无数据），显示 "—"；否则 bar fill = 已用% (与 Windsurf 一致)
+    // -1 = API 未返回此字段（无数据）；bar fill = 已用%（bar越长=用得越多=越危险，与 Windsurf 一致）
     dailyFillPct =
       rq.dailyRemainingPercent >= 0
         ? Math.max(0, Math.min(100, 100 - rq.dailyRemainingPercent))
@@ -715,9 +717,9 @@ function renderAccountItem(
       rq.weeklyRemainingPercent >= 0
         ? Math.max(0, Math.min(100, 100 - rq.weeklyRemainingPercent))
         : null;
-    // 文本显示剩余%（用户直觉: 数字越大=配额越多），bar fill 仍表示已用%
-    dailyText = rq.dailyRemainingPercent >= 0 ? `${Math.floor(rq.dailyRemainingPercent)}%` : "";
-    weeklyText = rq.weeklyRemainingPercent >= 0 ? `${Math.floor(rq.weeklyRemainingPercent)}%` : "";
+    // 文本也显示已用%（与 bar 一致，与 Windsurf 原生 UI 对齐）
+    dailyText = dailyFillPct !== null ? `${Math.round(dailyFillPct)}%` : "";
+    weeklyText = weeklyFillPct !== null ? `${Math.round(weeklyFillPct)}%` : "";
     if (rq.dailyResetAtUnix)
       dailyResetText = formatResetDateTime(rq.dailyResetAtUnix * 1000);
     if (rq.weeklyResetAtUnix)
@@ -730,7 +732,7 @@ function renderAccountItem(
       });
     }
   } else if (q && q.dailyLimit > 0) {
-    // 旧配额字段: 计算剩余%
+    // 旧配额字段: 计算已用%
     dailyFillPct = pct(q.dailyUsed, q.dailyLimit);
     weeklyFillPct = q.weeklyLimit > 0 ? pct(q.weeklyUsed, q.weeklyLimit) : null;
     dailyText = `${Math.round(dailyFillPct)}%`;
@@ -1318,41 +1320,47 @@ function renderDebugTab(_bs: Bootstrap): string {
       ? `<span class="badge badge-ok">已打补丁</span>`
       : `<span class="badge badge-warn">未打补丁</span>`;
 
-  const logLines = info?.logContent
-    ? info.logContent
-        .split("\n")
-        .map((line) => {
-          try {
-            const r = JSON.parse(line) as {
-              level: string;
-              timestamp: string;
-              message: string;
-              extra?: Record<string, unknown>;
-            };
-            const lvlClass =
-              r.level === "error"
-                ? "log-error"
-                : r.level === "warn"
-                  ? "log-warn"
-                  : r.level === "debug"
-                    ? "log-debug"
-                    : "log-info";
-            const ts = r.timestamp
-              ? r.timestamp.replace("T", " ").replace(/\.\d+Z$/, "")
-              : "";
-            const extraStr =
-              r.extra && Object.keys(r.extra).length > 0
-                ? " " + JSON.stringify(r.extra)
-                : "";
-            return `<span class="${lvlClass}">[${r.level?.toUpperCase() ?? "?"}] ${ts} ${escapeHtml(r.message)}${escapeHtml(extraStr)}</span>`;
-          } catch {
-            return `<span class="log-debug">${escapeHtml(line)}</span>`;
-          }
-        })
-        .join("\n")
+  const rawLines = info?.logContent ? info.logContent.split("\n") : [];
+  const filter = state.debugLogFilter;
+  type ParsedLog = { level: string; html: string };
+  const parsed: ParsedLog[] = rawLines.map((line) => {
+    try {
+      const r = JSON.parse(line) as {
+        level: string;
+        timestamp: string;
+        message: string;
+        extra?: Record<string, unknown>;
+      };
+      const lvlClass =
+        r.level === "error"
+          ? "log-error"
+          : r.level === "warn"
+            ? "log-warn"
+            : r.level === "debug"
+              ? "log-debug"
+              : "log-info";
+      const ts = r.timestamp
+        ? r.timestamp.replace("T", " ").replace(/\.\d+Z$/, "")
+        : "";
+      const extraStr =
+        r.extra && Object.keys(r.extra).length > 0
+          ? " " + JSON.stringify(r.extra)
+          : "";
+      return { level: r.level ?? "info", html: `<span class="${lvlClass}">[${r.level?.toUpperCase() ?? "?"}] ${ts} ${escapeHtml(r.message)}${escapeHtml(extraStr)}</span>` };
+    } catch {
+      return { level: "debug", html: `<span class="log-debug">${escapeHtml(line)}</span>` };
+    }
+  });
+  const filtered = filter === "all" ? parsed : parsed.filter(p => p.level === filter);
+  const logLines = filtered.length > 0
+    ? filtered.map(p => p.html).join("\n")
     : loading
       ? "加载中…"
-      : '暂无日志，请点击"刷新"';
+      : rawLines.length > 0
+        ? `无 ${filter.toUpperCase()} 级别日志`
+        : '暂无日志，请点击"刷新"';
+  const errorCount = parsed.filter(p => p.level === "error").length;
+  const warnCount = parsed.filter(p => p.level === "warn").length;
 
   return `
     <div class="tab-content">
@@ -1402,8 +1410,17 @@ function renderDebugTab(_bs: Bootstrap): string {
 
         <div class="dbg-section">
           <div class="dbg-row-header">
-            <span class="dbg-label">${icon("fileText")} 最近 200 条日志</span>
-            ${info?.logContent ? `<button class="btn-xs" data-action="debugCopyLogs">${icon("copy")} 复制给 AI</button>` : ""}
+            <span class="dbg-label">${icon("fileText")} 日志 (${filtered.length}/${rawLines.length})</span>
+            <div class="dbg-log-toolbar">
+              <div class="dbg-filter-group">
+                <button class="btn-xs ${filter === "all" ? "btn-xs-active" : ""}" data-action="debugLogFilter" data-filter="all">全部</button>
+                <button class="btn-xs ${filter === "error" ? "btn-xs-active" : ""}" data-action="debugLogFilter" data-filter="error">${errorCount > 0 ? `<span class="dbg-count-badge dbg-count-error">${errorCount}</span> ` : ""}ERROR</button>
+                <button class="btn-xs ${filter === "warn" ? "btn-xs-active" : ""}" data-action="debugLogFilter" data-filter="warn">${warnCount > 0 ? `<span class="dbg-count-badge dbg-count-warn">${warnCount}</span> ` : ""}WARN</button>
+                <button class="btn-xs ${filter === "info" ? "btn-xs-active" : ""}" data-action="debugLogFilter" data-filter="info">INFO</button>
+              </div>
+              ${info?.logContent ? `<button class="btn-xs" data-action="debugCopyLogs">${icon("copy")} 复制给 AI</button>` : ""}
+              ${info?.logContent ? `<button class="btn-xs btn-danger-xs" data-action="debugClearLogs">${icon("x")} 清空</button>` : ""}
+            </div>
           </div>
           <pre class="dbg-log-area">${logLines}</pre>
         </div>
@@ -2159,6 +2176,22 @@ function handleAction(el: HTMLElement): void {
       }
       break;
     }
+    case "debugLogFilter": {
+      const f = el.dataset.filter as "all" | "error" | "warn" | "info" | undefined;
+      if (f) {
+        state.debugLogFilter = f;
+        render();
+      }
+      break;
+    }
+    case "debugClearLogs": {
+      if (state.debugInfo) {
+        state.debugInfo.logContent = "";
+        render();
+        showToast("日志已清空（仅前端显示）", "info");
+      }
+      break;
+    }
   }
 }
 
@@ -2309,6 +2342,7 @@ window.addEventListener("message", (event) => {
       r.message,
       r.success ? "success" : r.needsRestart ? "info" : "error",
     );
+    render();
     return;
   }
 

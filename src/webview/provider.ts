@@ -381,10 +381,15 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           void this.view?.webview.postMessage({ type: 'switchLoading', value: false });
 
           if (switchResult.success && account) {
+            // 立即刷新 UI（显示新 currentAccountId + 已有数据）
             this.postBootstrap();
             const msg = `已切换到 ${account.email}`;
             void this.view?.webview.postMessage({ type: 'switchResult', value: { success: true, message: msg } });
             vscode.window.setStatusBarMessage(`$(check) ${msg}`, 4000);
+            // 后台异步获取新账号配额，完成后再次刷新 UI
+            void this.dataManager.windsurfAccounts.fetchRealQuota(value).then(() => {
+              this.postBootstrap();
+            });
           } else {
             const errMsg = switchResult.error ?? '切换失败：未知错误';
             void this.view?.webview.postMessage({ type: 'switchResult', value: { success: false, message: errMsg } });

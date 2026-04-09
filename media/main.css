@@ -500,7 +500,64 @@ button:focus-visible {
   color: var(--muted);
 }
 
-/* === Queue Section (legacy, removed - now uses .queue-list/.queue-item below) === */
+/* === Queue Section (原始: .queue-*, .queue-head, .queue-clear, .queue-item) === */
+.queue-section {
+  margin-top: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.queue-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px var(--sp-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.queue-clear {
+  background: transparent;
+  color: var(--muted);
+  padding: 3px var(--sp-2);
+  font-size: var(--fs-sm);
+  min-height: auto;
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 9px var(--sp-3);
+  background: transparent;
+  border-radius: 0;
+  margin-bottom: 0;
+  font-size: var(--fs-base);
+  border-left: 2px solid transparent;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.queue-item:last-child {
+  border-bottom: none;
+}
+
+.queue-item.pending {
+  border-left-color: var(--accent);
+}
+
+.queue-item.processing {
+  border-left-color: var(--warning);
+}
+
+.queue-item.completed {
+  border-left-color: var(--success);
+  opacity: 0.65;
+}
+
+.queue-item.failed {
+  border-left-color: var(--danger);
+}
 
 /* === Waiting Card (原始: .waiting-card / .waiting-gl / .waiting-spinner) === */
 .waiting-card {
@@ -1011,12 +1068,12 @@ button:focus-visible {
 }
 
 .btn-danger-xs {
-  background: var(--danger-subtle);
-  color: var(--danger-text);
-  border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+  background: color-mix(in srgb, var(--danger, #f87171) 12%, transparent);
+  color: var(--danger-text, var(--danger, #f87171));
+  border: none;
 }
 .btn-danger-xs:hover {
-  background: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger, #f87171) 30%, transparent);
 }
 
 .btn-sm {
@@ -2370,10 +2427,14 @@ button:focus-visible {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 6px 8px;
+  padding: 6px 10px;
   background: var(--input);
   border-radius: var(--radius-sm);
   font-size: var(--fs-xs);
+  transition: background 0.15s;
+}
+.queue-item:hover {
+  background: color-mix(in srgb, var(--input) 80%, var(--accent) 8%);
 }
 .queue-idx {
   color: var(--muted);
@@ -2389,7 +2450,11 @@ button:focus-visible {
   display: flex;
   gap: 4px;
   flex-shrink: 0;
-  margin-left: auto;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+.queue-item:hover .queue-item-btns {
+  opacity: 1;
 }
 .queue-item-editing {
   flex-direction: column;
@@ -2515,6 +2580,21 @@ button:focus-visible {
   font-size: var(--fs-xs);
 }
 
+.btn-danger-xs {
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: color-mix(in srgb, var(--danger, #f87171) 12%, transparent);
+  color: var(--danger, #f87171);
+  font-size: 11px;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-danger-xs:hover {
+  background: color-mix(in srgb, var(--danger, #f87171) 30%, transparent);
+  color: #fff;
+}
 .badge-neutral {
   background: color-mix(in srgb, var(--muted) 20%, transparent);
   color: var(--muted);
@@ -2809,6 +2889,50 @@ button:focus-visible {
   justify-content: space-between;
   gap: var(--sp-2);
   margin-bottom: var(--sp-1);
+  flex-wrap: wrap;
+}
+.dbg-log-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.dbg-filter-group {
+  display: flex;
+  gap: 2px;
+  background: color-mix(in srgb, var(--border) 30%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+.dbg-filter-group .btn-xs {
+  border-radius: calc(var(--radius-sm) - 1px);
+  font-size: 10px;
+  padding: 2px 8px;
+  background: transparent;
+  transition: background 0.15s, color 0.15s;
+}
+.dbg-filter-group .btn-xs-active {
+  background: var(--accent);
+  color: #fff;
+}
+.dbg-count-badge {
+  display: inline-block;
+  min-width: 14px;
+  height: 14px;
+  line-height: 14px;
+  text-align: center;
+  border-radius: 7px;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 0 3px;
+}
+.dbg-count-error {
+  background: color-mix(in srgb, var(--danger, #f87171) 25%, transparent);
+  color: var(--danger, #f87171);
+}
+.dbg-count-warn {
+  background: color-mix(in srgb, #fbbf24 20%, transparent);
+  color: #fbbf24;
 }
 
 .dbg-label {
