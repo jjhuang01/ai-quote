@@ -88,28 +88,46 @@ export class WindsurfAuth {
 
     this.logger.info('Firebase signIn attempt.', { email });
 
-    try {
-      const result = await this.httpsPost<FirebaseAuthResult>(url, body);
+    // Retry logic for transient network errors (TLS, socket disconnect)
+    const maxRetries = 3;
+    let lastErr: Error | undefined;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const result = await this.httpsPost<FirebaseAuthResult>(url, body);
 
-      if (!result.idToken) {
-        throw new Error('Firebase 返回了空 idToken');
+        if (!result.idToken) {
+          throw new Error('Firebase returned empty idToken');
+        }
+
+        // Cache token
+        if (accountId) {
+          this.tokenCache.set(accountId, {
+            idToken: result.idToken,
+            refreshToken: result.refreshToken,
+            expiresAt: Date.now() + parseInt(result.expiresIn, 10) * 1000
+          });
+        }
+
+        this.logger.info('Firebase signIn success.', { email, attempt });
+        return result;
+      } catch (err) {
+        lastErr = err instanceof Error ? err : new Error(String(err));
+        const isNetworkError = lastErr.message.includes('TLS') ||
+          lastErr.message.includes('socket') ||
+          lastErr.message.includes('network') ||
+          lastErr.message.includes('ECONN') ||
+          lastErr.message.includes('ETIMEDOUT');
+
+        if (attempt < maxRetries && isNetworkError) {
+          this.logger.warn('Firebase signIn network error, retrying...', { email, attempt, error: lastErr.message });
+          await new Promise(r => setTimeout(r, 1000 * attempt)); // 1s, 2s, 3s backoff
+          continue;
+        }
+        this.logger.error('Firebase signIn failed.', { email, attempt, error: String(err) });
+        throw err;
       }
-
-      // 缓存 token
-      if (accountId) {
-        this.tokenCache.set(accountId, {
-          idToken: result.idToken,
-          refreshToken: result.refreshToken,
-          expiresAt: Date.now() + parseInt(result.expiresIn, 10) * 1000
-        });
-      }
-
-      this.logger.info('Firebase signIn success.', { email });
-      return result;
-    } catch (err) {
-      this.logger.error('Firebase signIn failed.', { email, error: String(err) });
-      throw err;
     }
+    throw lastErr;
   }
 
   /**
