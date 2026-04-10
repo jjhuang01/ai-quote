@@ -22,6 +22,7 @@ interface DialogConfig {
   enterToSend: boolean;
   options: string[];
   queueItems: string[];
+  soundAlert: 'none' | 'tada' | 'ding' | 'pop' | 'chime';
 }
 
 interface Attachment {
@@ -42,10 +43,77 @@ const cfg: DialogConfig = (window as any).__DIALOG_CONFIG__ ?? {
   enterToSend: false,
   options: [],
   queueItems: [],
+  soundAlert: 'none',
 };
 
 // Local queue state (mutable, synced with extension)
 const queue: string[] = [...(cfg.queueItems || [])];
+
+// ── Sound playback ─────────────────────────────────────────────────────
+function playSound(type: string): void {
+  if (!type || type === 'none') return;
+  try {
+    const AudioCtx = (window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext) as typeof AudioContext;
+    const ctx = new AudioCtx();
+    const doPlay = () => {
+      const tone = (freq: number, start: number, dur: number, vol = 0.32, wave: OscillatorType = 'sine') => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = wave;
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+        gain.gain.setValueAtTime(vol, ctx.currentTime + start);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + start);
+        osc.stop(ctx.currentTime + start + dur);
+      };
+      switch (type) {
+        case 'tada':
+          tone(523.25, 0,    0.6);
+          tone(659.25, 0.1,  0.55);
+          tone(783.99, 0.2,  0.9);
+          break;
+        case 'ding':
+          tone(880, 0, 1.4, 0.38);
+          break;
+        case 'pop': {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(180, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.08);
+          gain.gain.setValueAtTime(0.5, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(ctx.currentTime);
+          osc.stop(ctx.currentTime + 0.12);
+          break;
+        }
+        case 'chime':
+          tone(659.25, 0,    1.1, 0.28, 'triangle');
+          tone(783.99, 0.18, 1.0, 0.28, 'triangle');
+          tone(987.77, 0.36, 1.6, 0.32, 'triangle');
+          break;
+      }
+      setTimeout(() => void ctx.close(), 4000);
+    };
+    if (ctx.state !== 'running') {
+      ctx.resume().then(doPlay).catch(() => void ctx.close());
+    } else {
+      doPlay();
+    }
+  } catch {
+    // AudioContext unavailable
+  }
+}
+
+// Play sound on dialog initialization
+setTimeout(() => {
+  playSound(cfg.soundAlert ?? 'none');
+}, 100);
 
 // ── DOM refs ───────────────────────────────────────────────────────
 const $id = <T extends HTMLElement>(id: string): T =>

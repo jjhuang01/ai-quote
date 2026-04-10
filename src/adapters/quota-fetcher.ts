@@ -284,7 +284,7 @@ export class WindsurfQuotaFetcher {
 
     // 通道 A: 本地 cachedPlanInfo (快速，离线，但可能过期)
     if (preferLocal !== false) {
-      const localResult = await this.fetchFromLocal();
+      const localResult = await this.fetchFromLocal(email);
       if (localResult.success && localResult.planInfo) {
         this.cacheSet(accountId, localResult);
         return localResult;
@@ -648,8 +648,9 @@ export class WindsurfQuotaFetcher {
 
   /**
    * 通道 A: 从 Windsurf IDE 本地 sqlite 存储读取
+   * @param expectedEmail 可选，用于验证当前登录用户是否匹配目标账号
    */
-  public async fetchFromLocal(): Promise<QuotaFetchResult> {
+  public async fetchFromLocal(expectedEmail?: string): Promise<QuotaFetchResult> {
     try {
       const dbPath = this.getWindsurfStatePath();
       if (!dbPath) {
@@ -671,6 +672,30 @@ export class WindsurfQuotaFetcher {
           error: `数据库文件不存在: ${dbPath}`,
           fetchedAt: new Date().toISOString()
         };
+      }
+
+      // 如果指定了 expectedEmail，必须确认当前 Windsurf 登录用户与目标账号匹配
+      // 策略: 必须"正向确认匹配"才放行，无法读取 / 字段缺失 / 不匹配 → 一律拒绝
+      if (expectedEmail) {
+        let verified = false;
+        const authRaw = await querySqlite(dbPath, "SELECT value FROM ItemTable WHERE key='windsurfAuthStatus';").catch(() => null);
+        if (authRaw) {
+          try {
+            const authStatus = JSON.parse(authRaw) as { userEmail?: string };
+            const loggedInEmail = authStatus.userEmail;
+            if (loggedInEmail && loggedInEmail.toLowerCase() === expectedEmail.toLowerCase()) {
+              verified = true;
+            }
+          } catch { /* 解析失败，verified 保持 false */ }
+        }
+        if (!verified) {
+          return {
+            success: false,
+            source: 'local',
+            error: `无法确认当前 Windsurf 登录用户匹配目标账号 (${expectedEmail})，跳过本地缓存`,
+            fetchedAt: new Date().toISOString()
+          };
+        }
       }
 
       // 使用 sqlite3 CLI 查询 (避免添加 native 依赖)

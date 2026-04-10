@@ -171,6 +171,7 @@ export class QuoteDialogPanel {
   private queueCount = 0;
   private queueItems: string[] = [];
   private recentHistory: { summary: string; response: string; time: string }[] = [];
+  private soundAlert: 'none' | 'tada' | 'ding' | 'pop' | 'chime' = 'none';
 
   private constructor(
     private readonly extensionUri: vscode.Uri,
@@ -266,7 +267,7 @@ export class QuoteDialogPanel {
     extensionUri: vscode.Uri,
     req: McpDialogRequest,
     onSubmit: DialogSubmitHandler,
-    options?: { enterToSend?: boolean; queueCount?: number; queueItems?: string[]; recentHistory?: { summary: string; response: string; time: string }[]; onQueueAdd?: (items: string[]) => void; onQueueReplace?: (items: string[]) => void }
+    options?: { enterToSend?: boolean; queueCount?: number; queueItems?: string[]; recentHistory?: { summary: string; response: string; time: string }[]; onQueueAdd?: (items: string[]) => void; onQueueReplace?: (items: string[]) => void; soundAlert?: 'none' | 'tada' | 'ding' | 'pop' | 'chime' }
   ): void {
     if (QuoteDialogPanel.instance) {
       QuoteDialogPanel.instance.onSubmit = onSubmit;
@@ -274,6 +275,7 @@ export class QuoteDialogPanel {
       QuoteDialogPanel.instance.queueCount = options?.queueCount ?? 0;
       QuoteDialogPanel.instance.queueItems = options?.queueItems ?? [];
       QuoteDialogPanel.instance.recentHistory = options?.recentHistory ?? [];
+      QuoteDialogPanel.instance.soundAlert = options?.soundAlert ?? 'none';
       QuoteDialogPanel.instance.onQueueAdd = options?.onQueueAdd;
       QuoteDialogPanel.instance.onQueueReplace = options?.onQueueReplace;
       QuoteDialogPanel.instance.update(req);
@@ -285,6 +287,7 @@ export class QuoteDialogPanel {
     inst.queueCount = options?.queueCount ?? 0;
     inst.queueItems = options?.queueItems ?? [];
     inst.recentHistory = options?.recentHistory ?? [];
+    inst.soundAlert = options?.soundAlert ?? 'none';
     inst.onQueueAdd = options?.onQueueAdd;
     inst.onQueueReplace = options?.onQueueReplace;
     QuoteDialogPanel.instance = inst;
@@ -1023,7 +1026,8 @@ export class QuoteDialogPanel {
     enterToSend: ${this.enterToSend ? 'true' : 'false'},
     options: ${safeJsonEmbed(req.options ?? [])},
     queueItems: ${safeJsonEmbed(this.queueItems)},
-    historyCount: ${this.recentHistory.length}
+    historyCount: ${this.recentHistory.length},
+    soundAlert: ${safeJsonEmbed(this.soundAlert)}
   };
 </script>
 <script nonce="${nonce}" src="${mermaidScriptUri}"></script>

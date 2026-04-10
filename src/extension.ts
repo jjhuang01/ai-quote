@@ -175,6 +175,7 @@ export async function activate(
         enterToSend: settings.enterToSend,
         queueCount: sidebarProvider.getQueueCount(),
         queueItems: sidebarProvider.getQueueItems(),
+        soundAlert: settings.soundAlert ?? 'none',
         recentHistory: recentHistory.map(h => {
           try {
             const data = JSON.parse(h.content) as { summary: string; response: string };

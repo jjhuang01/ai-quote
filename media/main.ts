@@ -1080,13 +1080,16 @@ function renderSettingsTab(bs: Bootstrap): string {
           </div>
           <div class="setting-row">
             <span class="setting-label">提示音</span>
-            <select class="select-input" id="settingSoundAlert">
-              <option value="none" ${settings.soundAlert === "none" ? "selected" : ""}>关闭</option>
-              <option value="tada" ${settings.soundAlert === "tada" ? "selected" : ""}>Tada</option>
-              <option value="ding" ${settings.soundAlert === "ding" ? "selected" : ""}>Ding</option>
-              <option value="pop" ${settings.soundAlert === "pop" ? "selected" : ""}>Pop</option>
-              <option value="chime" ${settings.soundAlert === "chime" ? "selected" : ""}>Chime</option>
-            </select>
+            <div style="display:flex;gap:6px;align-items:center">
+              <select class="select-input" id="settingSoundAlert">
+                <option value="none" ${settings.soundAlert === "none" ? "selected" : ""}>关闭</option>
+                <option value="tada" ${settings.soundAlert === "tada" ? "selected" : ""}>Tada</option>
+                <option value="ding" ${settings.soundAlert === "ding" ? "selected" : ""}>Ding</option>
+                <option value="pop" ${settings.soundAlert === "pop" ? "selected" : ""}>Pop</option>
+                <option value="chime" ${settings.soundAlert === "chime" ? "selected" : ""}>Chime</option>
+              </select>
+              <button class="btn-xs btn-icon" data-action="soundPreview" title="试听当前选择的音效">▶ 试听</button>
+            </div>
           </div>
         </div>
       </section>
@@ -2107,6 +2110,17 @@ function handleAction(el: HTMLElement): void {
         vscode.postMessage({ type: "settingsReset" });
       }
       break;
+    case "soundPreview": {
+      const sel = document.getElementById("settingSoundAlert") as HTMLSelectElement | null;
+      const sv = sel?.value ?? 'none';
+      if (sv === 'none') { showToast('提示音已关闭'); break; }
+      const previewBtn = el as HTMLButtonElement | null;
+      if (previewBtn) previewBtn.disabled = true;
+      playSound(sv);
+      const durations: Record<string, number> = { tada: 1200, ding: 1600, chime: 2200, pop: 250 };
+      setTimeout(() => { if (previewBtn) previewBtn.disabled = false; }, durations[sv] ?? 1500);
+      break;
+    }
 
     // Quota fetch
     case "fetchAllQuotas":
@@ -2220,6 +2234,66 @@ function showToast(
   }, dur);
 }
 
+function playSound(type: string): void {
+  if (!type || type === 'none') return;
+  try {
+    const AudioCtx = (window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext) as typeof AudioContext;
+    const ctx = new AudioCtx();
+    const doPlay = () => {
+      const tone = (freq: number, start: number, dur: number, vol = 0.32, wave: OscillatorType = 'sine') => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = wave;
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+        gain.gain.setValueAtTime(vol, ctx.currentTime + start);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + start);
+        osc.stop(ctx.currentTime + start + dur);
+      };
+      switch (type) {
+        case 'tada':
+          tone(523.25, 0,    0.6);
+          tone(659.25, 0.1,  0.55);
+          tone(783.99, 0.2,  0.9);
+          break;
+        case 'ding':
+          tone(880, 0, 1.4, 0.38);
+          break;
+        case 'pop': {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(180, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.08);
+          gain.gain.setValueAtTime(0.5, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(ctx.currentTime);
+          osc.stop(ctx.currentTime + 0.12);
+          break;
+        }
+        case 'chime':
+          tone(659.25, 0,    1.1, 0.28, 'triangle'); // warmer wave
+          tone(783.99, 0.18, 1.0, 0.28, 'triangle');
+          tone(987.77, 0.36, 1.6, 0.32, 'triangle');
+          break;
+      }
+      setTimeout(() => void ctx.close(), 4000);
+    };
+    if (ctx.state !== 'running') {
+      ctx.resume().then(doPlay).catch(() => void ctx.close());
+    } else {
+      doPlay();
+    }
+  } catch {
+    // AudioContext unavailable
+  }
+}
+
 function syncQueue(): void {
   vscode.postMessage({ type: "queueSync", value: [...state.responseQueue] });
 }
@@ -2300,7 +2374,8 @@ window.addEventListener("message", (event) => {
       return;
     }
 
-    // No queue item — show dialog
+    // No queue item — show dialog panel and alert user
+    playSound(getSettings().soundAlert ?? 'none');
     state.pendingDialog = req;
     state.dialogInput = "";
     state.activeTab = "status";
