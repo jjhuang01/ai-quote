@@ -905,13 +905,8 @@ function startEditQueueItem(idx: number): void {
   ta.value = queue[idx];
   ta.rows = 2;
   row.appendChild(ta);
-  const btnRow = document.createElement("div");
-  btnRow.className = "queue-item-actions";
-  const saveBtn = document.createElement("button");
-  saveBtn.className = "queue-act";
-  saveBtn.textContent = "✓";
-  saveBtn.title = "保存";
-  saveBtn.onclick = () => {
+
+  const doSave = () => {
     const v = ta.value.trim();
     if (v) {
       queue[idx] = v;
@@ -919,14 +914,40 @@ function startEditQueueItem(idx: number): void {
     }
     renderQueue();
   };
+  const doCancel = () => renderQueue();
+
+  // Keyboard shortcuts
+  ta.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      doSave();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      doCancel();
+    }
+  });
+
+  const actionRow = document.createElement("div");
+  actionRow.className = "queue-edit-actions";
+
+  const hint = document.createElement("span");
+  hint.className = "queue-edit-hint";
+  hint.textContent = "Esc 取消 · Ctrl+Enter 保存";
+  actionRow.appendChild(hint);
+
   const cancelBtn = document.createElement("button");
-  cancelBtn.className = "queue-act";
-  cancelBtn.textContent = "✗";
-  cancelBtn.title = "取消";
-  cancelBtn.onclick = () => renderQueue();
-  btnRow.appendChild(saveBtn);
-  btnRow.appendChild(cancelBtn);
-  row.appendChild(btnRow);
+  cancelBtn.className = "queue-edit-cancel";
+  cancelBtn.textContent = "取消";
+  cancelBtn.onclick = doCancel;
+  actionRow.appendChild(cancelBtn);
+
+  const saveBtn = document.createElement("button");
+  saveBtn.className = "queue-edit-save";
+  saveBtn.innerHTML = "✓ 保存";
+  saveBtn.onclick = doSave;
+  actionRow.appendChild(saveBtn);
+
+  row.appendChild(actionRow);
   ta.focus();
 }
 

@@ -238,7 +238,7 @@ type TabId = "status" | "account" | "history" | "tools" | "settings" | "debug";
 const vscode = acquireVsCodeApi();
 
 let state = {
-  activeTab: "status" as TabId,
+  activeTab: "account" as TabId,
   historySearch: "",
   isWaiting: false,
   expandedHistoryId: undefined as string | undefined,
@@ -288,7 +288,11 @@ let state = {
   editingQueueIdx: undefined as number | undefined,
   editingQueueText: "",
   // Sent history: last N items sent (manual + auto-queue)
-  sentHistory: [] as Array<{ text: string; sentAt: string; mode: 'manual' | 'queue' }>,
+  sentHistory: [] as Array<{
+    text: string;
+    sentAt: string;
+    mode: "manual" | "queue";
+  }>,
   // Debug log filter: "all" | "error" | "warn" | "info"
   debugLogFilter: "all" as "all" | "error" | "warn" | "info",
   // Diagnose result
@@ -320,7 +324,7 @@ function render(): void {
   root.innerHTML = `
     <main class="infinite-shell">
       ${renderHeader(bs)}
-      ${state.pendingDialog ? '<div class="dialog-redirect-hint"><span>⏸</span> 对话已在编辑器标签页中打开，请在编辑器中回复</div>' : ''}
+      ${state.pendingDialog ? '<div class="dialog-redirect-hint"><span>⏸</span> 对话已在编辑器标签页中打开，请在编辑器中回复</div>' : ""}
       ${renderTabNav()}
       ${renderActiveTab(bs)}
       ${state.notification ? `<div class="toast toast-${state.notificationType}">${state.notificationType === "success" ? icon("check") : state.notificationType === "error" ? icon("alertCircle") : icon("info")} ${escapeHtml(state.notification)}</div>` : ""}
@@ -340,7 +344,7 @@ function renderHeader(bs: Bootstrap): string {
   return `
     <header class="infinite-header">
       <div class="header-brand">
-        <span class="header-title">Quote${state.pendingDialog ? ' ⏸' : ''}</span>
+        <span class="header-title">Quote${state.pendingDialog ? " ⏸" : ""}</span>
         <span class="header-sub">:${bs.status.port} · ${escapeHtml(bs.status.currentIde)}</span>
       </div>
       <span class="status-pill ${bs.status.running ? "online" : "offline"}">
@@ -493,64 +497,84 @@ function renderStatusTab(bs: Bootstrap): string {
         <div class="section-header">
           <h2>发送队列</h2>
           <div class="btn-group">
-            <span class="badge ${state.responseQueue.length > 0 ? 'badge-ok' : 'badge-neutral'}">${state.responseQueue.length} 条</span>
-            <button class="btn-xs" data-action="queueToggle" title="${state.queueCollapsed ? '展开' : '折叠'}">${state.queueCollapsed ? '▶' : '▼'}</button>
-            ${state.responseQueue.length > 0 ? `<button class="btn-xs btn-danger-xs" data-action="queueClear" title="清空队列">${icon('trash-2')} 清空</button>` : ''}
+            <span class="badge ${state.responseQueue.length > 0 ? "badge-ok" : "badge-neutral"}">${state.responseQueue.length} 条</span>
+            <button class="btn-xs" data-action="queueToggle" title="${state.queueCollapsed ? "展开" : "折叠"}">${state.queueCollapsed ? "▶" : "▼"}</button>
+            ${state.responseQueue.length > 0 ? `<button class="btn-xs btn-danger-xs" data-action="queueClear" title="清空队列">${icon("trash-2")} 清空</button>` : ""}
           </div>
         </div>
 
-        ${state.sentHistory.length > 0 ? `
+        ${
+          state.sentHistory.length > 0
+            ? `
         <div class="sent-history">
           <div class="sent-history-label">📤 已发送内容 <span class="sent-count">(共 ${state.sentHistory.length} 条)</span></div>
           <ul class="sent-list">
-            ${state.sentHistory.slice(0, 3).map((item, idx) => `
-            <li class="sent-item ${item.mode === 'queue' ? 'sent-queue' : 'sent-manual'}">
-              <span class="sent-badge">${item.mode === 'queue' ? '队列' : '手动'}</span>
-              <span class="sent-text">${escapeHtml(item.text.slice(0, 60))}${item.text.length > 60 ? '…' : ''}</span>
+            ${state.sentHistory
+              .slice(0, 3)
+              .map(
+                (item, idx) => `
+            <li class="sent-item ${item.mode === "queue" ? "sent-queue" : "sent-manual"}">
+              <span class="sent-badge">${item.mode === "queue" ? "队列" : "手动"}</span>
+              <span class="sent-text">${escapeHtml(item.text.slice(0, 60))}${item.text.length > 60 ? "…" : ""}</span>
               <span class="sent-ts">${item.sentAt}</span>
-              <button class="btn-xs btn-copy-inline" data-action="copySent" data-idx="${idx}" title="复制">${icon('copy')}</button>
-            </li>`).join('')}
+              <button class="btn-xs btn-copy-inline" data-action="copySent" data-idx="${idx}" title="复制">${icon("copy")}</button>
+            </li>`,
+              )
+              .join("")}
           </ul>
-        </div>` : ''}
+        </div>`
+            : ""
+        }
 
-        ${!state.queueCollapsed ? `
+        ${
+          !state.queueCollapsed
+            ? `
         <p class="hint">LLM 每次调用工具时，自动从队列头部取一条回复。用 <code>---</code> 分隔可批量添加。</p>
         <div class="queue-input-row">
           <textarea class="text-area queue-input" id="queue-add-input" rows="2" placeholder="输入预设回复… (Ctrl+Enter 加入，用 --- 分隔可批量添加)">${escapeHtml(state.queueInput)}</textarea>
           <button class="btn-grad btn-sm" data-action="queueAdd">+加入</button>
         </div>
-        ${state.responseQueue.length > 0 ? `
+        ${
+          state.responseQueue.length > 0
+            ? `
         <ol class="queue-list">
-          ${state.responseQueue.map((item, i) => {
-            const isEditing = state.editingQueueIdx === i;
-            const total = state.responseQueue.length;
-            if (isEditing) {
-              return `
+          ${state.responseQueue
+            .map((item, i) => {
+              const isEditing = state.editingQueueIdx === i;
+              const total = state.responseQueue.length;
+              if (isEditing) {
+                return `
               <li class="queue-item queue-item-editing">
                 <span class="queue-idx">#${i + 1}</span>
                 <textarea class="queue-edit-input" id="queue-edit-${i}" rows="2">${escapeHtml(state.editingQueueText)}</textarea>
-                <div class="queue-edit-btns">
-                  <button class="btn-xs" data-action="queueEditSave" data-idx="${i}">✓</button>
-                  <button class="btn-xs btn-danger-xs" data-action="queueEditCancel">${icon('x')}</button>
+                <div class="queue-edit-actions">
+                  <span class="queue-edit-hint">Esc 取消 · Ctrl+Enter 保存</span>
+                  <button class="queue-edit-cancel" data-action="queueEditCancel">取消</button>
+                  <button class="queue-edit-save" data-action="queueEditSave" data-idx="${i}">${icon("check")} 保存</button>
                 </div>
               </li>`;
-            }
-            return `
+              }
+              return `
             <li class="queue-item">
               <span class="queue-idx">#${i + 1}</span>
-              <span class="queue-text">${escapeHtml(item.slice(0, 80))}${item.length > 80 ? '…' : ''}</span>
+              <span class="queue-text">${escapeHtml(item.slice(0, 80))}${item.length > 80 ? "…" : ""}</span>
               <div class="queue-item-btns">
-                ${i > 0 ? `<button class="btn-xs" data-action="queueMoveUp" data-idx="${i}" title="上移">↑</button>` : ''}
-                ${i < total - 1 ? `<button class="btn-xs" data-action="queueMoveDown" data-idx="${i}" title="下移">↓</button>` : ''}
-                <button class="btn-xs btn-copy-inline" data-action="queueCopy" data-idx="${i}" title="复制">${icon('copy')}</button>
+                ${i > 0 ? `<button class="btn-xs" data-action="queueMoveUp" data-idx="${i}" title="上移">↑</button>` : ""}
+                ${i < total - 1 ? `<button class="btn-xs" data-action="queueMoveDown" data-idx="${i}" title="下移">↓</button>` : ""}
+                <button class="btn-xs btn-copy-inline" data-action="queueCopy" data-idx="${i}" title="复制">${icon("copy")}</button>
                 <button class="btn-xs" data-action="queueEdit" data-idx="${i}" title="编辑">✎</button>
-                <button class="btn-xs btn-danger-xs" data-action="queueRemove" data-idx="${i}" title="删除">${icon('x')}</button>
+                <button class="btn-xs btn-danger-xs" data-action="queueRemove" data-idx="${i}" title="删除">${icon("x")}</button>
               </div>
             </li>`;
-          }).join('')}
-        </ol>` : '<p class="hint empty-queue-hint">队列为空，添加后 LLM 将自动回复。</p>'}
-        ${state.dialogCallCount > 0 ? `<p class="hint" style="margin-top:8px">已处理 ${state.dialogCallCount} 次调用（含队列自动回复）</p>` : ''}
-        ` : ''}
+            })
+            .join("")}
+        </ol>`
+            : '<p class="hint empty-queue-hint">队列为空，添加后 LLM 将自动回复。</p>'
+        }
+        ${state.dialogCallCount > 0 ? `<p class="hint" style="margin-top:8px">已处理 ${state.dialogCallCount} 次调用（含队列自动回复）</p>` : ""}
+        `
+            : ""
+        }
       </section>
     </div>`;
 }
@@ -574,14 +598,18 @@ function renderAccountTab(bs: Bootstrap): string {
             ${accounts.length > 0 ? `<button class="btn-xs btn-icon ${state.selectMode ? "btn-active" : ""}" data-action="toggleSelectMode" title="多选删除">☑ 选择</button>` : ""}
             ${accounts.length > 0 && !state.selectMode ? `<button class="btn-xs btn-danger-xs" data-action="accountClear">清空</button>` : ""}
           </div>
-          ${state.selectMode ? `
+          ${
+            state.selectMode
+              ? `
           <div class="btn-group select-bar">
             <span class="hint" style="margin:0">已选 ${state.selectedAccountIds.size} 个</span>
             <button class="btn-xs btn-icon" data-action="selectAll">全选</button>
             <button class="btn-xs btn-icon" data-action="selectNone">取消</button>
             <button class="btn-xs btn-danger-xs ${state.selectedAccountIds.size === 0 ? "disabled" : ""}" data-action="accountDeleteBatch" ${state.selectedAccountIds.size === 0 ? "disabled" : ""}>删除选中</button>
             <button class="btn-xs btn-icon" data-action="toggleSelectMode">退出选择</button>
-          </div>` : ""}
+          </div>`
+              : ""
+          }
         </div>
 
         ${
@@ -745,15 +773,21 @@ function renderAccountItem(
   }
 
   // 判断账号是否已过期（planEnd 在当前时间之前 — 无论 quota 百分比如何）
-  const isExpired = !!rq && !!rq.planEndTimestamp &&
-    rq.planEndTimestamp > 0 && rq.planEndTimestamp < Date.now();
+  const isExpired =
+    !!rq &&
+    !!rq.planEndTimestamp &&
+    rq.planEndTimestamp > 0 &&
+    rq.planEndTimestamp < Date.now();
 
   // 判断账号是否已耗尽配额（计划仍在期内，但周/日配额归零）
-  const isExhausted = !isExpired && !!rq && (
-    (rq.weeklyRemainingPercent >= 0 && rq.weeklyRemainingPercent <= 0) ||
-    (rq.dailyRemainingPercent  >= 0 && rq.dailyRemainingPercent  <= 0 &&
-     rq.weeklyRemainingPercent  < 0)   // 无周数据但日已归零
-  );
+  const isExhausted =
+    !isExpired &&
+    !!rq &&
+    ((rq.weeklyRemainingPercent >= 0 && rq.weeklyRemainingPercent <= 0) ||
+      (rq.dailyRemainingPercent >= 0 &&
+        rq.dailyRemainingPercent <= 0 &&
+        rq.weeklyRemainingPercent < 0) ||
+      (rq.weeklyRemainingPercent < 0 && rq.weeklyResetAtUnix > 0)); // "—" = API 未返回百分比但有重置时间 → 视为耗尽
 
   const isDisabled = isExpired || isExhausted;
 
@@ -766,41 +800,35 @@ function renderAccountItem(
     return "quota-fill-danger";
   };
 
-  const refreshing = state.quotaFetching || state.quotaFetchingId === a.id;
+  const switching = state.switchLoadingId === a.id;
   const isSelected = state.selectedAccountIds.has(a.id);
   return `
-    <div class="ac-card ${isCurrent ? "ac-active" : ""} ${isExpired ? "ac-expired" : isExhausted ? "ac-exhausted" : ""} ${q?.warningLevel === "critical" && !isDisabled ? "ac-crit" : q?.warningLevel === "warn" && !isDisabled ? "ac-warn" : ""} ${isSelected ? "ac-selected" : ""}">
+    <div class="ac-card ${isCurrent ? "ac-active" : ""} ${isExpired ? "ac-expired" : isExhausted ? "ac-exhausted" : ""} ${q?.warningLevel === "critical" && !isDisabled ? "ac-crit" : q?.warningLevel === "warn" && !isDisabled ? "ac-warn" : ""} ${isSelected ? "ac-selected" : ""} ${switching ? "ac-switching" : ""}" data-id="${a.id}">
       <div class="ac-head">
         ${state.selectMode ? `<input type="checkbox" class="ac-checkbox" data-action="toggleSelect" data-id="${a.id}" ${isSelected ? "checked" : ""}>` : ""}
         <span class="ac-email" title="${escapeHtml(a.email)}">${escapeHtml(a.email)}</span>
         <div class="ac-tags">
           <span class="plan-badge plan-${a.plan.toLowerCase()}">${planIcon(a.plan)} ${a.plan}</span>
+          ${planEndText ? `<span class="ac-end">${planEndText}</span>` : ""}
           ${isCurrent ? '<span class="badge-active">当前</span>' : ""}
           ${isExpired ? '<span class="badge-expired">已过期</span>' : isExhausted ? '<span class="badge-exhausted">已耗尽</span>' : ""}
-          ${planEndText ? `<span class="ac-end">${planEndText}</span>` : ""}
         </div>
       </div>
-      <div class="ac-foot">
-        <div class="ac-bars">
-          <div class="ac-bar-row">
-            <span class="ac-lbl">周</span>
-            <div class="ac-track"><div class="ac-fill ${fillClass(weeklyFillPct)}" style="width:${weeklyFillPct ?? 0}%"></div></div>
-            <span class="ac-pct${weeklyFillPct === null ? " ac-nodata" : ""}">${weeklyText || "—"}</span>
-            ${weeklyResetText ? `<span class="ac-rt">${weeklyResetText}</span>` : '<span class="ac-rt"></span>'}
-          </div>
-          <div class="ac-bar-row">
-            <span class="ac-lbl">日</span>
-            <div class="ac-track"><div class="ac-fill ${fillClass(dailyFillPct)}" style="width:${dailyFillPct ?? 0}%"></div></div>
-            <span class="ac-pct${dailyFillPct === null ? " ac-nodata" : ""}">${dailyText || "—"}</span>
-            ${dailyResetText ? `<span class="ac-rt">${dailyResetText}</span>` : '<span class="ac-rt"></span>'}
-          </div>
+      <div class="ac-bars">
+        <div class="ac-bar-row">
+          <span class="ac-lbl">周</span>
+          <div class="ac-track"><div class="ac-fill ${fillClass(weeklyFillPct)}" style="width:${weeklyFillPct ?? 0}%"></div></div>
+          <span class="ac-pct${weeklyFillPct === null ? " ac-nodata" : ""}">${weeklyText || "—"}</span>
+          ${weeklyResetText ? `<span class="ac-rt">${weeklyResetText}</span>` : ""}
         </div>
-        <div class="ac-acts">
-          <button class="ac-btn ac-btn-refresh ${refreshing ? "ac-loading" : ""}" data-action="fetchQuota" data-id="${a.id}" title="刷新配额" ${refreshing ? "disabled" : ""}><span class="ac-refresh-ico">${SVG_ICONS["refresh"]}</span></button>
-          ${!isCurrent ? `<button class="ac-btn ${state.switchLoadingId === a.id ? "ac-btn-loading" : ""}" data-action="accountSwitch" data-id="${a.id}" ${state.switchLoadingId === a.id ? "disabled" : ""}>${state.switchLoadingId === a.id ? "…" : "切换"}</button>` : ""}
-          <button class="ac-btn ac-btn-del" data-action="accountDelete" data-id="${a.id}">删除</button>
+        <div class="ac-bar-row">
+          <span class="ac-lbl">日</span>
+          <div class="ac-track"><div class="ac-fill ${fillClass(dailyFillPct)}" style="width:${dailyFillPct ?? 0}%"></div></div>
+          <span class="ac-pct${dailyFillPct === null ? " ac-nodata" : ""}">${dailyText || "—"}</span>
+          ${dailyResetText ? `<span class="ac-rt">${dailyResetText}</span>` : ""}
         </div>
       </div>
+      ${switching ? '<div class="ac-switching-bar"></div>' : ""}
     </div>`;
 }
 
@@ -1129,11 +1157,15 @@ function renderSettingsTab(bs: Bootstrap): string {
         <div class="settings-section">
           <p class="hint" style="margin:0 0 8px">以下 MCP 服务在执行「清理旧MCP配置」时将被保留，不会被删除。</p>
           <div class="whitelist-tags" id="mcpWhitelistTags">
-            ${(settings.mcpWhitelist ?? []).map((name: string) => `
+            ${(settings.mcpWhitelist ?? [])
+              .map(
+                (name: string) => `
               <span class="whitelist-tag">
                 ${escapeHtml(name)}
                 <button class="whitelist-tag-remove" data-action="mcpWhitelistRemove" data-name="${escapeHtml(name)}" title="移除">×</button>
-              </span>`).join("")}
+              </span>`,
+              )
+              .join("")}
           </div>
           <div class="whitelist-add-row">
             <input class="text-input text-input-sm" id="mcpWhitelistInput" placeholder="输入 MCP 名称…" style="flex:1">
@@ -1250,34 +1282,36 @@ function renderDialogCard(req: McpDialogRequest): string {
           (opt, i) =>
             `<button class="btn-dialog-opt" data-action="dialogOption" data-idx="${i}" data-opt="${escapeHtml(opt)}">${escapeHtml(opt)}</button>`,
         )
-        .join('')
-    : '';
+        .join("")
+    : "";
 
   const charCount = state.dialogInput.length;
   const ts = new Date(req.receivedAt).toLocaleTimeString();
-  const callLabel = state.dialogCallCount > 0 ? `第 ${state.dialogCallCount} 次调用` : '';
+  const callLabel =
+    state.dialogCallCount > 0 ? `第 ${state.dialogCallCount} 次调用` : "";
   const queueLen = state.responseQueue.length;
-  const queueHint = queueLen > 0
-    ? `<span class="dialog-queue-hint">队列剩余 ${queueLen} 条</span>`
-    : '';
+  const queueHint =
+    queueLen > 0
+      ? `<span class="dialog-queue-hint">队列剩余 ${queueLen} 条</span>`
+      : "";
 
   return `
     <div class="dialog-card">
       <div class="dialog-header">
         <span class="dialog-icon">⏸</span>
         <span class="dialog-title">LLM 等待回复</span>
-        ${callLabel ? `<span class="dialog-call-count">${callLabel}</span>` : ''}
+        ${callLabel ? `<span class="dialog-call-count">${callLabel}</span>` : ""}
         ${queueHint}
         <span class="dialog-ts">${ts}</span>
         <button class="btn-xs dialog-close-btn" data-action="dialogDismiss" title="取消对话 (Esc)">✕</button>
       </div>
       <div class="dialog-summary-wrap">
-        <div class="dialog-summary${req.isMarkdown ? ' dialog-summary-md' : ''}">${req.isMarkdown ? renderMd(req.summary) : escapeHtml(req.summary)}</div>
-        <button class="btn-xs btn-copy" data-action="copySummary" title="复制 LLM 摘要">${icon('copy')}</button>
+        <div class="dialog-summary${req.isMarkdown ? " dialog-summary-md" : ""}">${req.isMarkdown ? renderMd(req.summary) : escapeHtml(req.summary)}</div>
+        <button class="btn-xs btn-copy" data-action="copySummary" title="复制 LLM 摘要">${icon("copy")}</button>
       </div>
-      ${optionBtns ? `<div class="dialog-options">${optionBtns}</div>` : ''}
+      ${optionBtns ? `<div class="dialog-options">${optionBtns}</div>` : ""}
       <div class="dialog-input-row">
-        <textarea class="dialog-textarea" id="dialog-input" placeholder="输入回复… (${getSettings().enterToSend ? 'Enter 发送, Shift+Enter 换行' : 'Ctrl+Enter 发送'}, Esc 取消)" rows="3">${escapeHtml(state.dialogInput)}</textarea>
+        <textarea class="dialog-textarea" id="dialog-input" placeholder="输入回复… (${getSettings().enterToSend ? "Enter 发送, Shift+Enter 换行" : "Ctrl+Enter 发送"}, Esc 取消)" rows="3">${escapeHtml(state.dialogInput)}</textarea>
         <span class="dialog-charcount">${charCount} 字</span>
       </div>
       <div class="dialog-actions">
@@ -1349,21 +1383,29 @@ function renderDebugTab(_bs: Bootstrap): string {
         r.extra && Object.keys(r.extra).length > 0
           ? " " + JSON.stringify(r.extra)
           : "";
-      return { level: r.level ?? "info", html: `<span class="${lvlClass}">[${r.level?.toUpperCase() ?? "?"}] ${ts} ${escapeHtml(r.message)}${escapeHtml(extraStr)}</span>` };
+      return {
+        level: r.level ?? "info",
+        html: `<span class="${lvlClass}">[${r.level?.toUpperCase() ?? "?"}] ${ts} ${escapeHtml(r.message)}${escapeHtml(extraStr)}</span>`,
+      };
     } catch {
-      return { level: "debug", html: `<span class="log-debug">${escapeHtml(line)}</span>` };
+      return {
+        level: "debug",
+        html: `<span class="log-debug">${escapeHtml(line)}</span>`,
+      };
     }
   });
-  const filtered = filter === "all" ? parsed : parsed.filter(p => p.level === filter);
-  const logLines = filtered.length > 0
-    ? filtered.map(p => p.html).join("\n")
-    : loading
-      ? "加载中…"
-      : rawLines.length > 0
-        ? `无 ${filter.toUpperCase()} 级别日志`
-        : '暂无日志，请点击"刷新"';
-  const errorCount = parsed.filter(p => p.level === "error").length;
-  const warnCount = parsed.filter(p => p.level === "warn").length;
+  const filtered =
+    filter === "all" ? parsed : parsed.filter((p) => p.level === filter);
+  const logLines =
+    filtered.length > 0
+      ? filtered.map((p) => p.html).join("\n")
+      : loading
+        ? "加载中…"
+        : rawLines.length > 0
+          ? `无 ${filter.toUpperCase()} 级别日志`
+          : '暂无日志，请点击"刷新"';
+  const errorCount = parsed.filter((p) => p.level === "error").length;
+  const warnCount = parsed.filter((p) => p.level === "warn").length;
 
   return `
     <div class="tab-content">
@@ -1504,36 +1546,49 @@ function bindEvents(): void {
   });
 
   // Dialog textarea: sync input to state.dialogInput for char count, Ctrl+Enter to submit
-  const dialogTextarea = document.getElementById("dialog-input") as HTMLTextAreaElement | null;
+  const dialogTextarea = document.getElementById(
+    "dialog-input",
+  ) as HTMLTextAreaElement | null;
   if (dialogTextarea) {
     dialogTextarea.addEventListener("input", () => {
       state.dialogInput = dialogTextarea.value;
       // Update char count without full re-render
-      const counter = dialogTextarea.parentElement?.querySelector(".dialog-charcount");
+      const counter =
+        dialogTextarea.parentElement?.querySelector(".dialog-charcount");
       if (counter) counter.textContent = `${state.dialogInput.length} 字`;
     });
     dialogTextarea.addEventListener("keydown", (e) => {
       const ets = getSettings().enterToSend;
       const shouldSend = ets
-        ? (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey)
-        : (e.key === "Enter" && (e.ctrlKey || e.metaKey));
+        ? e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey
+        : e.key === "Enter" && (e.ctrlKey || e.metaKey);
       if (shouldSend) {
         e.preventDefault();
         const response = dialogTextarea.value.trim();
         if (response && state.pendingDialog) {
           const sessionId = state.pendingDialog.sessionId;
-          state.sentHistory.unshift({ text: response, sentAt: new Date().toLocaleTimeString(), mode: 'manual' });
+          state.sentHistory.unshift({
+            text: response,
+            sentAt: new Date().toLocaleTimeString(),
+            mode: "manual",
+          });
           if (state.sentHistory.length > 10) state.sentHistory.pop();
           state.pendingDialog = undefined;
           state.dialogInput = "";
-          vscode.postMessage({ type: "mcpDialogSubmit", value: { sessionId, response } });
+          vscode.postMessage({
+            type: "mcpDialogSubmit",
+            value: { sessionId, response },
+          });
           render();
         }
       }
       if (e.key === "Escape") {
         if (state.pendingDialog) {
           const dismissSid = state.pendingDialog.sessionId;
-          vscode.postMessage({ type: "mcpDialogSubmit", value: { sessionId: dismissSid, response: "(cancelled)" } });
+          vscode.postMessage({
+            type: "mcpDialogSubmit",
+            value: { sessionId: dismissSid, response: "(cancelled)" },
+          });
         }
         state.pendingDialog = undefined;
         state.dialogInput = "";
@@ -1545,7 +1600,9 @@ function bindEvents(): void {
   }
 
   // Queue input: sync to state
-  const queueTextarea = document.getElementById("queue-add-input") as HTMLTextAreaElement | null;
+  const queueTextarea = document.getElementById(
+    "queue-add-input",
+  ) as HTMLTextAreaElement | null;
   if (queueTextarea) {
     queueTextarea.addEventListener("input", () => {
       state.queueInput = queueTextarea.value;
@@ -1562,6 +1619,53 @@ function bindEvents(): void {
       }
     });
   }
+
+  // Queue edit textarea: Ctrl+Enter to save, Esc to cancel
+  if (state.editingQueueIdx !== undefined) {
+    const editTa = document.getElementById(
+      `queue-edit-${state.editingQueueIdx}`,
+    ) as HTMLTextAreaElement | null;
+    if (editTa) {
+      editTa.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          const saveBtn = document.querySelector<HTMLElement>(
+            '[data-action="queueEditSave"]',
+          );
+          if (saveBtn) handleAction(saveBtn);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          state.editingQueueIdx = undefined;
+          state.editingQueueText = "";
+          render();
+        }
+      });
+    }
+  }
+
+  // Account card click → switch account (replaces inline 切换 button)
+  document.querySelectorAll<HTMLElement>(".ac-card[data-id]").forEach((card) => {
+    card.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest(".ac-checkbox, [data-action]")) return;
+      const id = card.dataset.id;
+      if (!id) return;
+      if (state.selectMode) {
+        if (state.selectedAccountIds.has(id)) {
+          state.selectedAccountIds.delete(id);
+        } else {
+          state.selectedAccountIds.add(id);
+        }
+        render();
+        return;
+      }
+      const bs = window.__QUOTE_BOOTSTRAP__;
+      if (bs?.currentAccountId === id) return;
+      if (state.switchLoadingId) return;
+      state.switchLoadingId = id;
+      render();
+      vscode.postMessage({ type: "accountSwitch", value: id });
+    });
+  });
 
   // All data-action buttons
   document.querySelectorAll<HTMLElement>("[data-action]").forEach((el) => {
@@ -1580,15 +1684,24 @@ function handleAction(el: HTMLElement): void {
   switch (action) {
     // MCP Dialog
     case "dialogSubmit": {
-      const textarea = document.getElementById("dialog-input") as HTMLTextAreaElement | null;
+      const textarea = document.getElementById(
+        "dialog-input",
+      ) as HTMLTextAreaElement | null;
       const response = (textarea?.value ?? state.dialogInput).trim();
       if (response && state.pendingDialog) {
         const sessionId = state.pendingDialog.sessionId;
-        state.sentHistory.unshift({ text: response, sentAt: new Date().toLocaleTimeString(), mode: 'manual' });
+        state.sentHistory.unshift({
+          text: response,
+          sentAt: new Date().toLocaleTimeString(),
+          mode: "manual",
+        });
         if (state.sentHistory.length > 10) state.sentHistory.pop();
         state.pendingDialog = undefined;
         state.dialogInput = "";
-        vscode.postMessage({ type: "mcpDialogSubmit", value: { sessionId, response } });
+        vscode.postMessage({
+          type: "mcpDialogSubmit",
+          value: { sessionId, response },
+        });
         render();
       }
       break;
@@ -1597,11 +1710,18 @@ function handleAction(el: HTMLElement): void {
       const opt = el.dataset.opt;
       if (opt && state.pendingDialog) {
         const sessionId = state.pendingDialog.sessionId;
-        state.sentHistory.unshift({ text: opt, sentAt: new Date().toLocaleTimeString(), mode: 'manual' });
+        state.sentHistory.unshift({
+          text: opt,
+          sentAt: new Date().toLocaleTimeString(),
+          mode: "manual",
+        });
         if (state.sentHistory.length > 10) state.sentHistory.pop();
         state.pendingDialog = undefined;
         state.dialogInput = "";
-        vscode.postMessage({ type: "mcpDialogSubmit", value: { sessionId, response: opt } });
+        vscode.postMessage({
+          type: "mcpDialogSubmit",
+          value: { sessionId, response: opt },
+        });
         render();
       }
       break;
@@ -1609,7 +1729,10 @@ function handleAction(el: HTMLElement): void {
     case "dialogDismiss": {
       if (state.pendingDialog) {
         const dismissSid = state.pendingDialog.sessionId;
-        vscode.postMessage({ type: "mcpDialogSubmit", value: { sessionId: dismissSid, response: "(cancelled)" } });
+        vscode.postMessage({
+          type: "mcpDialogSubmit",
+          value: { sessionId: dismissSid, response: "(cancelled)" },
+        });
       }
       state.pendingDialog = undefined;
       state.dialogInput = "";
@@ -1626,7 +1749,11 @@ function handleAction(el: HTMLElement): void {
     // Queue item edit
     case "queueEdit": {
       const editIdx = parseInt(el.dataset.idx ?? "", 10);
-      if (!isNaN(editIdx) && editIdx >= 0 && editIdx < state.responseQueue.length) {
+      if (
+        !isNaN(editIdx) &&
+        editIdx >= 0 &&
+        editIdx < state.responseQueue.length
+      ) {
         state.editingQueueIdx = editIdx;
         state.editingQueueText = state.responseQueue[editIdx];
         render();
@@ -1636,7 +1763,9 @@ function handleAction(el: HTMLElement): void {
     }
     case "queueEditSave": {
       const saveIdx = parseInt(el.dataset.idx ?? "", 10);
-      const editEl = document.getElementById(`queue-edit-${saveIdx}`) as HTMLTextAreaElement | null;
+      const editEl = document.getElementById(
+        `queue-edit-${saveIdx}`,
+      ) as HTMLTextAreaElement | null;
       const newText = (editEl?.value ?? state.editingQueueText).trim();
       if (!isNaN(saveIdx) && newText && saveIdx < state.responseQueue.length) {
         state.responseQueue[saveIdx] = newText;
@@ -1656,38 +1785,59 @@ function handleAction(el: HTMLElement): void {
     // Copy actions
     case "copySummary": {
       if (state.pendingDialog) {
-        void navigator.clipboard.writeText(state.pendingDialog.summary).then(() => {
-          showToast("LLM 摘要已复制", "success");
-        });
+        void navigator.clipboard
+          .writeText(state.pendingDialog.summary)
+          .then(() => {
+            showToast("LLM 摘要已复制", "success");
+          });
       }
       break;
     }
     case "copySent": {
       const sentIdx = parseInt(el.dataset.idx ?? "", 10);
-      if (!isNaN(sentIdx) && sentIdx >= 0 && sentIdx < state.sentHistory.length) {
-        void navigator.clipboard.writeText(state.sentHistory[sentIdx].text).then(() => {
-          showToast("已复制", "success");
-        });
+      if (
+        !isNaN(sentIdx) &&
+        sentIdx >= 0 &&
+        sentIdx < state.sentHistory.length
+      ) {
+        void navigator.clipboard
+          .writeText(state.sentHistory[sentIdx].text)
+          .then(() => {
+            showToast("已复制", "success");
+          });
       }
       break;
     }
     case "queueCopy": {
       const copyIdx = parseInt(el.dataset.idx ?? "", 10);
-      if (!isNaN(copyIdx) && copyIdx >= 0 && copyIdx < state.responseQueue.length) {
-        void navigator.clipboard.writeText(state.responseQueue[copyIdx]).then(() => {
-          showToast("已复制", "success");
-        });
+      if (
+        !isNaN(copyIdx) &&
+        copyIdx >= 0 &&
+        copyIdx < state.responseQueue.length
+      ) {
+        void navigator.clipboard
+          .writeText(state.responseQueue[copyIdx])
+          .then(() => {
+            showToast("已复制", "success");
+          });
       }
       break;
     }
 
     // Response Queue management
     case "queueAdd": {
-      const qInput = (document.getElementById("queue-add-input") as HTMLTextAreaElement | null)?.value.trim()
-        ?? state.queueInput.trim();
+      const qInput =
+        (
+          document.getElementById(
+            "queue-add-input",
+          ) as HTMLTextAreaElement | null
+        )?.value.trim() ?? state.queueInput.trim();
       if (qInput) {
         // Batch add: split by "---" separator line
-        const items = qInput.split(/\n---\n/).map(s => s.trim()).filter(Boolean);
+        const items = qInput
+          .split(/\n---\n/)
+          .map((s) => s.trim())
+          .filter(Boolean);
         for (const item of items) {
           state.responseQueue.push(item);
         }
@@ -1719,8 +1869,10 @@ function handleAction(el: HTMLElement): void {
     case "queueMoveUp": {
       const upIdx = parseInt(el.dataset.idx ?? "", 10);
       if (!isNaN(upIdx) && upIdx > 0 && upIdx < state.responseQueue.length) {
-        [state.responseQueue[upIdx - 1], state.responseQueue[upIdx]] =
-          [state.responseQueue[upIdx], state.responseQueue[upIdx - 1]];
+        [state.responseQueue[upIdx - 1], state.responseQueue[upIdx]] = [
+          state.responseQueue[upIdx],
+          state.responseQueue[upIdx - 1],
+        ];
         syncQueue();
         render();
       }
@@ -1728,9 +1880,15 @@ function handleAction(el: HTMLElement): void {
     }
     case "queueMoveDown": {
       const downIdx = parseInt(el.dataset.idx ?? "", 10);
-      if (!isNaN(downIdx) && downIdx >= 0 && downIdx < state.responseQueue.length - 1) {
-        [state.responseQueue[downIdx], state.responseQueue[downIdx + 1]] =
-          [state.responseQueue[downIdx + 1], state.responseQueue[downIdx]];
+      if (
+        !isNaN(downIdx) &&
+        downIdx >= 0 &&
+        downIdx < state.responseQueue.length - 1
+      ) {
+        [state.responseQueue[downIdx], state.responseQueue[downIdx + 1]] = [
+          state.responseQueue[downIdx + 1],
+          state.responseQueue[downIdx],
+        ];
         syncQueue();
         render();
       }
@@ -1836,7 +1994,9 @@ function handleAction(el: HTMLElement): void {
     case "selectAll": {
       const bs = window.__QUOTE_BOOTSTRAP__;
       if (bs) {
-        state.selectedAccountIds = new Set(bs.accounts.map((a: WindsurfAccount) => a.id));
+        state.selectedAccountIds = new Set(
+          bs.accounts.map((a: WindsurfAccount) => a.id),
+        );
         // 展开全部分页，让用户能看到所有被选中的账号
         if (bs.accounts.length > state.accountPageSize) {
           state.accountPageSize = bs.accounts.length;
@@ -1861,7 +2021,10 @@ function handleAction(el: HTMLElement): void {
       break;
     case "accountDeleteBatch":
       if (state.selectedAccountIds.size > 0) {
-        vscode.postMessage({ type: "accountDeleteBatch", value: [...state.selectedAccountIds] });
+        vscode.postMessage({
+          type: "accountDeleteBatch",
+          value: [...state.selectedAccountIds],
+        });
         state.selectMode = false;
         state.selectedAccountIds = new Set();
       }
@@ -2065,8 +2228,10 @@ function handleAction(el: HTMLElement): void {
           document.getElementById("settingFirebaseApiKey") as HTMLInputElement
         )?.value?.trim() ?? "";
       const mcpWhitelist = Array.from(
-        document.querySelectorAll<HTMLElement>(".whitelist-tag-remove")
-      ).map(btn => btn.dataset.name ?? "").filter(Boolean);
+        document.querySelectorAll<HTMLElement>(".whitelist-tag-remove"),
+      )
+        .map((btn) => btn.dataset.name ?? "")
+        .filter(Boolean);
       vscode.postMessage({
         type: "settingsUpdate",
         payload: {
@@ -2086,22 +2251,38 @@ function handleAction(el: HTMLElement): void {
       break;
     }
     case "mcpWhitelistAdd": {
-      const input = document.getElementById("mcpWhitelistInput") as HTMLInputElement | null;
+      const input = document.getElementById(
+        "mcpWhitelistInput",
+      ) as HTMLInputElement | null;
       const name = input?.value.trim();
-      if (!name) { showToast("请输入 MCP 名称", "error"); break; }
-      const current = (window.__QUOTE_BOOTSTRAP__?.settings?.mcpWhitelist ?? []) as string[];
-      if (current.includes(name)) { showToast("已在白名单中", "error"); break; }
+      if (!name) {
+        showToast("请输入 MCP 名称", "error");
+        break;
+      }
+      const current = (window.__QUOTE_BOOTSTRAP__?.settings?.mcpWhitelist ??
+        []) as string[];
+      if (current.includes(name)) {
+        showToast("已在白名单中", "error");
+        break;
+      }
       const updated = [...current, name];
-      vscode.postMessage({ type: "settingsUpdate", payload: { mcpWhitelist: updated } });
+      vscode.postMessage({
+        type: "settingsUpdate",
+        payload: { mcpWhitelist: updated },
+      });
       showToast(`已添加: ${name}`);
       break;
     }
     case "mcpWhitelistRemove": {
       const name = el.dataset.name ?? "";
       if (!name) break;
-      const current = (window.__QUOTE_BOOTSTRAP__?.settings?.mcpWhitelist ?? []) as string[];
+      const current = (window.__QUOTE_BOOTSTRAP__?.settings?.mcpWhitelist ??
+        []) as string[];
       const updated = current.filter((n: string) => n !== name);
-      vscode.postMessage({ type: "settingsUpdate", payload: { mcpWhitelist: updated } });
+      vscode.postMessage({
+        type: "settingsUpdate",
+        payload: { mcpWhitelist: updated },
+      });
       showToast(`已移除: ${name}`);
       break;
     }
@@ -2111,14 +2292,26 @@ function handleAction(el: HTMLElement): void {
       }
       break;
     case "soundPreview": {
-      const sel = document.getElementById("settingSoundAlert") as HTMLSelectElement | null;
-      const sv = sel?.value ?? 'none';
-      if (sv === 'none') { showToast('提示音已关闭'); break; }
+      const sel = document.getElementById(
+        "settingSoundAlert",
+      ) as HTMLSelectElement | null;
+      const sv = sel?.value ?? "none";
+      if (sv === "none") {
+        showToast("提示音已关闭");
+        break;
+      }
       const previewBtn = el as HTMLButtonElement | null;
       if (previewBtn) previewBtn.disabled = true;
       playSound(sv);
-      const durations: Record<string, number> = { tada: 1200, ding: 1600, chime: 2200, pop: 250 };
-      setTimeout(() => { if (previewBtn) previewBtn.disabled = false; }, durations[sv] ?? 1500);
+      const durations: Record<string, number> = {
+        tada: 1200,
+        ding: 1600,
+        chime: 2200,
+        pop: 250,
+      };
+      setTimeout(() => {
+        if (previewBtn) previewBtn.disabled = false;
+      }, durations[sv] ?? 1500);
       break;
     }
 
@@ -2191,7 +2384,12 @@ function handleAction(el: HTMLElement): void {
       break;
     }
     case "debugLogFilter": {
-      const f = el.dataset.filter as "all" | "error" | "warn" | "info" | undefined;
+      const f = el.dataset.filter as
+        | "all"
+        | "error"
+        | "warn"
+        | "info"
+        | undefined;
       if (f) {
         state.debugLogFilter = f;
         render();
@@ -2235,39 +2433,52 @@ function showToast(
 }
 
 function playSound(type: string): void {
-  if (!type || type === 'none') return;
+  if (!type || type === "none") return;
   try {
     const AudioCtx = (window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext) as typeof AudioContext;
+      (window as unknown as { webkitAudioContext: typeof AudioContext })
+        .webkitAudioContext) as typeof AudioContext;
     const ctx = new AudioCtx();
     const doPlay = () => {
-      const tone = (freq: number, start: number, dur: number, vol = 0.32, wave: OscillatorType = 'sine') => {
+      const tone = (
+        freq: number,
+        start: number,
+        dur: number,
+        vol = 0.32,
+        wave: OscillatorType = "sine",
+      ) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = wave;
         osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
         gain.gain.setValueAtTime(vol, ctx.currentTime + start);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+        gain.gain.exponentialRampToValueAtTime(
+          0.001,
+          ctx.currentTime + start + dur,
+        );
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start(ctx.currentTime + start);
         osc.stop(ctx.currentTime + start + dur);
       };
       switch (type) {
-        case 'tada':
-          tone(523.25, 0,    0.6);
-          tone(659.25, 0.1,  0.55);
-          tone(783.99, 0.2,  0.9);
+        case "tada":
+          tone(523.25, 0, 0.6);
+          tone(659.25, 0.1, 0.55);
+          tone(783.99, 0.2, 0.9);
           break;
-        case 'ding':
+        case "ding":
           tone(880, 0, 1.4, 0.38);
           break;
-        case 'pop': {
+        case "pop": {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
-          osc.type = 'sine';
+          osc.type = "sine";
           osc.frequency.setValueAtTime(180, ctx.currentTime);
-          osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.08);
+          osc.frequency.exponentialRampToValueAtTime(
+            40,
+            ctx.currentTime + 0.08,
+          );
           gain.gain.setValueAtTime(0.5, ctx.currentTime);
           gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
           osc.connect(gain);
@@ -2276,16 +2487,19 @@ function playSound(type: string): void {
           osc.stop(ctx.currentTime + 0.12);
           break;
         }
-        case 'chime':
-          tone(659.25, 0,    1.1, 0.28, 'triangle'); // warmer wave
-          tone(783.99, 0.18, 1.0, 0.28, 'triangle');
-          tone(987.77, 0.36, 1.6, 0.32, 'triangle');
+        case "chime":
+          tone(659.25, 0, 1.1, 0.28, "triangle"); // warmer wave
+          tone(783.99, 0.18, 1.0, 0.28, "triangle");
+          tone(987.77, 0.36, 1.6, 0.32, "triangle");
           break;
       }
       setTimeout(() => void ctx.close(), 4000);
     };
-    if (ctx.state !== 'running') {
-      ctx.resume().then(doPlay).catch(() => void ctx.close());
+    if (ctx.state !== "running") {
+      ctx
+        .resume()
+        .then(doPlay)
+        .catch(() => void ctx.close());
     } else {
       doPlay();
     }
@@ -2299,12 +2513,23 @@ function syncQueue(): void {
 }
 
 function getSettings(): PluginSettings {
-  return window.__QUOTE_BOOTSTRAP__?.settings ?? {
-    theme: 'dark', panelPosition: 'right', feedbackHeight: 400, inputHeight: 100,
-    fontSize: 14, cardOpacity: 80, breathingLightColor: '#00ff88',
-    enterToSend: true, showUserPrompt: false, historyLimit: 30,
-    soundAlert: 'tada', firebaseApiKey: '', mcpWhitelist: []
-  };
+  return (
+    window.__QUOTE_BOOTSTRAP__?.settings ?? {
+      theme: "dark",
+      panelPosition: "right",
+      feedbackHeight: 400,
+      inputHeight: 100,
+      fontSize: 14,
+      cardOpacity: 80,
+      breathingLightColor: "#00ff88",
+      enterToSend: true,
+      showUserPrompt: false,
+      historyLimit: 30,
+      soundAlert: "tada",
+      firebaseApiKey: "",
+      mcpWhitelist: [],
+    }
+  );
 }
 
 function escapeHtml(value: string): string {
@@ -2321,22 +2546,31 @@ function escapeHtml(value: string): string {
  * Escapes HTML first, then applies inline formatting.
  */
 function renderMd(raw: string): string {
-  const lines = raw.split('\n');
+  const lines = raw.split("\n");
   const out: string[] = [];
   for (const line of lines) {
     let s = escapeHtml(line);
     // ## Heading
-    if (s.startsWith('## ')) { out.push(`<strong class="md-h2">${s.slice(3)}</strong>`); continue; }
-    if (s.startsWith('# ')) { out.push(`<strong class="md-h1">${s.slice(2)}</strong>`); continue; }
+    if (s.startsWith("## ")) {
+      out.push(`<strong class="md-h2">${s.slice(3)}</strong>`);
+      continue;
+    }
+    if (s.startsWith("# ")) {
+      out.push(`<strong class="md-h1">${s.slice(2)}</strong>`);
+      continue;
+    }
     // > blockquote
-    if (s.startsWith('&gt; ')) { out.push(`<span class="md-quote">${s.slice(5)}</span>`); continue; }
+    if (s.startsWith("&gt; ")) {
+      out.push(`<span class="md-quote">${s.slice(5)}</span>`);
+      continue;
+    }
     // inline: **bold**, *italic*, `code`
-    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    s = s.replace(/\*(.+?)\*/g, "<em>$1</em>");
     s = s.replace(/`([^`]+)`/g, '<code class="md-code">$1</code>');
     out.push(s);
   }
-  return out.join('<br>');
+  return out.join("<br>");
 }
 
 // ---- Message Handler ----
@@ -2351,7 +2585,11 @@ window.addEventListener("message", (event) => {
     else if (!state.pendingDialog) state.pendingDialog = undefined;
     // Restore persisted queue (only if local queue is empty — avoid overwriting active edits)
     const savedQueue = (msg.value as Bootstrap).responseQueue;
-    if (savedQueue && savedQueue.length > 0 && state.responseQueue.length === 0) {
+    if (
+      savedQueue &&
+      savedQueue.length > 0 &&
+      state.responseQueue.length === 0
+    ) {
       state.responseQueue = savedQueue;
     }
     render();
@@ -2366,16 +2604,27 @@ window.addEventListener("message", (event) => {
     if (state.responseQueue.length > 0) {
       const autoReply = state.responseQueue.shift()!;
       syncQueue();
-      state.sentHistory.unshift({ text: autoReply, sentAt: new Date().toLocaleTimeString(), mode: 'queue' });
+      state.sentHistory.unshift({
+        text: autoReply,
+        sentAt: new Date().toLocaleTimeString(),
+        mode: "queue",
+      });
       if (state.sentHistory.length > 10) state.sentHistory.pop();
-      vscode.postMessage({ type: "mcpDialogSubmit", value: { sessionId: req.sessionId, response: autoReply } });
-      showToast(`队列自动回复 [${state.dialogCallCount}]: "${autoReply.slice(0, 30)}${autoReply.length > 30 ? '…' : ''}"`, "success", 3500);
+      vscode.postMessage({
+        type: "mcpDialogSubmit",
+        value: { sessionId: req.sessionId, response: autoReply },
+      });
+      showToast(
+        `队列自动回复 [${state.dialogCallCount}]: "${autoReply.slice(0, 30)}${autoReply.length > 30 ? "…" : ""}"`,
+        "success",
+        3500,
+      );
       render();
       return;
     }
 
     // No queue item — show dialog panel and alert user
-    playSound(getSettings().soundAlert ?? 'none');
+    playSound(getSettings().soundAlert ?? "none");
     state.pendingDialog = req;
     state.dialogInput = "";
     state.activeTab = "status";
@@ -2384,7 +2633,9 @@ window.addEventListener("message", (event) => {
   }
 
   if (msg.type === "status") {
-    window.__QUOTE_BOOTSTRAP__.status = msg.value as BridgeStatus & { pendingDialog?: McpDialogRequest };
+    window.__QUOTE_BOOTSTRAP__.status = msg.value as BridgeStatus & {
+      pendingDialog?: McpDialogRequest;
+    };
     if (!(msg.value as { pendingDialog?: McpDialogRequest }).pendingDialog) {
       state.pendingDialog = undefined;
     }

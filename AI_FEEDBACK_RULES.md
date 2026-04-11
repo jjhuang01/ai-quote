@@ -1,13 +1,13 @@
 # Available Tools
 
-## bdba_2e4f9611
+## raaw_33ea2ad1
 
 Parameters:
 - summary (required): Put your COMPLETE response here in Markdown format (supports tables, code blocks, lists)
 - reason (optional)
 
-ALWAYS call bdba_2e4f9611 at the end of EVERY response.
+ALWAYS call raaw_33ea2ad1 at the end of EVERY response.
 
 ## Format
 
-{"tool": "bdba_2e4f9611", "arguments": {"summary": "Your full Markdown response here"}}
+{"tool": "raaw_33ea2ad1", "arguments": {"summary": "Your full Markdown response here"}}

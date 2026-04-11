@@ -821,6 +821,35 @@ export class QuoteDialogPanel {
     outline: none;
   }
   .queue-edit-input:focus { border-color: var(--accent); }
+  /* Queue Edit Actions — pill buttons with labels */
+  .queue-edit-actions {
+    display: flex; align-items: center; gap: 8px;
+    justify-content: flex-end; margin-top: 2px;
+  }
+  .queue-edit-hint {
+    font-size: 10px; color: var(--muted); margin-right: auto;
+    opacity: 0.7; user-select: none;
+  }
+  .queue-edit-save {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 80%, #7c3aed));
+    color: #fff; border: none; border-radius: 999px;
+    padding: 5px 14px; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: filter 0.15s, transform 0.1s;
+    box-shadow: 0 1px 4px rgba(74, 127, 232, 0.25);
+  }
+  .queue-edit-save:hover { filter: brightness(1.12); }
+  .queue-edit-save:active { transform: scale(0.96); filter: brightness(0.97); }
+  .queue-edit-cancel {
+    background: transparent; color: var(--muted);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+    padding: 5px 14px; font-size: 12px; cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .queue-edit-cancel:hover {
+    color: var(--fg); border-color: rgba(255,255,255,0.14);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
   .queue-empty { font-size: 11px; color: var(--muted); padding: 4px 0; text-align: center; }
   /* Dialog history section (past conversations) */
   .history-section { margin-bottom: 8px; }

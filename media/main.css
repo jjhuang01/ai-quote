@@ -1255,19 +1255,34 @@ button:focus-visible {
   border-radius: var(--radius-lg);
   margin-bottom: 7px;
   border: 1px solid var(--border-glass);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
   transition:
     border-color var(--t-normal),
     background var(--t-normal),
-    box-shadow var(--t-normal);
+    box-shadow var(--t-normal),
+    transform var(--t-fast),
+    opacity var(--t-normal);
 }
 .ac-card:hover {
   border-color: var(--border-glass-hover);
   background: var(--surface-hover);
 }
+.ac-card:not(.ac-active):not(.ac-switching):hover {
+  transform: translateY(-1px);
+  box-shadow:
+    var(--shadow-card),
+    0 2px 12px rgba(0, 0, 0, 0.18);
+}
+.ac-card:active:not(.ac-active):not(.ac-switching) {
+  transform: scale(0.99);
+}
 .ac-card.ac-active {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border-subtle));
   background: color-mix(in srgb, var(--accent) 7%, var(--surface));
   box-shadow: inset 3px 0 0 var(--accent);
+  cursor: default;
 }
 .ac-card.ac-warn {
   border-color: color-mix(in srgb, var(--warning) 55%, var(--border-subtle));
@@ -1404,18 +1419,35 @@ button:focus-visible {
   color: var(--muted);
   letter-spacing: 0.01em;
 }
-/* Foot row: bars + actions */
-.ac-foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+/* Bars — full width (buttons removed, Jobs minimalism) */
 .ac-bars {
-  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+}
+/* Switching loading animation */
+.ac-card.ac-switching {
+  pointer-events: none;
+  opacity: 0.65;
+}
+.ac-switching-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  animation: ac-slide 0.9s ease-in-out infinite;
+}
+@keyframes ac-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
 }
 .ac-bar-row {
   display: flex;
@@ -2473,10 +2505,62 @@ button:focus-visible {
   resize: vertical;
   min-height: 48px;
 }
-.queue-edit-btns {
+/* Queue Edit Actions — pill buttons with labels */
+.queue-edit-actions {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
   justify-content: flex-end;
+  margin-top: 2px;
+}
+.queue-edit-hint {
+  font-size: 10px;
+  color: var(--muted);
+  margin-right: auto;
+  opacity: 0.7;
+  user-select: none;
+}
+.queue-edit-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: linear-gradient(135deg, var(--grad-start), var(--grad-end));
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 5px 14px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    filter 0.15s,
+    transform 0.1s;
+  box-shadow: 0 1px 4px rgba(74, 127, 232, 0.25);
+}
+.queue-edit-save:hover {
+  filter: brightness(1.12);
+}
+.queue-edit-save:active {
+  transform: scale(0.96);
+  filter: brightness(0.97);
+}
+.queue-edit-cancel {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-pill);
+  padding: 5px 14px;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    background 0.15s;
+}
+.queue-edit-cancel:hover {
+  color: var(--text);
+  border-color: var(--border-glass-hover);
+  background: var(--surface-hover);
 }
 .empty-queue-hint {
   font-style: italic;
@@ -2589,7 +2673,9 @@ button:focus-visible {
   font-size: 11px;
   cursor: pointer;
   line-height: 1;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 .btn-danger-xs:hover {
   background: color-mix(in srgb, var(--danger, #f87171) 30%, transparent);
@@ -2909,7 +2995,9 @@ button:focus-visible {
   font-size: 10px;
   padding: 2px 8px;
   background: transparent;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 .dbg-filter-group .btn-xs-active {
   background: var(--accent);
