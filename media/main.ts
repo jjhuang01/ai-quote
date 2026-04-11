@@ -579,6 +579,33 @@ function renderStatusTab(bs: Bootstrap): string {
     </div>`;
 }
 
+// ---- Account helpers ----
+
+/** Shared exhausted/expired detection (used by count, sort, and card rendering) */
+function isAccountDisabled(rq: RealQuotaInfo | undefined): { expired: boolean; exhausted: boolean } {
+  if (!rq) return { expired: false, exhausted: false };
+  const expired = !!rq.planEndTimestamp && rq.planEndTimestamp > 0 && rq.planEndTimestamp < Date.now();
+  const exhausted = !expired && (
+    (rq.weeklyRemainingPercent >= 0 && rq.weeklyRemainingPercent <= 10) ||
+    (rq.dailyRemainingPercent >= 0 && rq.dailyRemainingPercent <= 0 && rq.weeklyRemainingPercent < 0) ||
+    (rq.weeklyRemainingPercent < 0 && rq.weeklyResetAtUnix > 0)
+  );
+  return { expired, exhausted };
+}
+
+/** Sort score: lower = higher priority. Current first, then by remaining quota desc, disabled last. */
+function accountSortScore(a: WindsurfAccount, currentId: string | undefined, snapshotMap: Map<string, QuotaSnapshot>): number {
+  if (a.id === currentId) return -10000;
+  const rq = snapshotMap.get(a.id)?.real;
+  const { expired, exhausted } = isAccountDisabled(rq);
+  if (expired) return 9000;
+  if (exhausted) return 8000;
+  if (!rq) return 5000; // no data yet
+  const weeklyRemain = rq.weeklyRemainingPercent >= 0 ? rq.weeklyRemainingPercent : 0;
+  const dailyRemain = rq.dailyRemainingPercent >= 0 ? rq.dailyRemainingPercent : 0;
+  return 1000 - (weeklyRemain * 10 + dailyRemain);
+}
+
 // ---- Account Tab ----
 
 function renderAccountTab(bs: Bootstrap): string {
@@ -586,18 +613,16 @@ function renderAccountTab(bs: Bootstrap): string {
   const snapshotMap = new Map(quotaSnapshots.map((s) => [s.accountId, s]));
   const isFetching = bs.quotaFetching || state.quotaFetching;
 
-  // Count available accounts (not expired & not exhausted)
+  // Count available accounts (not expired & not exhausted, threshold: weekly used >= 90%)
   const availableCount = accounts.filter((a) => {
-    const rq = snapshotMap.get(a.id)?.real;
-    if (!rq) return true; // no quota data yet → assume available
-    const expired = !!rq.planEndTimestamp && rq.planEndTimestamp > 0 && rq.planEndTimestamp < Date.now();
-    const exhausted = !expired && (
-      (rq.weeklyRemainingPercent >= 0 && rq.weeklyRemainingPercent <= 0) ||
-      (rq.dailyRemainingPercent >= 0 && rq.dailyRemainingPercent <= 0 && rq.weeklyRemainingPercent < 0) ||
-      (rq.weeklyRemainingPercent < 0 && rq.weeklyResetAtUnix > 0)
-    );
+    const { expired, exhausted } = isAccountDisabled(snapshotMap.get(a.id)?.real);
     return !expired && !exhausted;
   }).length;
+
+  // Sort: current first → high remaining → low remaining → disabled last
+  const sorted = [...accounts].sort((a, b) =>
+    accountSortScore(a, bs.currentAccountId, snapshotMap) - accountSortScore(b, bs.currentAccountId, snapshotMap)
+  );
 
   return `
     <div class="tab-content">
@@ -655,8 +680,8 @@ function renderAccountTab(bs: Bootstrap): string {
 
         <div class="account-list">
           ${
-            accounts.length > 0
-              ? accounts
+            sorted.length > 0
+              ? sorted
                   .slice(0, state.accountPageSize)
                   .map((a) =>
                     renderAccountItem(
@@ -666,8 +691,8 @@ function renderAccountTab(bs: Bootstrap): string {
                     ),
                   )
                   .join("") +
-                (accounts.length > state.accountPageSize
-                  ? `<div style="text-align:center;padding:8px"><button class="btn-xs btn-icon" data-action="accountLoadMore">显示更多 (${state.accountPageSize}/${accounts.length})</button></div>`
+                (sorted.length > state.accountPageSize
+                  ? `<div style="text-align:center;padding:8px"><button class="btn-xs btn-icon" data-action="accountLoadMore">显示更多 (${state.accountPageSize}/${sorted.length})</button></div>`
                   : "")
               : `<div class="empty-state">${icon("inbox", "empty-icon")} <p>暂无账号，点击“添加”或“批量导入”</p></div>`
           }
@@ -785,23 +810,8 @@ function renderAccountItem(
     dailyText = `${Math.round(dailyFillPct)}%`;
   }
 
-  // 判断账号是否已过期（planEnd 在当前时间之前 — 无论 quota 百分比如何）
-  const isExpired =
-    !!rq &&
-    !!rq.planEndTimestamp &&
-    rq.planEndTimestamp > 0 &&
-    rq.planEndTimestamp < Date.now();
-
-  // 判断账号是否已耗尽配额（计划仍在期内，但周/日配额归零）
-  const isExhausted =
-    !isExpired &&
-    !!rq &&
-    ((rq.weeklyRemainingPercent >= 0 && rq.weeklyRemainingPercent <= 0) ||
-      (rq.dailyRemainingPercent >= 0 &&
-        rq.dailyRemainingPercent <= 0 &&
-        rq.weeklyRemainingPercent < 0) ||
-      (rq.weeklyRemainingPercent < 0 && rq.weeklyResetAtUnix > 0)); // "—" = API 未返回百分比但有重置时间 → 视为耗尽
-
+  // 判断账号状态 (shared helper: expired / exhausted with >=90% weekly threshold)
+  const { expired: isExpired, exhausted: isExhausted } = isAccountDisabled(rq);
   const isDisabled = isExpired || isExhausted;
 
   // fillClass based on usage% (low usage = ok, high usage = danger)
