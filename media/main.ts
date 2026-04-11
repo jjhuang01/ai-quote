@@ -586,11 +586,24 @@ function renderAccountTab(bs: Bootstrap): string {
   const snapshotMap = new Map(quotaSnapshots.map((s) => [s.accountId, s]));
   const isFetching = bs.quotaFetching || state.quotaFetching;
 
+  // Count available accounts (not expired & not exhausted)
+  const availableCount = accounts.filter((a) => {
+    const rq = snapshotMap.get(a.id)?.real;
+    if (!rq) return true; // no quota data yet → assume available
+    const expired = !!rq.planEndTimestamp && rq.planEndTimestamp > 0 && rq.planEndTimestamp < Date.now();
+    const exhausted = !expired && (
+      (rq.weeklyRemainingPercent >= 0 && rq.weeklyRemainingPercent <= 0) ||
+      (rq.dailyRemainingPercent >= 0 && rq.dailyRemainingPercent <= 0 && rq.weeklyRemainingPercent < 0) ||
+      (rq.weeklyRemainingPercent < 0 && rq.weeklyResetAtUnix > 0)
+    );
+    return !expired && !exhausted;
+  }).length;
+
   return `
     <div class="tab-content">
       <section class="card">
         <div class="section-header">
-          <h2>账号 (${accounts.length})</h2>
+          <h2>账号 (${availableCount}/${accounts.length})</h2>
           <div class="btn-group">
             <button class="btn-xs btn-icon ${isFetching ? "disabled" : ""}" data-action="fetchAllQuotas" ${isFetching ? "disabled" : ""} title="刷新全部配额">${isFetching ? `${icon("refresh")} …` : `${icon("refresh")} 配额`}</button>
             <button class="btn-xs btn-icon" data-action="toggleAddAccount">${icon("plus")} 添加</button>

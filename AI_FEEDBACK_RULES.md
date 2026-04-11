@@ -1,13 +1,13 @@
 # Available Tools
 
-## txei_46313f62
+## whgq_dae51b92
 
 Parameters:
 - summary (required): Put your COMPLETE response here in Markdown format (supports tables, code blocks, lists)
 - reason (optional)
 
-ALWAYS call txei_46313f62 at the end of EVERY response.
+ALWAYS call whgq_dae51b92 at the end of EVERY response.
 
 ## Format
 
-{"tool": "txei_46313f62", "arguments": {"summary": "Your full Markdown response here"}}
+{"tool": "whgq_dae51b92", "arguments": {"summary": "Your full Markdown response here"}}
