@@ -1290,31 +1290,33 @@ button:focus-visible {
 .ac-card.ac-crit {
   border-color: color-mix(in srgb, var(--danger) 55%, var(--border-subtle));
 }
-/* Exhausted / quota depleted state — 配额归零账号的禁用外观 */
+/* Exhausted / quota depleted — 幽灵化：几乎融入背景，健康卡片自然突出 */
 .ac-card.ac-exhausted {
-  background: color-mix(in srgb, var(--surface) 45%, var(--bg));
-  border-color: color-mix(in srgb, var(--border-glass) 35%, transparent);
-  opacity: 0.52;
+  background: color-mix(in srgb, var(--surface) 22%, var(--bg));
+  border-color: color-mix(in srgb, var(--border-glass) 12%, transparent);
+  opacity: 0.36;
+  filter: saturate(0.15) brightness(0.85);
+  cursor: not-allowed;
   transition:
     border-color var(--t-normal),
     background var(--t-normal),
-    opacity var(--t-normal);
+    opacity var(--t-normal),
+    filter var(--t-normal);
 }
 .ac-card.ac-exhausted:hover {
-  opacity: 0.75;
-  border-color: var(--border-glass);
-  background: color-mix(in srgb, var(--surface) 60%, var(--bg));
+  opacity: 0.52;
+  filter: saturate(0.3) brightness(0.92);
+  border-color: color-mix(in srgb, var(--border-glass) 25%, transparent);
+  background: color-mix(in srgb, var(--surface) 30%, var(--bg));
+  transform: none;
+  box-shadow: none;
 }
-/* Current account that is also exhausted: keep identity border, slightly less dimmed */
+/* Current account that is also exhausted: keep identity hint, still ghostly */
 .ac-card.ac-exhausted.ac-active {
-  opacity: 0.68;
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-glass));
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 50%, transparent);
-}
-/* Desaturate fill bars on exhausted cards */
-.ac-card.ac-exhausted .ac-fill {
-  background: color-mix(in srgb, var(--muted) 35%, transparent) !important;
-  filter: saturate(0);
+  opacity: 0.50;
+  filter: saturate(0.25) brightness(0.88);
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--border-glass));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 30%, transparent);
 }
 /* Badge: 已耗尽 */
 .badge-exhausted {
@@ -1334,15 +1336,18 @@ button:focus-visible {
   background: color-mix(in srgb, #92400e 8%, var(--bg));
   border-color: color-mix(in srgb, #b45309 25%, transparent);
   opacity: 0.55;
+  cursor: not-allowed;
   transition:
     border-color var(--t-normal),
     background var(--t-normal),
     opacity var(--t-normal);
 }
 .ac-card.ac-expired:hover {
-  opacity: 0.78;
-  border-color: color-mix(in srgb, #b45309 50%, transparent);
-  background: color-mix(in srgb, #92400e 14%, var(--bg));
+  opacity: 0.65;
+  border-color: color-mix(in srgb, #b45309 40%, transparent);
+  background: color-mix(in srgb, #92400e 10%, var(--bg));
+  transform: none;
+  box-shadow: none;
 }
 .ac-card.ac-expired.ac-active {
   opacity: 0.68;

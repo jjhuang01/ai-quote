@@ -1644,28 +1644,36 @@ function bindEvents(): void {
   }
 
   // Account card click → switch account (replaces inline 切换 button)
-  document.querySelectorAll<HTMLElement>(".ac-card[data-id]").forEach((card) => {
-    card.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).closest(".ac-checkbox, [data-action]")) return;
-      const id = card.dataset.id;
-      if (!id) return;
-      if (state.selectMode) {
-        if (state.selectedAccountIds.has(id)) {
-          state.selectedAccountIds.delete(id);
-        } else {
-          state.selectedAccountIds.add(id);
+  document
+    .querySelectorAll<HTMLElement>(".ac-card[data-id]")
+    .forEach((card) => {
+      card.addEventListener("click", (e) => {
+        if ((e.target as HTMLElement).closest(".ac-checkbox, [data-action]"))
+          return;
+        const id = card.dataset.id;
+        if (!id) return;
+        if (state.selectMode) {
+          if (state.selectedAccountIds.has(id)) {
+            state.selectedAccountIds.delete(id);
+          } else {
+            state.selectedAccountIds.add(id);
+          }
+          render();
+          return;
         }
+        if (
+          card.classList.contains("ac-exhausted") ||
+          card.classList.contains("ac-expired")
+        )
+          return;
+        const bs = window.__QUOTE_BOOTSTRAP__;
+        if (bs?.currentAccountId === id) return;
+        if (state.switchLoadingId) return;
+        state.switchLoadingId = id;
         render();
-        return;
-      }
-      const bs = window.__QUOTE_BOOTSTRAP__;
-      if (bs?.currentAccountId === id) return;
-      if (state.switchLoadingId) return;
-      state.switchLoadingId = id;
-      render();
-      vscode.postMessage({ type: "accountSwitch", value: id });
+        vscode.postMessage({ type: "accountSwitch", value: id });
+      });
     });
-  });
 
   // All data-action buttons
   document.querySelectorAll<HTMLElement>("[data-action]").forEach((el) => {
