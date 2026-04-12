@@ -1,13 +1,13 @@
 # Available Tools
 
-## ddgf_185c9277
+## jveg_adf21532
 
 Parameters:
 - summary (required): Put your COMPLETE response here in Markdown format (supports tables, code blocks, lists)
 - reason (optional)
 
-ALWAYS call ddgf_185c9277 at the end of EVERY response.
+ALWAYS call jveg_adf21532 at the end of EVERY response.
 
 ## Format
 
-{"tool": "ddgf_185c9277", "arguments": {"summary": "Your full Markdown response here"}}
+{"tool": "jveg_adf21532", "arguments": {"summary": "Your full Markdown response here"}}

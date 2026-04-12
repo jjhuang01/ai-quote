@@ -2658,7 +2658,6 @@ window.addEventListener("message", (event) => {
     playSound(getSettings().soundAlert ?? "none");
     state.pendingDialog = req;
     state.dialogInput = "";
-    state.activeTab = "status";
     render();
     return;
   }
