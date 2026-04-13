@@ -23,15 +23,17 @@ async function updateStatusBar(): Promise<void> {
     return;
   }
   const status = bridge.getStatus();
-  const waitingIcon = status.pendingDialog ? '$(pause-circle) ' : '';
+  const waitingIcon = status.activeDialog ? '$(pause-circle) ' : '';
   const onlineText = status.running ? `端口 ${status.port}` : '离线';
   statusBarItem.text = `${waitingIcon}$(comment) Quote (${onlineText})`;
+  const queuedText = status.queuedDialogCount > 0 ? `  \n队列中: ${status.queuedDialogCount}` : '';
   const toolTipMd = new vscode.MarkdownString(
     `**Quote 已激活 (${onlineText})**  \n` +
     `工具名: \`${status.toolName}\`  \n` +
     `IDE: ${status.currentIde}  \n` +
     `SSE 客户端: ${status.sseClientCount}` +
-    (status.pendingDialog ? '  \n⏸ **LLM 等待响应...**' : '')
+    (status.activeDialog ? '  \n⏸ **LLM 等待响应...**' : '') +
+    queuedText
   );
   toolTipMd.isTrusted = true;
   statusBarItem.tooltip = toolTipMd;
@@ -47,6 +49,9 @@ export async function activate(
 
   dataManager = DataManager.getInstance(context, logger);
   await dataManager.initialize();
+  context.subscriptions.push({
+    dispose: () => dataManager?.dispose(),
+  });
 
   bridge = new QuoteBridge(
     logger,
@@ -418,6 +423,7 @@ export async function deactivate(): Promise<void> {
     }
   }
   dataManager?.endSession();
+  dataManager?.dispose();
   DataManager.resetInstance();
   await bridge?.stop();
   logger?.dispose();

@@ -69,6 +69,8 @@ function createMockDataManager() {
       getCurrentAccountId: vi.fn(() => 'ws_1'),
       getAutoSwitchConfig: vi.fn(() => ({ enabled: false, threshold: 5 })),
       getQuotaSnapshots: vi.fn(() => []),
+      reloadFromDisk: vi.fn(async () => false),
+      onDidChangeAccounts: vi.fn((listener: () => void) => ({ dispose: vi.fn() })),
       isQuotaFetching: false,
       add: vi.fn(async () => ({ id: 'ws_new', email: 'new@test.com' })),
       importBatch: vi.fn(async () => ({ added: 2, skipped: 1 })),
@@ -134,18 +136,25 @@ function setupProvider() {
 
   const provider = new QuoteSidebarProvider(extensionUri, bridge, logger, dataManager, mockContext);
 
+  const visibilityHandlers: Array<() => void> = [];
+  const disposeHandlers: Array<() => void> = [];
   const postMessage = vi.fn(async () => true);
   const mockWebviewView = {
     webview: {
       options: {},
       html: '',
       postMessage,
-      onDidReceiveMessage: vi.fn(),
+      onDidReceiveMessage: vi.fn(() => ({ dispose: vi.fn() })),
       asWebviewUri: vi.fn((uri: any) => uri)
     },
-    onDidDispose: vi.fn(),
-    onDidChangeVisibility: vi.fn(),
-    show: vi.fn()
+    onDidDispose: vi.fn((handler: () => void) => {
+      disposeHandlers.push(handler);
+    }),
+    onDidChangeVisibility: vi.fn((handler: () => void) => {
+      visibilityHandlers.push(handler);
+    }),
+    show: vi.fn(),
+    visible: true,
   } as any;
 
   // Resolve the view to set up internal state
@@ -156,7 +165,7 @@ function setupProvider() {
     await (provider as any).handleMessage(msg);
   };
 
-  return { provider, bridge, logger, dataManager, postMessage, send };
+  return { provider, bridge, logger, dataManager, postMessage, send, visibilityHandlers, disposeHandlers, mockWebviewView };
 }
 
 describe('QuoteSidebarProvider - handleMessage', () => {
@@ -165,6 +174,136 @@ describe('QuoteSidebarProvider - handleMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     ctx = setupProvider();
+  });
+
+  describe('account sync', () => {
+    it('账号变更时发送 accountsSync 而不是只依赖全量 bootstrap', async () => {
+      const listenerStore: { fn?: () => void } = {};
+      const customDataManager = createMockDataManager();
+      customDataManager.windsurfAccounts.onDidChangeAccounts = vi.fn((fn: () => void) => {
+        listenerStore.fn = fn;
+        return { dispose: vi.fn() };
+      });
+
+      const bridge = createMockBridge();
+      const logger = createMockLogger();
+      const extensionUri = { fsPath: '/tmp/ext' } as any;
+      const mockContext = {
+        globalState: {
+          get: vi.fn(() => []),
+          update: vi.fn(async () => undefined),
+        },
+      } as any;
+
+      const provider = new QuoteSidebarProvider(extensionUri, bridge, logger, customDataManager, mockContext);
+      const postMessage = vi.fn(async () => true);
+      const mockWebviewView = {
+        webview: {
+          options: {},
+          html: '',
+          postMessage,
+          onDidReceiveMessage: vi.fn(() => ({ dispose: vi.fn() })),
+          asWebviewUri: vi.fn((uri: any) => uri)
+        },
+        onDidDispose: vi.fn(),
+        onDidChangeVisibility: vi.fn(),
+        show: vi.fn(),
+        visible: true,
+      } as any;
+
+      provider.resolveWebviewView(mockWebviewView, {} as any, {} as any);
+      listenerStore.fn?.();
+      await Promise.resolve();
+
+      const calls = postMessage.mock.calls.map((c: any) => c[0]);
+      const syncMsg = calls.find((m: any) => m.type === 'accountsSync');
+      expect(syncMsg).toBeTruthy();
+      expect(syncMsg.value).toMatchObject({
+        accounts: [],
+        currentAccountId: 'ws_1',
+      });
+    });
+
+    it('accountAdd 完成后发送 accountsSync', async () => {
+      await ctx.send({ type: 'accountAdd', payload: { email: 'new@test.com', password: 'secret' } });
+
+      const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      expect(calls.some((m: any) => m.type === 'accountsSync')).toBe(true);
+    });
+
+    it('关闭后重新打开视图，账号同步订阅仍然生效', async () => {
+      const listenerStore: { fn?: () => void } = {};
+      const customDataManager = createMockDataManager();
+      customDataManager.windsurfAccounts.onDidChangeAccounts = vi.fn((fn: () => void) => {
+        listenerStore.fn = fn;
+        return { dispose: vi.fn() };
+      });
+
+      const bridge = createMockBridge();
+      const logger = createMockLogger();
+      const extensionUri = { fsPath: '/tmp/ext' } as any;
+      const mockContext = {
+        globalState: {
+          get: vi.fn(() => []),
+          update: vi.fn(async () => undefined),
+        },
+      } as any;
+
+      const provider = new QuoteSidebarProvider(extensionUri, bridge, logger, customDataManager, mockContext);
+
+      const makeView = () => {
+        const postMessage = vi.fn(async () => true);
+        const disposeHandlers: Array<() => void> = [];
+        const mockWebviewView = {
+          webview: {
+            options: {},
+            html: '',
+            postMessage,
+            onDidReceiveMessage: vi.fn(() => ({ dispose: vi.fn() })),
+            asWebviewUri: vi.fn((uri: any) => uri)
+          },
+          onDidDispose: vi.fn((handler: () => void) => {
+            disposeHandlers.push(handler);
+          }),
+          onDidChangeVisibility: vi.fn(),
+          show: vi.fn(),
+          visible: true,
+        } as any;
+
+        provider.resolveWebviewView(mockWebviewView, {} as any, {} as any);
+        return { postMessage, disposeHandlers };
+      };
+
+      const firstView = makeView();
+      firstView.postMessage.mockClear();
+      firstView.disposeHandlers[0]?.();
+      const secondView = makeView();
+      secondView.postMessage.mockClear();
+
+      listenerStore.fn?.();
+      await Promise.resolve();
+
+      expect(firstView.postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'accountsSync' })
+      );
+      expect(secondView.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'accountsSync' })
+      );
+    });
+
+    it('视图重新可见时触发账号同步重载，仅推送 accountsSync', async () => {
+      ctx.dataManager.windsurfAccounts.reloadFromDisk.mockResolvedValue(true);
+      ctx.postMessage.mockClear();
+
+      const visibleHandler = ctx.visibilityHandlers[0];
+      await visibleHandler?.();
+
+      expect(ctx.dataManager.windsurfAccounts.reloadFromDisk).toHaveBeenCalled();
+      await Promise.resolve();
+      const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      expect(calls.some((m: any) => m.type === 'bootstrap')).toBe(false);
+      expect(calls.some((m: any) => m.type === 'accountsSync')).toBe(true);
+    });
   });
 
   // --- Account Switch ---

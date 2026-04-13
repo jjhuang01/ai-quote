@@ -5,6 +5,26 @@ import * as path from 'node:path';
 // Mock vscode
 vi.mock('vscode', () => ({
   default: {},
+  window: {
+    createFileSystemWatcher: vi.fn(() => ({
+      onDidChange: vi.fn(),
+      onDidCreate: vi.fn(),
+      onDidDelete: vi.fn(),
+      dispose: vi.fn(),
+    })),
+  },
+  RelativePattern: class {
+    constructor(public base: string, public pattern: string) {}
+  },
+  EventEmitter: class<T = void> {
+    private listeners: Array<(value: T) => void> = [];
+    event = (listener: (value: T) => void) => {
+      this.listeners.push(listener);
+      return { dispose: () => { this.listeners = this.listeners.filter((l) => l !== listener); } };
+    };
+    fire(value: T): void { this.listeners.forEach((listener) => listener(value)); }
+    dispose(): void { this.listeners = []; }
+  },
   Uri: { joinPath: (...args: string[]) => ({ fsPath: args.join('/') }) },
   commands: {
     getCommands: vi.fn(async () => [
@@ -85,6 +105,136 @@ describe('WindsurfAccountManager', () => {
       expect(account.quota.dailyUsed).toBe(0);
       expect(account.quota.weeklyUsed).toBe(0);
       expect(manager.getCurrentAccount()?.id).toBe(account.id);
+    });
+
+    it('首次写入后持久化 revision 和 updatedAt', async () => {
+      await manager.initialize();
+      await manager.add('rev@test.com', 'p');
+
+      const writeCall = (fs.writeFile as any).mock.calls.find(
+        ([filePath]: [string]) => filePath.endsWith('windsurf-accounts.json.tmp')
+      );
+
+      expect(writeCall).toBeTruthy();
+      const [, rawJson] = writeCall;
+      const payload = JSON.parse(rawJson);
+
+      expect(payload.revision).toBe(1);
+      expect(typeof payload.updatedAt).toBe('string');
+      expect(payload.accounts).toHaveLength(1);
+      expect(payload.currentId).toBe(payload.accounts[0].id);
+    });
+
+    it('reloadFromDisk 在磁盘 revision 更新时刷新内存', async () => {
+      await manager.initialize();
+      await manager.add('first@test.com', 'p');
+
+      const diskPayload = {
+        revision: 99,
+        updatedAt: '2026-04-13T00:00:00.000Z',
+        currentId: 'ws_disk',
+        autoSwitch: { enabled: false, threshold: 5, checkInterval: 60, creditWarning: 3, switchOnDaily: true, switchOnWeekly: true },
+        accounts: [{
+          id: 'ws_disk',
+          email: 'disk@test.com',
+          password: 'p',
+          plan: 'Free',
+          creditsUsed: 0,
+          creditsTotal: 0,
+          quota: { dailyUsed: 0, dailyLimit: 0, dailyResetAt: '', weeklyUsed: 0, weeklyLimit: 0, weeklyResetAt: '' },
+          expiresAt: '',
+          isActive: true,
+          addedAt: '2026-04-13T00:00:00.000Z'
+        }]
+      };
+
+      (fs.readFile as any).mockResolvedValueOnce(JSON.stringify(diskPayload));
+      const changed = await manager.reloadFromDisk();
+
+      expect(changed).toBe(true);
+      expect(manager.getAll().map((a) => a.email)).toEqual(['disk@test.com']);
+      expect(manager.getCurrentAccountId()).toBe('ws_disk');
+    });
+
+    it('delete 在写入前先重载较新的磁盘快照，避免旧数据回写', async () => {
+      const staleManager = new WindsurfAccountManager(mockContext, mockLogger);
+      await staleManager.initialize();
+
+      const diskPayload = {
+        revision: 3,
+        updatedAt: '2026-04-13T00:00:00.000Z',
+        currentId: 'ws_b',
+        autoSwitch: { enabled: false, threshold: 5, checkInterval: 60, creditWarning: 3, switchOnDaily: true, switchOnWeekly: true },
+        accounts: [
+          {
+            id: 'ws_b',
+            email: 'b@test.com',
+            password: 'p',
+            plan: 'Free',
+            creditsUsed: 0,
+            creditsTotal: 0,
+            quota: { dailyUsed: 0, dailyLimit: 0, dailyResetAt: '', weeklyUsed: 0, weeklyLimit: 0, weeklyResetAt: '' },
+            expiresAt: '',
+            isActive: true,
+            addedAt: '2026-04-13T00:00:00.000Z'
+          }
+        ]
+      };
+
+      (fs.readFile as any).mockResolvedValueOnce(JSON.stringify(diskPayload));
+      const deleted = await staleManager.delete('ws_b');
+
+      expect(deleted).toBe(true);
+
+      const writeCall = (fs.writeFile as any).mock.calls.find(
+        ([filePath]: [string]) => filePath.endsWith('windsurf-accounts.json.tmp')
+      );
+      const [, rawJson] = writeCall;
+      const payload = JSON.parse(rawJson);
+      expect(payload.accounts).toEqual([]);
+      expect(payload.revision).toBe(4);
+    });
+
+    it('本地写入后触发 onDidChangeAccounts', async () => {
+      await manager.initialize();
+      const listener = vi.fn();
+      const disposable = manager.onDidChangeAccounts(listener);
+
+      await manager.add('listener@test.com', 'p');
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      disposable.dispose();
+    });
+
+    it('检测到更高 revision 的外部变更时触发 onDidChangeAccounts', async () => {
+      await manager.initialize();
+      const listener = vi.fn();
+      const disposable = manager.onDidChangeAccounts(listener);
+
+      const diskPayload = {
+        revision: 10,
+        updatedAt: '2026-04-13T00:00:00.000Z',
+        currentId: 'ws_ext',
+        autoSwitch: { enabled: false, threshold: 5, checkInterval: 60, creditWarning: 3, switchOnDaily: true, switchOnWeekly: true },
+        accounts: [{
+          id: 'ws_ext',
+          email: 'external@test.com',
+          password: 'p',
+          plan: 'Free',
+          creditsUsed: 0,
+          creditsTotal: 0,
+          quota: { dailyUsed: 0, dailyLimit: 0, dailyResetAt: '', weeklyUsed: 0, weeklyLimit: 0, weeklyResetAt: '' },
+          expiresAt: '',
+          isActive: true,
+          addedAt: '2026-04-13T00:00:00.000Z'
+        }]
+      };
+
+      (fs.readFile as any).mockResolvedValueOnce(JSON.stringify(diskPayload));
+      await manager.reloadFromDisk();
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      disposable.dispose();
     });
 
     it('删除当前账号 — 自动切换到下一个', async () => {

@@ -15,6 +15,9 @@ interface BridgeStatus {
   sseClientCount: number;
   autoConfiguredPaths: string[];
   lastConfiguredAt?: string;
+  activeDialog?: McpDialogRequest;
+  queuedDialogCount?: number;
+  pendingDialog?: McpDialogRequest;
 }
 
 interface HistoryItem {
@@ -249,6 +252,7 @@ let state = {
   importText: "",
   addEmail: "",
   addPassword: "",
+  accountSearchQuery: "",
   selectMode: false,
   selectedAccountIds: new Set<string>(),
   // Shortcut
@@ -324,7 +328,7 @@ function render(): void {
   root.innerHTML = `
     <main class="infinite-shell">
       ${renderHeader(bs)}
-      ${state.pendingDialog ? '<div class="dialog-redirect-hint"><span>⏸</span> 对话已在编辑器标签页中打开，请在编辑器中回复</div>' : ""}
+      ${state.pendingDialog ? `<div class="dialog-redirect-hint"><span>⏸</span> 对话已在编辑器标签页中打开，请在编辑器中回复${(bs.status.queuedDialogCount ?? 0) > 0 ? ` · 另有 ${bs.status.queuedDialogCount} 条排队` : ""}</div>` : ""}
       ${renderTabNav()}
       ${renderActiveTab(bs)}
       ${state.notification ? `<div class="toast toast-${state.notificationType}">${state.notificationType === "success" ? icon("check") : state.notificationType === "error" ? icon("alertCircle") : icon("info")} ${escapeHtml(state.notification)}</div>` : ""}
@@ -341,11 +345,12 @@ function render(): void {
 // ---- Header ----
 
 function renderHeader(bs: Bootstrap): string {
+  const queued = bs.status.queuedDialogCount ?? 0;
   return `
     <header class="infinite-header">
       <div class="header-brand">
         <span class="header-title">Quote${state.pendingDialog ? " ⏸" : ""}</span>
-        <span class="header-sub">:${bs.status.port} · ${escapeHtml(bs.status.currentIde)}</span>
+        <span class="header-sub">:${bs.status.port} · ${escapeHtml(bs.status.currentIde)}${queued > 0 ? ` · 排队 ${queued}` : ""}</span>
       </div>
       <span class="status-pill ${bs.status.running ? "online" : "offline"}">
         <span class="pill-dot"></span>
@@ -426,6 +431,7 @@ function renderStatusTab(bs: Bootstrap): string {
             <span>SSE <b>${status.sseClientCount}</b></span>
             <span>消息 <b>${status.messageCount}</b></span>
             <span>配置 <b>${status.autoConfiguredPaths.length}</b></span>
+            <span>排队 <b>${status.queuedDialogCount ?? 0}</b></span>
           </div>
         </div>
         <div class="actions" style="margin-top:8px">
@@ -608,6 +614,16 @@ function accountSortScore(a: WindsurfAccount, currentId: string | undefined, sna
 
 // ---- Account Tab ----
 
+function filterAccounts(accounts: WindsurfAccount[], query: string): WindsurfAccount[] {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return accounts;
+  return accounts.filter((account) => {
+    const emailMatch = account.email.toLowerCase().includes(normalized);
+    const planMatch = account.plan.toLowerCase().includes(normalized);
+    return emailMatch || planMatch;
+  });
+}
+
 function renderAccountTab(bs: Bootstrap): string {
   const { accounts, autoSwitch, quotaSnapshots } = bs;
   const snapshotMap = new Map(quotaSnapshots.map((s) => [s.accountId, s]));
@@ -623,6 +639,7 @@ function renderAccountTab(bs: Bootstrap): string {
   const sorted = [...accounts].sort((a, b) =>
     accountSortScore(a, bs.currentAccountId, snapshotMap) - accountSortScore(b, bs.currentAccountId, snapshotMap)
   );
+  const filtered = filterAccounts(sorted, state.accountSearchQuery);
 
   return `
     <div class="tab-content">
@@ -648,6 +665,14 @@ function renderAccountTab(bs: Bootstrap): string {
           </div>`
               : ""
           }
+        </div>
+
+        <div class="account-search-row">
+          <div class="search-input-wrap">
+            ${icon("search")}
+            <input class="text-input" id="accountSearch" type="text" placeholder="搜索邮箱或套餐" value="${escapeHtml(state.accountSearchQuery)}">
+          </div>
+          ${state.accountSearchQuery ? `<button class="btn-xs btn-icon" data-action="accountSearchClear">清空</button>` : ""}
         </div>
 
         ${
@@ -680,8 +705,8 @@ function renderAccountTab(bs: Bootstrap): string {
 
         <div class="account-list">
           ${
-            sorted.length > 0
-              ? sorted
+            filtered.length > 0
+              ? filtered
                   .slice(0, state.accountPageSize)
                   .map((a) =>
                     renderAccountItem(
@@ -691,10 +716,10 @@ function renderAccountTab(bs: Bootstrap): string {
                     ),
                   )
                   .join("") +
-                (sorted.length > state.accountPageSize
-                  ? `<div style="text-align:center;padding:8px"><button class="btn-xs btn-icon" data-action="accountLoadMore">显示更多 (${state.accountPageSize}/${sorted.length})</button></div>`
+                (filtered.length > state.accountPageSize
+                  ? `<div style="text-align:center;padding:8px"><button class="btn-xs btn-icon" data-action="accountLoadMore">显示更多 (${state.accountPageSize}/${filtered.length})</button></div>`
                   : "")
-              : `<div class="empty-state">${icon("inbox", "empty-icon")} <p>暂无账号，点击“添加”或“批量导入”</p></div>`
+              : `<div class="empty-state">${icon("inbox", "empty-icon")} <p>${state.accountSearchQuery ? "未找到匹配账号" : "暂无账号，点击“添加”或“批量导入”"}</p></div>`
           }
         </div>
       </section>
@@ -1666,6 +1691,13 @@ function bindEvents(): void {
     }
   }
 
+  const accountSearch = document.getElementById("accountSearch") as HTMLInputElement | null;
+  accountSearch?.addEventListener("input", () => {
+    state.accountSearchQuery = accountSearch.value;
+    state.accountPageSize = 50;
+    render();
+  });
+
   // Account card click → switch account (replaces inline 切换 button)
   document
     .querySelectorAll<HTMLElement>(".ac-card[data-id]")
@@ -2015,6 +2047,11 @@ function handleAction(el: HTMLElement): void {
       break;
     case "accountLoadMore":
       state.accountPageSize += 50;
+      render();
+      break;
+    case "accountSearchClear":
+      state.accountSearchQuery = "";
+      state.accountPageSize = 50;
       render();
       break;
     case "toggleSelectMode":
@@ -2609,9 +2646,43 @@ function renderMd(raw: string): string {
 window.addEventListener("message", (event) => {
   const msg = event.data as { type: string; value: unknown };
 
+  if (msg.type === "selectTab") {
+    const nextTab = msg.value as TabId;
+    if (nextTab === "status" || nextTab === "account" || nextTab === "history" || nextTab === "tools" || nextTab === "settings" || nextTab === "debug") {
+      state.activeTab = nextTab;
+      render();
+    }
+    return;
+  }
+
+  if (msg.type === "accountsSync") {
+    const value = msg.value as Pick<Bootstrap, "accounts" | "currentAccountId" | "autoSwitch" | "quotaSnapshots" | "quotaFetching">;
+    window.__QUOTE_BOOTSTRAP__ = {
+      ...window.__QUOTE_BOOTSTRAP__,
+      accounts: value.accounts,
+      currentAccountId: value.currentAccountId,
+      autoSwitch: value.autoSwitch,
+      quotaSnapshots: value.quotaSnapshots,
+      quotaFetching: value.quotaFetching,
+    };
+
+    const nextIds = new Set(value.accounts.map((account) => account.id));
+    state.selectedAccountIds = new Set(
+      [...state.selectedAccountIds].filter((id) => nextIds.has(id))
+    );
+
+    if (state.accountPageSize < 50) {
+      state.accountPageSize = 50;
+    }
+
+    render();
+    return;
+  }
+
   if (msg.type === "bootstrap") {
     window.__QUOTE_BOOTSTRAP__ = msg.value as Bootstrap;
-    const pending = (msg.value as Bootstrap).status?.pendingDialog;
+    const status = (msg.value as Bootstrap).status;
+    const pending = status?.activeDialog ?? status?.pendingDialog;
     if (pending) state.pendingDialog = pending;
     else if (!state.pendingDialog) state.pendingDialog = undefined;
     // Restore persisted queue (only if local queue is empty — avoid overwriting active edits)
@@ -2663,10 +2734,11 @@ window.addEventListener("message", (event) => {
   }
 
   if (msg.type === "status") {
-    window.__QUOTE_BOOTSTRAP__.status = msg.value as BridgeStatus & {
-      pendingDialog?: McpDialogRequest;
-    };
-    if (!(msg.value as { pendingDialog?: McpDialogRequest }).pendingDialog) {
+    window.__QUOTE_BOOTSTRAP__.status = msg.value as BridgeStatus;
+    const nextDialog = (msg.value as BridgeStatus).activeDialog ?? (msg.value as BridgeStatus).pendingDialog;
+    if (nextDialog) {
+      state.pendingDialog = nextDialog;
+    } else {
       state.pendingDialog = undefined;
     }
     render();

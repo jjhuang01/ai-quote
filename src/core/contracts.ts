@@ -21,6 +21,9 @@ export interface QuoteStatus {
   sseClientCount: number;
   autoConfiguredPaths: string[];
   lastConfiguredAt?: string;
+  activeDialog?: McpDialogRequest;
+  queuedDialogCount: number;
+  /** @deprecated use activeDialog */
   pendingDialog?: McpDialogRequest;
 }
 

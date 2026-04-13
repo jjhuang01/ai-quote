@@ -22,6 +22,9 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
   ) {
     // Restore persisted queue
     this.responseQueue = this.context.globalState.get<string[]>('responseQueue', []);
+    this.dataManager.windsurfAccounts.onDidChangeAccounts(() => {
+      void this.postAccountsSync();
+    });
   }
 
   public resolveWebviewView(
@@ -51,7 +54,8 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
 
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
-        void this.postBootstrap();
+        this.focusAccountTab();
+        void this.revalidateAccounts();
       }
     });
   }
@@ -66,6 +70,11 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
 
   public isVisible(): boolean {
     return this.view?.visible ?? false;
+  }
+
+  private focusAccountTab(): void {
+    if (!this.view) return;
+    void this.view.webview.postMessage({ type: 'selectTab', value: 'account' });
   }
 
   public postPendingDialog(req: import('../core/contracts').McpDialogRequest): void {
@@ -111,6 +120,65 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     }, 150);
   }
 
+  private async revalidateAccounts(): Promise<void> {
+    const changed = await this.dataManager.windsurfAccounts.reloadFromDisk();
+    if (changed) {
+      await this.postAccountsSync();
+    }
+  }
+
+  private async buildAccountsPayload(): Promise<Pick<WebviewBootstrap, 'accounts' | 'currentAccountId' | 'autoSwitch' | 'quotaSnapshots' | 'quotaFetching'>> {
+    const accounts = this.dataManager.windsurfAccounts.getAll().map(a => ({
+      ...a,
+      password: '***'
+    }));
+
+    const wa = this.dataManager.windsurfAccounts as unknown as {
+      getRealCurrentAccountId?: () => Promise<string | undefined>;
+      getCurrentAccountId?: () => string | undefined;
+    };
+    const realCurrentAccountId = wa.getRealCurrentAccountId
+      ? await wa.getRealCurrentAccountId()
+      : wa.getCurrentAccountId?.();
+
+    const getRemain = (acc: typeof accounts[number]): number => {
+      const rq = acc.realQuota;
+      if (rq) {
+        if (rq.dailyRemainingPercent >= 0) return rq.dailyRemainingPercent;
+        if (rq.remainingMessages > 0) return 50 + Math.min(50, rq.remainingMessages);
+        return 50;
+      }
+      if (!acc.quota || acc.quota.dailyLimit === 0) return 50;
+      const used = acc.quota.dailyUsed;
+      const limit = acc.quota.dailyLimit;
+      return Math.max(0, Math.min(100, ((limit - used) / limit) * 100));
+    };
+
+    accounts.sort((a, b) => {
+      if (a.id === realCurrentAccountId) return -1;
+      if (b.id === realCurrentAccountId) return 1;
+      const diff = getRemain(b) - getRemain(a);
+      if (diff !== 0) return diff;
+      return (a.addedAt ?? '').localeCompare(b.addedAt ?? '');
+    });
+
+    return {
+      accounts,
+      autoSwitch: this.dataManager.windsurfAccounts.getAutoSwitchConfig(),
+      currentAccountId: realCurrentAccountId,
+      quotaSnapshots: this.dataManager.windsurfAccounts.getQuotaSnapshots(),
+      quotaFetching: this.dataManager.windsurfAccounts.isQuotaFetching,
+    };
+  }
+
+  private async postAccountsSync(): Promise<void> {
+    if (!this.view) return;
+    void this.view.webview.postMessage({
+      type: 'accountsSync',
+      value: await this.buildAccountsPayload(),
+    });
+  }
+
   private async _doPostBootstrap(): Promise<void> {
     if (!this.view) return;
     void this.view.webview.postMessage({
@@ -128,60 +196,16 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async buildBootstrapAsync(): Promise<WebviewBootstrap> {
-    // 过滤密码字段，不发送到 webview
-    const accounts = this.dataManager.windsurfAccounts.getAll().map(a => ({
-      ...a,
-      password: '***'
-    }));
-
-    const wa = this.dataManager.windsurfAccounts as unknown as {
-      getRealCurrentAccountId?: () => Promise<string | undefined>;
-      getCurrentAccountId?: () => string | undefined;
-    };
-    const realCurrentAccountId = wa.getRealCurrentAccountId
-      ? await wa.getRealCurrentAccountId()
-      : wa.getCurrentAccountId?.();
-
-    // 排序: 当前账号置顶 → 有配额优先 → 按剩余配额降序 → addedAt 稳定排序
-    // 注: quota 制下 remainingMessages 不可靠（Free plan availablePromptCredits=0 但 dailyRemainingPercent=100）
-    //     必须以 dailyRemainingPercent 为准
-    const getRemain = (acc: typeof accounts[number]): number => {
-      const rq = acc.realQuota;
-      if (rq) {
-        // -1 = API 未返回百分比字段；用 dailyRemainingPercent 排序（0=耗尽, 100=满额）
-        if (rq.dailyRemainingPercent >= 0) return rq.dailyRemainingPercent;
-        // 无百分比但有 remainingMessages（credits 制 Enterprise）
-        if (rq.remainingMessages > 0) return 50 + Math.min(50, rq.remainingMessages);
-        // 有 realQuota 但无任何有效数据
-        return 50;
-      }
-      // 未获取过配额: 给中性分值 (50)，排在有余量之后、耗尽之前
-      if (!acc.quota || acc.quota.dailyLimit === 0) return 50;
-      // 本地计数器 fallback: 转换为 0-100 等效分值
-      const used = acc.quota.dailyUsed;
-      const limit = acc.quota.dailyLimit;
-      return Math.max(0, Math.min(100, ((limit - used) / limit) * 100));
-    };
-    accounts.sort((a, b) => {
-      if (a.id === realCurrentAccountId) return -1;
-      if (b.id === realCurrentAccountId) return 1;
-      const diff = getRemain(b) - getRemain(a);
-      if (diff !== 0) return diff;
-      return (a.addedAt ?? '').localeCompare(b.addedAt ?? '');
-    });
+    const accountPayload = await this.buildAccountsPayload();
 
     return {
       status: this.bridge.getStatus(),
       history: this.dataManager.history.getAll(),
-      accounts,
+      ...accountPayload,
       shortcuts: this.dataManager.shortcuts.getAll(),
       templates: this.dataManager.templates.getAll(),
       settings: this.dataManager.settings.get(),
       usageStats: this.dataManager.usageStats.get(),
-      autoSwitch: this.dataManager.windsurfAccounts.getAutoSwitchConfig(),
-      currentAccountId: realCurrentAccountId,
-      quotaSnapshots: this.dataManager.windsurfAccounts.getQuotaSnapshots(),
-      quotaFetching: this.dataManager.windsurfAccounts.isQuotaFetching,
       responseQueue: this.responseQueue
     };
   }
@@ -349,7 +373,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           const password = Reflect.get(payload, 'password') as string;
           if (email && password) {
             await this.dataManager.windsurfAccounts.add(email, password);
-            this.postBootstrap();
+            await this.postAccountsSync();
           }
         }
         return true;
@@ -357,7 +381,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         if (typeof value === 'string') {
           const result = await this.dataManager.windsurfAccounts.importBatch(value);
           void this.view?.webview.postMessage({ type: 'importResult', value: result });
-          this.postBootstrap();
+          await this.postAccountsSync();
         }
         return true;
       case 'accountDelete':
@@ -368,7 +392,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           );
           if (delChoice === '删除') {
             await this.dataManager.windsurfAccounts.delete(value);
-            this.postBootstrap();
+            await this.postAccountsSync();
             void this.view?.webview.postMessage({ type: 'opResult', value: { message: account ? `已删除 ${account.email}` : '账号已删除' } });
           }
         }
@@ -382,13 +406,13 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
 
           if (switchResult.success && account) {
             // 立即刷新 UI（显示新 currentAccountId + 已有数据）
-            this.postBootstrap();
+            await this.postAccountsSync();
             const msg = `已切换到 ${account.email}`;
             void this.view?.webview.postMessage({ type: 'switchResult', value: { success: true, message: msg } });
             vscode.window.setStatusBarMessage(`$(check) ${msg}`, 4000);
             // 后台异步获取新账号配额，完成后再次刷新 UI
             void this.dataManager.windsurfAccounts.fetchRealQuota(value).then(() => {
-              this.postBootstrap();
+              void this.postAccountsSync();
             });
           } else {
             const errMsg = switchResult.error ?? '切换失败：未知错误';
@@ -405,7 +429,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           );
           if (choice === '删除') {
             const removed = await this.dataManager.windsurfAccounts.deleteBatch(ids);
-            this.postBootstrap();
+            await this.postAccountsSync();
             void this.view?.webview.postMessage({ type: 'opResult', value: { message: `已删除 ${removed} 个账号` } });
           }
         }
@@ -417,7 +441,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         );
         if (clearAccChoice === '清空') {
           await this.dataManager.windsurfAccounts.clear();
-          this.postBootstrap();
+          await this.postAccountsSync();
           void this.view?.webview.postMessage({ type: 'opResult', value: { message: '所有账号已清空' } });
         }
         return true;
@@ -425,7 +449,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
       case 'autoSwitchUpdate':
         if (payload && typeof payload === 'object') {
           await this.dataManager.windsurfAccounts.updateAutoSwitch(payload as Record<string, unknown>);
-          this.postBootstrap();
+          await this.postAccountsSync();
         }
         return true;
       case 'resetMachineId': {
@@ -440,7 +464,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           const weeklyLimit = Reflect.get(payload, 'weeklyLimit') as number;
           if (id && typeof dailyLimit === 'number' && typeof weeklyLimit === 'number') {
             await this.dataManager.windsurfAccounts.setQuotaLimits(id, dailyLimit, weeklyLimit);
-            this.postBootstrap();
+            await this.postAccountsSync();
           }
         }
         return true;
@@ -448,21 +472,21 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         await this.dataManager.windsurfAccounts.recordPrompt(
           typeof value === 'string' ? value : undefined
         );
-        this.postBootstrap();
+        await this.postAccountsSync();
         return true;
       case 'fetchQuota': {
         const id = typeof value === 'string' ? value : undefined;
-        this.postBootstrap();
+        await this.postAccountsSync();
         const result = await this.dataManager.windsurfAccounts.fetchRealQuota(id);
         void this.view?.webview.postMessage({ type: 'quotaFetchResult', value: result });
-        this.postBootstrap();
+        await this.postAccountsSync();
         return true;
       }
       case 'fetchAllQuotas': {
-        this.postBootstrap();
+        await this.postAccountsSync();
         const result = await this.dataManager.windsurfAccounts.fetchAllRealQuotas();
         void this.view?.webview.postMessage({ type: 'quotaFetchAllResult', value: result });
-        this.postBootstrap();
+        await this.postAccountsSync();
         return true;
       }
       default:

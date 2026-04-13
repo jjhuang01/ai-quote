@@ -36,16 +36,31 @@ export interface SwitchResult {
   error?: string;
 }
 
+interface PersistedWindsurfAccounts {
+  revision?: number;
+  updatedAt?: string;
+  accounts: WindsurfAccount[];
+  currentId?: string;
+  autoSwitch?: AutoSwitchConfig;
+  pendingSwitchId?: string;
+}
+
 export class WindsurfAccountManager {
   private readonly filePath: string;
   private accounts: WindsurfAccount[] = [];
   private currentAccountId?: string;
   private pendingSwitchId?: string;
   private autoSwitch: AutoSwitchConfig = { ...DEFAULT_AUTO_SWITCH };
+  private revision = 0;
+  private updatedAt = '';
+  private readonly onDidChangeAccountsEmitter = new vscode.EventEmitter<void>();
+  private watchInterval?: ReturnType<typeof setInterval>;
   private readonly logger: LoggerLike;
   private readonly auth: WindsurfAuth;
   private readonly quotaFetcher: WindsurfQuotaFetcher;
   private _quotaFetching = false;
+
+  public readonly onDidChangeAccounts = this.onDidChangeAccountsEmitter.event;
 
   public constructor(context: vscode.ExtensionContext, logger: LoggerLike) {
     this.filePath = path.join(
@@ -107,9 +122,64 @@ export class WindsurfAccountManager {
     return { ...this.autoSwitch };
   }
 
+  private applyPersistedState(data: PersistedWindsurfAccounts | undefined): void {
+    this.accounts = (data?.accounts ?? []).map((a) => ({
+      ...a,
+      quota: a.quota
+        ? { ...DEFAULT_QUOTA, ...a.quota }
+        : { ...DEFAULT_QUOTA },
+    }));
+    this.currentAccountId = data?.currentId;
+    this.autoSwitch = { ...DEFAULT_AUTO_SWITCH, ...(data?.autoSwitch ?? {}) };
+    this.pendingSwitchId = data?.pendingSwitchId;
+    this.revision = data?.revision ?? 0;
+    this.updatedAt = data?.updatedAt ?? '';
+  }
+
+  private async readPersistedState(): Promise<PersistedWindsurfAccounts | undefined> {
+    return safeReadJson<PersistedWindsurfAccounts>(this.filePath);
+  }
+
+  public async reloadFromDisk(): Promise<boolean> {
+    const data = await this.readPersistedState();
+    const nextRevision = data?.revision ?? 0;
+    if (nextRevision <= this.revision) {
+      return false;
+    }
+    this.applyPersistedState(data);
+    this.onDidChangeAccountsEmitter.fire();
+    return true;
+  }
+
+  private async revalidateBeforeWrite(): Promise<void> {
+    await this.reloadFromDisk();
+  }
+
+  public startWatching(): void {
+    if (this.watchInterval) return;
+    this.watchInterval = setInterval(() => {
+      void this.reloadFromDisk().catch((error) => {
+        this.logger.warn("Account sync reload failed.", { error: String(error) });
+      });
+    }, 1000);
+  }
+
+  public stopWatching(): void {
+    if (this.watchInterval) {
+      clearInterval(this.watchInterval);
+      this.watchInterval = undefined;
+    }
+  }
+
+  public dispose(): void {
+    this.stopWatching();
+    this.onDidChangeAccountsEmitter.dispose();
+  }
+
   // --- CRUD ---
 
   public async add(email: string, password: string): Promise<WindsurfAccount> {
+    await this.revalidateBeforeWrite();
     const account: WindsurfAccount = {
       id: `ws_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       email,
@@ -134,6 +204,7 @@ export class WindsurfAccountManager {
   public async importBatch(
     lines: string,
   ): Promise<{ added: number; skipped: number }> {
+    await this.revalidateBeforeWrite();
     const entries = lines
       .split("\n")
       .map((l) => l.trim())
@@ -220,6 +291,7 @@ export class WindsurfAccountManager {
       >
     >,
   ): Promise<boolean> {
+    await this.revalidateBeforeWrite();
     const account = this.accounts.find((a) => a.id === id);
     if (!account) return false;
     Object.assign(account, partial);
@@ -228,6 +300,7 @@ export class WindsurfAccountManager {
   }
 
   public async delete(id: string): Promise<boolean> {
+    await this.revalidateBeforeWrite();
     const index = this.accounts.findIndex((a) => a.id === id);
     if (index === -1) return false;
     this.accounts.splice(index, 1);
@@ -240,6 +313,7 @@ export class WindsurfAccountManager {
   }
 
   public async deleteBatch(ids: string[]): Promise<number> {
+    await this.revalidateBeforeWrite();
     const idSet = new Set(ids);
     const before = this.accounts.length;
     this.accounts = this.accounts.filter((a) => !idSet.has(a.id));
@@ -254,6 +328,7 @@ export class WindsurfAccountManager {
   }
 
   public async clear(): Promise<void> {
+    await this.revalidateBeforeWrite();
     this.accounts = [];
     this.currentAccountId = undefined;
     await this.save();
@@ -266,6 +341,7 @@ export class WindsurfAccountManager {
    * 流程: Firebase signIn → 获取 idToken → 调用 Windsurf 原生命令注入 session
    */
   public async switchTo(id: string): Promise<SwitchResult> {
+    await this.revalidateBeforeWrite();
     const account = this.accounts.find((a) => a.id === id);
     if (!account) return { success: false, error: "账号不存在" };
 
@@ -451,6 +527,7 @@ export class WindsurfAccountManager {
   public async updateAutoSwitch(
     config: Partial<AutoSwitchConfig>,
   ): Promise<AutoSwitchConfig> {
+    await this.revalidateBeforeWrite();
     this.autoSwitch = { ...this.autoSwitch, ...config };
     await this.save();
     return this.getAutoSwitchConfig();
@@ -459,6 +536,7 @@ export class WindsurfAccountManager {
   // --- Quota Tracking ---
 
   public async recordPrompt(accountId?: string): Promise<void> {
+    await this.revalidateBeforeWrite();
     const id = accountId ?? this.currentAccountId;
     if (!id) return;
     const account = this.accounts.find((a) => a.id === id);
@@ -477,6 +555,7 @@ export class WindsurfAccountManager {
     dailyLimit: number,
     weeklyLimit: number,
   ): Promise<boolean> {
+    await this.revalidateBeforeWrite();
     const account = this.accounts.find((a) => a.id === id);
     if (!account) return false;
     account.quota.dailyLimit = dailyLimit;
@@ -842,25 +921,17 @@ export class WindsurfAccountManager {
   }
 
   private async load(): Promise<void> {
-    const data = await safeReadJson<{
-      accounts: WindsurfAccount[];
-      currentId?: string;
-      autoSwitch?: AutoSwitchConfig;
-      pendingSwitchId?: string;
-    }>(this.filePath);
-    this.accounts = (data?.accounts ?? []).map((a) => ({
-      ...a,
-      quota: a.quota
-        ? { ...DEFAULT_QUOTA, ...a.quota }
-        : { ...DEFAULT_QUOTA },
-    }));
-    this.currentAccountId = data?.currentId;
-    this.autoSwitch = { ...DEFAULT_AUTO_SWITCH, ...(data?.autoSwitch ?? {}) };
-    this.pendingSwitchId = data?.pendingSwitchId;
+    const data = await this.readPersistedState();
+    this.applyPersistedState(data);
   }
 
   private async save(): Promise<void> {
-    const payload: Record<string, unknown> = {
+    this.revision += 1;
+    this.updatedAt = new Date().toISOString();
+
+    const payload: PersistedWindsurfAccounts = {
+      revision: this.revision,
+      updatedAt: this.updatedAt,
       accounts: this.accounts,
       currentId: this.currentAccountId,
       autoSwitch: this.autoSwitch,
@@ -869,5 +940,6 @@ export class WindsurfAccountManager {
       payload.pendingSwitchId = this.pendingSwitchId;
     }
     await safeWriteJson(this.filePath, payload);
+    this.onDidChangeAccountsEmitter.fire();
   }
 }

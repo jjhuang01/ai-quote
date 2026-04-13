@@ -76,12 +76,17 @@ export class DataManager {
     await this.templates.initialize();
     await this.usageStats.initialize();
     await this.windsurfAccounts.initialize();
+    this.windsurfAccounts.startWatching();
     const savedSettings = this.settings.get();
     if (savedSettings.firebaseApiKey) {
       this.windsurfAccounts.setFirebaseApiKey(savedSettings.firebaseApiKey);
     }
     this.startSession();
     this.logger.info('DataManager initialized.');
+  }
+
+  public dispose(): void {
+    this.windsurfAccounts.dispose();
   }
 
   public startSession(): void {

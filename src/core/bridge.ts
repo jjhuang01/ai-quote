@@ -64,13 +64,23 @@ const KEEPALIVE_INTERVAL_MS = 3_000;
 
 export type DialogCallback = (request: McpDialogRequest) => void;
 
+interface PendingDialogTask {
+  request: McpDialogRequest;
+  sessionId: string;
+  httpResponse: http.ServerResponse;
+  clientProgressToken?: string | number;
+  resolveResult: (value: string | undefined) => void;
+}
+
 export class QuoteBridge {
   private readonly messages: QuoteMessage[] = [];
   private readonly clients = new Map<string, http.ServerResponse>();
   private server?: http.Server;
   private configuredPaths: string[] = [];
   private lastConfiguredAt?: string;
-  private pendingDialog?: McpDialogRequest;
+  private activeDialog?: McpDialogRequest;
+  private readonly queuedDialogs: PendingDialogTask[] = [];
+  private processingDialog = false;
   private dialogCallback?: DialogCallback;
   private dialogResolvedCallback?: () => void;
   private sseClientChangeCallback?: () => void;
@@ -123,7 +133,9 @@ export class QuoteBridge {
       client.end();
     }
     this.clients.clear();
-    this.pendingDialog = undefined;
+    this.activeDialog = undefined;
+    this.processingDialog = false;
+    this.queuedDialogs.length = 0;
     // Resolve all pending dialog awaits so handleMcpRequest coroutines can exit cleanly.
     for (const resolver of this.pendingDialogResolvers.values()) {
       resolver("Bridge stopped", undefined, true);
@@ -167,7 +179,9 @@ export class QuoteBridge {
       sseClientCount: this.clients.size,
       autoConfiguredPaths: this.configuredPaths,
       lastConfiguredAt: this.lastConfiguredAt,
-      pendingDialog: this.pendingDialog,
+      activeDialog: this.activeDialog,
+      queuedDialogCount: this.queuedDialogs.length,
+      pendingDialog: this.activeDialog,
     };
   }
 
@@ -199,9 +213,9 @@ export class QuoteBridge {
     response: string,
     images?: ImageAttachment[],
   ): void {
-    // Try reverse mapping first (RC3), then pendingDialog id, then sessionId
+    // Try reverse mapping first (RC3), then activeDialog id, then sessionId
     const dialogKey = this.sessionToDialogKey.get(sessionId)
-      ?? (this.pendingDialog?.sessionId === sessionId ? this.pendingDialog.id : undefined);
+      ?? (this.activeDialog?.sessionId === sessionId ? this.activeDialog.id : undefined);
     const resolver = (dialogKey != null ? this.pendingDialogResolvers.get(dialogKey) : undefined)
       ?? this.pendingDialogResolvers.get(sessionId);
     if (resolver) {
@@ -213,13 +227,13 @@ export class QuoteBridge {
         sessionId,
         dialogKey,
         responseLen: response.length,
-        hasPendingDialog: !!this.pendingDialog,
-        pendingDialogSessionId: this.pendingDialog?.sessionId,
+        hasActiveDialog: !!this.activeDialog,
+        activeDialogSessionId: this.activeDialog?.sessionId,
       });
     }
     this.sessionToDialogKey.delete(sessionId);
-    if (this.pendingDialog?.sessionId === sessionId) {
-      this.pendingDialog = undefined;
+    if (this.activeDialog?.sessionId === sessionId) {
+      this.activeDialog = undefined;
     }
   }
 
@@ -231,32 +245,290 @@ export class QuoteBridge {
     req: McpDialogRequest,
     onResponse: (r: string) => void,
   ): void {
-    // Only clean up a previous TEST session (never resolve a real MCP session with a garbage string).
-    // Real MCP sessions have sessionId like "sess_..." injected by attachSseClient.
-    if (
-      this.pendingDialog &&
-      this.pendingDialog.sessionId.startsWith("test_")
-    ) {
-      const oldKey = this.pendingDialog.id;
-      const oldSessionId = this.pendingDialog.sessionId;
-      if (this.pendingDialogResolvers.has(oldKey)) {
-        this.pendingDialogResolvers.get(oldKey)?.("Replaced by new test", undefined, true);
-        this.pendingDialogResolvers.delete(oldKey);
-      }
-      this.sessionToDialogKey.delete(oldSessionId);
-    }
-    this.pendingDialog = req;
     this.sessionToDialogKey.set(req.sessionId, req.id);
-    // Use req.id as key (consistent with MCP code path)
     this.pendingDialogResolvers.set(req.id, (response: string) => {
       onResponse(response);
-      if (this.pendingDialog?.sessionId === req.sessionId) {
-        this.pendingDialog = undefined;
+      if (this.activeDialog?.sessionId === req.sessionId) {
+        this.activeDialog = undefined;
       }
+      this.sessionToDialogKey.delete(req.sessionId);
     });
+    this.activeDialog = req;
     this.logger.info("Test dialog injected.", { sessionId: req.sessionId });
-    // Notify extension to open dialog panel (same as real MCP calls)
     this.dialogCallback?.(req);
+  }
+
+  private async handleMcpRequest(
+    body: Record<string, unknown>,
+    sessionId: string | undefined,
+    httpResponse: http.ServerResponse,
+  ): Promise<void> {
+    const method = body["method"];
+
+    if (method === "initialize") {
+      writeJson(httpResponse, 200, {
+        jsonrpc: "2.0",
+        id: body["id"] ?? null,
+        result: {
+          protocolVersion: "2025-03-26",
+          capabilities: { tools: {} },
+          serverInfo: {
+            name: "quote-bridge",
+            version: "0.1.0",
+          },
+        },
+      });
+      return;
+    }
+
+    if (method === "notifications/initialized") {
+      httpResponse.writeHead(202, { "Access-Control-Allow-Origin": "*" });
+      httpResponse.end();
+      return;
+    }
+
+    if (method === "tools/list") {
+      writeJson(httpResponse, 200, {
+        jsonrpc: "2.0",
+        id: body["id"] ?? null,
+        result: {
+          tools: [this.buildToolDef()],
+        },
+      });
+      return;
+    }
+
+    if (method !== "tools/call") {
+      writeJson(httpResponse, 400, {
+        jsonrpc: "2.0",
+        id: body["id"] ?? null,
+        error: {
+          code: -32601,
+          message: `Unsupported MCP method: ${String(method)}`,
+        },
+      });
+      return;
+    }
+
+    const params = (body["params"] ?? {}) as Record<string, unknown>;
+    const argumentsObject = (params["arguments"] ?? {}) as Record<string, unknown>;
+    const summary = String(argumentsObject["summary"] ?? "");
+    const options = Array.isArray(argumentsObject["options"])
+      ? argumentsObject["options"].filter((item): item is string => typeof item === "string")
+      : undefined;
+    const isMarkdown = argumentsObject["is_markdown"] !== false;
+    const clientProgressToken = params["_meta"] && typeof params["_meta"] === "object"
+      ? (params["_meta"] as Record<string, unknown>)["progressToken"] as string | number | undefined
+      : undefined;
+
+    if (!sessionId) {
+      writeJson(httpResponse, 400, {
+        jsonrpc: "2.0",
+        id: body["id"] ?? null,
+        error: {
+          code: -32000,
+          message: "Missing sessionId for MCP dialog request",
+        },
+      });
+      return;
+    }
+
+    const dialogReq: McpDialogRequest = {
+      id: body["id"] as string | number,
+      sessionId,
+      summary,
+      options,
+      isMarkdown,
+      receivedAt: new Date().toISOString(),
+    };
+
+    await new Promise<void>((resolve) => {
+      this.sessionToDialogKey.set(sessionId, dialogReq.id);
+      this.queuedDialogs.push({
+        request: dialogReq,
+        sessionId,
+        httpResponse,
+        clientProgressToken,
+        resolveResult: () => resolve(),
+      });
+      void this.processQueuedDialogs();
+    });
+  }
+
+  private async processQueuedDialogs(): Promise<void> {
+    if (this.processingDialog) {
+      return;
+    }
+    this.processingDialog = true;
+    try {
+      while (this.queuedDialogs.length > 0) {
+        const task = this.queuedDialogs.shift();
+        if (!task) {
+          break;
+        }
+        await this.runDialogTask(task);
+      }
+    } finally {
+      this.processingDialog = false;
+    }
+  }
+
+  private async runDialogTask(task: PendingDialogTask): Promise<void> {
+    const { request: dialogReq, sessionId, httpResponse, clientProgressToken, resolveResult } = task;
+    this.activeDialog = dialogReq;
+    this.logger.info("MCP tools/call: awaiting dialog response.", {
+      sessionId,
+      summaryLen: dialogReq.summary.length,
+      queuedDialogCount: this.queuedDialogs.length,
+    });
+
+    const findSseClient = (): http.ServerResponse | undefined => {
+      const original = this.clients.get(sessionId);
+      if (original && !original.writableEnded) {
+        return original;
+      }
+      return undefined;
+    };
+
+    const writeSseEvent = (client: http.ServerResponse, data: string): void => {
+      client.write(`event: message\ndata: ${data}\n\n`);
+    };
+
+    const buildRpcResponse = (result: unknown, error?: unknown): string => {
+      const rpcResponse: Record<string, unknown> = {
+        jsonrpc: "2.0",
+        id: dialogReq.id ?? null,
+      };
+      if (error) rpcResponse["error"] = error;
+      else rpcResponse["result"] = result;
+      return JSON.stringify(rpcResponse);
+    };
+
+    let rpcResultData: string | undefined;
+    const dialogKey = dialogReq.id;
+
+    const dialogPromise = new Promise<void>((resolve) => {
+      this.pendingDialogResolvers.set(
+        dialogKey,
+        (userResponse: string, images?: ImageAttachment[], cancelled?: boolean) => {
+          clearInterval(keepAlive);
+          clearTimeout(timeoutHandle);
+          if (cancelled) {
+            rpcResultData = buildRpcResponse(undefined, {
+              code: -32001,
+              message: userResponse,
+            });
+            this.logger.info("MCP dialog cancelled.", {
+              sessionId,
+              reason: userResponse,
+            });
+            resolve();
+            return;
+          }
+          const content: Record<string, unknown>[] = [
+            { type: "text", text: userResponse },
+          ];
+          if (images && images.length > 0) {
+            for (const img of images) {
+              content.push({
+                type: "image",
+                data: img.data,
+                mimeType: img.media_type,
+              });
+            }
+          }
+          rpcResultData = buildRpcResponse({ content, isError: false });
+          this.logger.info("MCP dialog response prepared.", {
+            sessionId,
+            responseLen: userResponse.length,
+            imageCount: images?.length ?? 0,
+          });
+          resolve();
+        },
+      );
+    });
+
+    let progressCounter = 0;
+    const keepAlive = setInterval(() => {
+      const client = findSseClient();
+      if (client) {
+        progressCounter++;
+        client.write(": keepalive\n\n");
+        if (clientProgressToken !== undefined) {
+          const progressNotification = JSON.stringify({
+            jsonrpc: "2.0",
+            method: "notifications/progress",
+            params: {
+              progressToken: clientProgressToken,
+              progress: progressCounter,
+              message: "Waiting for user response...",
+            },
+          });
+          writeSseEvent(client, progressNotification);
+        }
+        const logNotification = JSON.stringify({
+          jsonrpc: "2.0",
+          method: "notifications/message",
+          params: {
+            level: "info",
+            logger: "quote-keepalive",
+            data: `Waiting for user response... (${progressCounter * 3}s)`,
+          },
+        });
+        writeSseEvent(client, logNotification);
+      }
+    }, KEEPALIVE_INTERVAL_MS);
+
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    if (this.dialogTimeoutMs > 0) {
+      timeoutHandle = setTimeout(() => {
+        const resolver = this.pendingDialogResolvers.get(dialogKey);
+        if (resolver) {
+          this.pendingDialogResolvers.delete(dialogKey);
+          this.sessionToDialogKey.delete(sessionId);
+          this.activeDialog = undefined;
+          this.logger.info("Dialog auto-dismissed due to timeout.", {
+            sessionId,
+            timeoutMs: this.dialogTimeoutMs,
+          });
+          resolver("Dialog timed out", undefined, true);
+        }
+      }, this.dialogTimeoutMs);
+    }
+
+    this.dialogCallback?.(dialogReq);
+    await dialogPromise;
+    clearInterval(keepAlive);
+    clearTimeout(timeoutHandle);
+
+    this.pendingDialogResolvers.delete(dialogKey);
+    this.sessionToDialogKey.delete(sessionId);
+    this.activeDialog = undefined;
+
+    if (rpcResultData) {
+      const sseClient = findSseClient();
+      if (sseClient) {
+        writeSseEvent(sseClient, rpcResultData);
+        if (!httpResponse.writableEnded) {
+          httpResponse.writeHead(202, { "Access-Control-Allow-Origin": "*" });
+          httpResponse.end();
+        }
+        this.logger.info("MCP dialog response sent via SSE → 202.", {
+          sessionId,
+        });
+      } else if (!httpResponse.writableEnded) {
+        writeJson(httpResponse, 200, JSON.parse(rpcResultData));
+        this.logger.info("MCP dialog response sent via HTTP fallback → 200.", {
+          sessionId,
+        });
+      }
+    } else if (!httpResponse.writableEnded) {
+      httpResponse.writeHead(202, { "Access-Control-Allow-Origin": "*" });
+      httpResponse.end();
+    }
+
+    this.dialogResolvedCallback?.();
+    resolveResult(rpcResultData);
   }
 
   private async handleRequest(
@@ -403,332 +675,6 @@ export class QuoteBridge {
     });
   }
 
-  private async handleMcpRequest(
-    body: Record<string, unknown>,
-    sessionId: string | undefined,
-    httpResponse: http.ServerResponse,
-  ): Promise<void> {
-    const method = body["method"] as string | undefined;
-    const id = body["id"] as number | string | undefined;
-
-    this.logger.info("MCP request received.", { method, id, sessionId });
-
-    // Helper: find the best SSE client to write to.
-    // Prefers the original session, but falls back to the latest connected client.
-    const findSseClient = (): http.ServerResponse | undefined => {
-      if (sessionId) {
-        const original = this.clients.get(sessionId);
-        if (original && !original.writableEnded) return original;
-      }
-      // Fallback: pick latest connected client (SSE reconnection recovery)
-      let latest: http.ServerResponse | undefined;
-      for (const c of this.clients.values()) {
-        if (!c.writableEnded) latest = c;
-      }
-      if (latest) {
-        this.logger.warn("findSseClient: using fallback (SSE reconnected?).", {
-          originalSessionId: sessionId,
-          activeClients: this.clients.size,
-        });
-      }
-      return latest;
-    };
-
-    // Write a JSON-RPC message to SSE with proper `event: message` prefix (MCP spec)
-    const writeSseEvent = (client: http.ServerResponse, data: string): void => {
-      client.write(`event: message\ndata: ${data}\n\n`);
-    };
-
-    // Build a JSON-RPC response object
-    const buildRpcResponse = (result: unknown, error?: unknown): string => {
-      const rpcResponse: Record<string, unknown> = {
-        jsonrpc: "2.0",
-        id: id ?? null,
-      };
-      if (error) rpcResponse["error"] = error;
-      else rpcResponse["result"] = result;
-      return JSON.stringify(rpcResponse);
-    };
-
-    // For non-dialog methods: send result via SSE AND respond 200 directly.
-    // Matching old plugin behavior — fast methods get direct HTTP responses.
-    const pushAndRespond = (result: unknown, error?: unknown): void => {
-      const data = buildRpcResponse(result, error);
-      const client = findSseClient();
-      if (client) writeSseEvent(client, data);
-      writeJson(httpResponse, 200, JSON.parse(data));
-      this.logger.info("MCP response sent (direct).", { method, id });
-    };
-
-    switch (method) {
-      case "initialize": {
-        pushAndRespond({
-          protocolVersion: "2024-11-05",
-          capabilities: { tools: {} },
-          serverInfo: { name: this.toolName, version: "1.0.0" },
-          instructions:
-            "Use the available tool to deliver responses to the user.",
-        });
-        break;
-      }
-      case "notifications/initialized":
-        // No response needed for notifications — just ack the POST
-        httpResponse.writeHead(202, { "Access-Control-Allow-Origin": "*" });
-        httpResponse.end();
-        break;
-      case "tools/list":
-      case "tools/list/": {
-        pushAndRespond({
-          tools: [this.buildToolDef()],
-        });
-        break;
-      }
-      case "tools/call": {
-        // ═══════════════════════════════════════════════════════════════
-        // CRITICAL: Do NOT close httpResponse yet!
-        // The POST stays open until the dialog resolves.
-        // This prevents Cascade's internal MCP request timeout —
-        // Cascade won't start its timeout timer until the POST closes.
-        // Old plugin uses the same pattern: await result → SSE → 202.
-        // ═══════════════════════════════════════════════════════════════
-        const params = body["params"] as Record<string, unknown> | undefined;
-        const args = params?.["arguments"] as
-          | Record<string, unknown>
-          | undefined;
-        const summary = (args?.["summary"] as string | undefined) ?? "";
-        const rawOptions = args?.["options"];
-        const options = Array.isArray(rawOptions)
-          ? (rawOptions as string[])
-          : undefined;
-        const isMarkdown =
-          (args?.["is_markdown"] as boolean | undefined) ?? true;
-
-        if (!sessionId) {
-          pushAndRespond(undefined, {
-            code: -32000,
-            message: "tools/call requires SSE session",
-          });
-          break;
-        }
-
-        // B3: Validate tool name
-        const calledName = params?.["name"] as string | undefined;
-        if (calledName && calledName !== this.toolName) {
-          pushAndRespond(undefined, {
-            code: -32601,
-            message: `Tool not found: ${calledName}`,
-          });
-          this.logger.warn("tools/call: unknown tool name.", {
-            calledName,
-            expected: this.toolName,
-          });
-          break;
-        }
-
-        // B1: Handle concurrent/retry calls —
-        // supersede old dialog instead of rejecting (supports Windsurf timeout retries)
-        if (this.pendingDialog) {
-          const oldKey = this.pendingDialog.id;
-          const oldSessionId = this.pendingDialog.sessionId;
-          const oldResolver = this.pendingDialogResolvers.get(oldKey);
-          if (oldResolver) {
-            this.pendingDialogResolvers.delete(oldKey);
-            this.sessionToDialogKey.delete(oldSessionId);
-            this.logger.info("tools/call: superseding previous dialog (retry).", {
-              oldDialogId: oldKey,
-              sessionId,
-            });
-            oldResolver("Dialog superseded by a newer request", undefined, true);
-          }
-          this.pendingDialog = undefined;
-        }
-
-        const dialogReq: McpDialogRequest = {
-          id: id ?? createId("mcp"),
-          sessionId,
-          summary,
-          options,
-          isMarkdown,
-          receivedAt: new Date().toISOString(),
-        };
-        this.pendingDialog = dialogReq;
-        if (sessionId) this.sessionToDialogKey.set(sessionId, dialogReq.id);
-        this.logger.info("MCP tools/call: awaiting dialog response.", {
-          sessionId,
-          summaryLen: summary.length,
-        });
-
-        // Extract progressToken for MCP progress notifications (resets client-side timeout)
-        const meta = (params as Record<string, unknown> | undefined)?.[
-          "_meta"
-        ] as Record<string, unknown> | undefined;
-        const clientProgressToken = meta?.["progressToken"] as
-          | string
-          | number
-          | undefined;
-        const dialogKey = dialogReq.id;
-
-        // Capture the JSON-RPC result data when resolver fires
-        let rpcResultData: string | undefined;
-
-        // Set up resolver FIRST so dialogCallback can auto-reply synchronously
-        // Key by dialogReq.id (stable) — NOT sessionId (dies on SSE reconnect)
-        const dialogPromise = new Promise<void>((resolve) => {
-          this.pendingDialogResolvers.set(
-            dialogKey,
-            (userResponse: string, images?: ImageAttachment[], cancelled?: boolean) => {
-              clearInterval(keepAlive);
-              clearTimeout(timeoutHandle);
-              if (cancelled) {
-                // RC2: Return JSON-RPC error instead of fake user response
-                rpcResultData = buildRpcResponse(undefined, {
-                  code: -32001,
-                  message: userResponse,
-                });
-                this.logger.info("MCP dialog cancelled.", {
-                  sessionId,
-                  reason: userResponse,
-                });
-                resolve();
-                return;
-              }
-              const content: Record<string, unknown>[] = [
-                { type: "text", text: userResponse },
-              ];
-              if (images && images.length > 0) {
-                for (const img of images) {
-                  content.push({
-                    type: "image",
-                    data: img.data,
-                    mimeType: img.media_type,
-                  });
-                }
-              }
-              rpcResultData = buildRpcResponse({ content, isError: false });
-              this.logger.info("MCP dialog response prepared.", {
-                sessionId,
-                responseLen: userResponse.length,
-                imageCount: images?.length ?? 0,
-              });
-              resolve();
-            },
-          );
-        });
-
-        this.logger.info("MCP tools/call: keepalive config.", {
-          sessionId,
-          clientProgressToken: clientProgressToken ?? "(none)",
-        });
-
-        // Multi-layer keepalive strategy to prevent Windsurf Cascade timeout.
-        let progressCounter = 0;
-        const keepAlive = setInterval(() => {
-          const client = findSseClient();
-          if (client) {
-            progressCounter++;
-            // L1: SSE comment — keeps TCP/proxy/LB connections alive
-            client.write(": keepalive\n\n");
-
-            // L2: MCP progress notification — resets client SDK request timeout.
-            if (clientProgressToken !== undefined) {
-              const progressNotification = JSON.stringify({
-                jsonrpc: "2.0",
-                method: "notifications/progress",
-                params: {
-                  progressToken: clientProgressToken,
-                  progress: progressCounter,
-                  total: progressCounter + 1,
-                  message: "Waiting for user response...",
-                },
-              });
-              writeSseEvent(client, progressNotification);
-            }
-
-            // L3: MCP log notification — a real JSON-RPC named event.
-            const logNotification = JSON.stringify({
-              jsonrpc: "2.0",
-              method: "notifications/message",
-              params: {
-                level: "info",
-                logger: "quote-keepalive",
-                data: `Waiting for user response... (${progressCounter * 3}s)`,
-              },
-            });
-            writeSseEvent(client, logNotification);
-          } else {
-            // No active SSE client — broadcast keepalive comment to all
-            for (const c of this.clients.values()) {
-              if (!c.writableEnded) c.write(": keepalive\n\n");
-            }
-          }
-        }, KEEPALIVE_INTERVAL_MS);
-
-        // Optional auto-timeout (0 = wait indefinitely)
-        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-        if (this.dialogTimeoutMs > 0) {
-          timeoutHandle = setTimeout(() => {
-            const resolver = this.pendingDialogResolvers.get(dialogKey);
-            if (resolver) {
-              this.pendingDialogResolvers.delete(dialogKey);
-              if (sessionId) this.sessionToDialogKey.delete(sessionId);
-              this.pendingDialog = undefined;
-              this.logger.info("Dialog auto-dismissed due to timeout.", {
-                sessionId,
-                timeoutMs: this.dialogTimeoutMs,
-              });
-              resolver("Dialog timed out", undefined, true);
-            }
-          }, this.dialogTimeoutMs);
-        }
-
-        // Notify extension to show dialog (resolver already registered — auto-reply works)
-        if (this.dialogCallback) {
-          this.dialogCallback(dialogReq);
-        }
-
-        // ── Await dialog resolution (POST stays open the entire time) ──
-        await dialogPromise;
-        clearInterval(keepAlive);
-        clearTimeout(timeoutHandle);
-
-        // ── Send result: SSE first, then close POST (matches old plugin pattern) ──
-        if (rpcResultData) {
-          const sseClient = findSseClient();
-          if (sseClient) {
-            // SSE delivery succeeded — ack POST with 202 (empty)
-            writeSseEvent(sseClient, rpcResultData);
-            if (!httpResponse.writableEnded) {
-              httpResponse.writeHead(202, { "Access-Control-Allow-Origin": "*" });
-              httpResponse.end();
-            }
-            this.logger.info("MCP dialog response sent via SSE → 202.", {
-              sessionId,
-            });
-          } else if (!httpResponse.writableEnded) {
-            // SSE unavailable — fall back to direct HTTP 200 + JSON body
-            writeJson(httpResponse, 200, JSON.parse(rpcResultData));
-            this.logger.info("MCP dialog response sent via HTTP fallback → 200.", {
-              sessionId,
-            });
-          }
-        } else if (!httpResponse.writableEnded) {
-          // Resolver fired without result (bridge stopping, etc.)
-          httpResponse.writeHead(202, { "Access-Control-Allow-Origin": "*" });
-          httpResponse.end();
-        }
-        this.dialogResolvedCallback?.();
-        break;
-      }
-      case "ping":
-        pushAndRespond({});
-        break;
-      default:
-        pushAndRespond(undefined, {
-          code: -32601,
-          message: `Method not found: ${method ?? "unknown"}`,
-        });
-    }
-  }
 
   private buildToolDef(): Record<string, unknown> {
     return {

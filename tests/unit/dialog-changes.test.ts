@@ -327,7 +327,54 @@ describe('MCP progress notification format', () => {
   });
 });
 
-// ── RC2: Supersede/timeout returns JSON-RPC error, not fake user reply ──
+describe('FIFO dialog queue semantics', () => {
+  type Request = { id: number | string; sessionId: string };
+
+  function enqueue(queue: Request[], req: Request): { active: Request; queuedCount: number } | null {
+    queue.push(req);
+    const active = queue[0];
+    if (!active) return null;
+    return { active, queuedCount: Math.max(0, queue.length - 1) };
+  }
+
+  function resolveActive(queue: Request[]): { nextActive?: Request; queuedCount: number } {
+    queue.shift();
+    return {
+      nextActive: queue[0],
+      queuedCount: Math.max(0, queue.length - 1),
+    };
+  }
+
+  it('keeps first request active and places later requests into backlog', () => {
+    const queue: Request[] = [];
+    const first = enqueue(queue, { id: 1, sessionId: 'sess_a' });
+    const second = enqueue(queue, { id: 2, sessionId: 'sess_b' });
+
+    expect(first).toEqual({ active: { id: 1, sessionId: 'sess_a' }, queuedCount: 0 });
+    expect(second).toEqual({ active: { id: 1, sessionId: 'sess_a' }, queuedCount: 1 });
+  });
+
+  it('promotes next queued request only after active request resolves', () => {
+    const queue: Request[] = [];
+    enqueue(queue, { id: 1, sessionId: 'sess_a' });
+    enqueue(queue, { id: 2, sessionId: 'sess_b' });
+
+    const afterResolve = resolveActive(queue);
+    expect(afterResolve.nextActive).toEqual({ id: 2, sessionId: 'sess_b' });
+    expect(afterResolve.queuedCount).toBe(0);
+  });
+
+  it('does not supersede earlier requests when new requests arrive', () => {
+    const queue: Request[] = [];
+    enqueue(queue, { id: 1, sessionId: 'sess_a' });
+    enqueue(queue, { id: 2, sessionId: 'sess_b' });
+    enqueue(queue, { id: 3, sessionId: 'sess_c' });
+
+    expect(queue.map((item) => item.id)).toEqual([1, 2, 3]);
+  });
+});
+
+// ── RC2: timeout/stop returns JSON-RPC error, not fake user reply ──
 
 describe('RC2: Cancelled dialog returns JSON-RPC error', () => {
   function buildRpcResponse(result: unknown, error?: unknown): Record<string, unknown> {
@@ -370,15 +417,6 @@ describe('RC2: Cancelled dialog returns JSON-RPC error', () => {
     expect(r.content[0].text).toBe('Hello LLM');
   });
 
-  it('superseded dialog produces JSON-RPC error', () => {
-    const result = buildDialogResult('Dialog superseded by a newer request', undefined, true);
-    expect(result).toHaveProperty('error');
-    expect(result).not.toHaveProperty('result');
-    const err = result['error'] as { code: number; message: string };
-    expect(err.code).toBe(-32001);
-    expect(err.message).toContain('superseded');
-  });
-
   it('timed-out dialog produces JSON-RPC error', () => {
     const result = buildDialogResult('Dialog timed out', undefined, true);
     const err = result['error'] as { code: number; message: string };
@@ -394,7 +432,7 @@ describe('RC2: Cancelled dialog returns JSON-RPC error', () => {
   });
 
   it('cancelled response never leaks as tool result text', () => {
-    const result = buildDialogResult('(superseded by retry)', undefined, true);
+    const result = buildDialogResult('(cancelled)', undefined, true);
     // Must NOT appear in result.content
     expect(result).not.toHaveProperty('result');
   });
