@@ -63,14 +63,16 @@ export async function activate(
   const runningPort = await bridge.start();
 
   // Multi-window isolation: if port fell back, another instance owns the primary toolName.
-  // Generate a session-scoped toolName so both windows have independent MCP entries.
+  // Generate a session-scoped toolName so each window keeps an independent MCP entry.
   secondaryInstance = runningPort !== config.serverPort;
   if (secondaryInstance) {
     const { generateToolName } = await import('./utils/tool-name');
     toolName = generateToolName();
     bridge.updateToolName(toolName);
     logger.info('Secondary instance detected — using session-scoped toolName.', {
-      primaryPort: config.serverPort, runningPort, toolName
+      primaryPort: config.serverPort,
+      runningPort,
+      toolName,
     });
   }
   activeToolName = toolName;
@@ -82,6 +84,35 @@ export async function activate(
     dataManager,
     context,
   );
+
+  const rotateMcpName = async (): Promise<{ newName: string }> => {
+    if (!bridge) {
+      throw new Error('Bridge 未初始化');
+    }
+    const newName = await rotateToolName(context.globalStorageUri.fsPath);
+    toolName = newName;
+    bridge.updateToolName(newName);
+    activeToolName = newName;
+    const sseUrl = `http://127.0.0.1:${bridge.getPort()}/sse`;
+    try {
+      await writeMcpConfig(detectCurrentIde(), newName, sseUrl);
+      await configureGlobalRules(newName);
+      logger?.info('MCP config + rules re-written after rotation.', { newName });
+    } catch (err) {
+      logger?.warn('Re-write after rotation partially failed.', { error: String(err) });
+    }
+    try {
+      const { cleanupStaleRules } = await import('./adapters/rules');
+      const removed = await cleanupStaleRules(newName);
+      if (removed.length > 0) {
+        logger?.info('Stale rule files cleaned up after rotation.', { removed });
+      }
+    } catch (err) {
+      logger?.warn('cleanupStaleRules after rotation failed (non-fatal).', { error: String(err) });
+    }
+    return { newName };
+  };
+  sidebarProvider.setRotateMcpNameCallback(rotateMcpName);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       QuoteSidebarProvider.viewId,
@@ -99,8 +130,8 @@ export async function activate(
   context.subscriptions.push(statusBarItem);
 
   // Auto MCP config and rules writing
+  const sseUrl = `http://127.0.0.1:${runningPort}/sse`;
   if (config.autoConfigureRules && vscode.workspace.isTrusted) {
-    const sseUrl = `http://127.0.0.1:${runningPort}/sse`;
     const configuredPaths: string[] = [];
     try {
       const mcpPath = await writeMcpConfig(currentIde, toolName, sseUrl);
@@ -121,8 +152,6 @@ export async function activate(
     bridge.setConfiguredPaths(configuredPaths);
     logger.info('Auto configuration completed.', { configuredPaths, secondaryInstance });
 
-    // Periodic MCP config guard: re-write our entry if Windsurf settings UI overwrites it.
-    // Checks every 30s — lightweight (single file read + optional write).
     const guardLogger = logger;
     const mcpGuardInterval = setInterval(async () => {
       try {
@@ -130,7 +159,9 @@ export async function activate(
         if (!ok) {
           guardLogger.warn('MCP config entry missing — re-written.');
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }, 30_000);
     context.subscriptions.push({ dispose: () => clearInterval(mcpGuardInterval) });
   }
@@ -252,31 +283,10 @@ export async function activate(
       });
     }),
     vscode.commands.registerCommand("quote.rotateName", async () => {
-      if (!bridge) return;
-      const newName = await rotateToolName(context.globalStorageUri.fsPath);
-      bridge.updateToolName(newName);
-      // Re-write MCP config and rules so AI uses the new tool name
-      const sseUrl = `http://127.0.0.1:${bridge.getPort()}/sse`;
-      try {
-        await writeMcpConfig(detectCurrentIde(), newName, sseUrl);
-        await configureGlobalRules(newName);
-        logger?.info('MCP config + rules re-written after rotation.', { newName });
-      } catch (err) {
-        logger?.warn('Re-write after rotation partially failed.', { error: String(err) });
-      }
-      // 清理旧 .mdc 规则文件（保留新名称，删除旧的 Quote 生成文件）
-      try {
-        const { cleanupStaleRules } = await import('./adapters/rules');
-        const removed = await cleanupStaleRules(newName);
-        if (removed.length > 0) {
-          logger?.info('Stale rule files cleaned up after rotation.', { removed });
-        }
-      } catch (err) {
-        logger?.warn('cleanupStaleRules after rotation failed (non-fatal).', { error: String(err) });
-      }
+      const result = await rotateMcpName();
       await updateStatusBar();
       sidebarProvider.postBootstrap();
-      void vscode.window.showInformationMessage(`工具名已旋转为: ${newName}`);
+      void vscode.window.showInformationMessage(`工具名已旋转为: ${result.newName}`);
     }),
     vscode.commands.registerCommand("quote.testDialog", () => {
       if (!bridge) return;
@@ -399,7 +409,7 @@ async function completePendingSwitch(
 }
 
 export async function deactivate(): Promise<void> {
-  // Clean up MCP config entry and workspace rules for ALL instances (prevents zombie entries on dead ports)
+  // Clean up this window's MCP config entry and workspace rules.
   if (activeToolName) {
     try {
       const ide = detectCurrentIde();

@@ -97,10 +97,10 @@ export async function ensureMcpConfigEntry(target: IdeTarget, toolName: string, 
     const raw = await fs.readFile(target.configPath, 'utf8');
     const config = JSON.parse(raw) as McpConfigFile;
     const entry = config.mcpServers?.[toolName];
-    if (entry && typeof entry === 'object' && 'url' in entry) {
-      return true; // Entry exists
+    if (entry && typeof entry === 'object' && 'url' in entry && entry.url === url) {
+      return true; // Entry exists and points to this owner
     }
-    // Entry missing — re-write
+    // Entry missing or stale — re-write
     await writeMcpConfig(target, toolName, url);
     return true;
   } catch {
