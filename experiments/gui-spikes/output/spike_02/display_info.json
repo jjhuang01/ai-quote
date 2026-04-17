@@ -1,0 +1,32 @@
+{
+  "system_profiler": [
+    {
+      "name": "Color LCD",
+      "resolution": "1440 x 900 @ 60.00Hz",
+      "pixels": "2880 x 1800",
+      "retina": ""
+    },
+    {
+      "name": "vFound",
+      "resolution": "1920 x 1080 @ 30.00Hz",
+      "pixels": "3840 x 2160",
+      "retina": ""
+    }
+  ],
+  "quartz": {
+    "display_id": 1,
+    "physical_pixels": {
+      "width": 1440,
+      "height": 900
+    },
+    "logical_points": {
+      "width": 1440,
+      "height": 900
+    },
+    "scale_factor": 1.0,
+    "screen_size_mm": {
+      "width": 286.9,
+      "height": 179.3
+    }
+  }
+}

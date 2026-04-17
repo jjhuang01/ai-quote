@@ -1,0 +1,60 @@
+{
+  "spike": "A12: Performance Pipeline",
+  "spike_id": "spike_12",
+  "timestamp": "2026-04-14T01:57:11.605446",
+  "total_elapsed_ms": 4612.9,
+  "passed": 7,
+  "failed": 0,
+  "skipped": 0,
+  "steps": [
+    {
+      "num": 1,
+      "name": "检查 OCR 依赖",
+      "status": "pass",
+      "detail": "OCR 可用",
+      "elapsed_ms": 0.2
+    },
+    {
+      "num": 2,
+      "name": "运行 #1/5",
+      "status": "pass",
+      "detail": "✓ 1228ms < 2000ms",
+      "elapsed_ms": 1229.0
+    },
+    {
+      "num": 3,
+      "name": "运行 #2/5",
+      "status": "pass",
+      "detail": "✓ 807ms < 2000ms",
+      "elapsed_ms": 808.5
+    },
+    {
+      "num": 4,
+      "name": "运行 #3/5",
+      "status": "pass",
+      "detail": "✓ 874ms < 2000ms",
+      "elapsed_ms": 874.4
+    },
+    {
+      "num": 5,
+      "name": "运行 #4/5",
+      "status": "pass",
+      "detail": "✓ 841ms < 2000ms",
+      "elapsed_ms": 841.8
+    },
+    {
+      "num": 6,
+      "name": "运行 #5/5",
+      "status": "pass",
+      "detail": "✓ 857ms < 2000ms",
+      "elapsed_ms": 858.0
+    },
+    {
+      "num": 7,
+      "name": "汇总性能报告",
+      "status": "pass",
+      "detail": "平均 921ms < 2000ms ✓",
+      "elapsed_ms": 0.7
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+[
+  {
+    "display_id": 1,
+    "is_main": true,
+    "origin": {
+      "x": 0,
+      "y": 0
+    },
+    "logical_size": {
+      "w": 1440,
+      "h": 900
+    },
+    "physical_pixels": {
+      "w": 1440,
+      "h": 900
+    }
+  },
+  {
+    "display_id": 2,
+    "is_main": false,
+    "origin": {
+      "x": 1440,
+      "y": 0
+    },
+    "logical_size": {
+      "w": 1920,
+      "h": 1080
+    },
+    "physical_pixels": {
+      "w": 1920,
+      "h": 1080
+    }
+  }
+]

@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-04-14T02:07:42.547330",
+  "mode": "safe",
+  "results": [
+    {
+      "name": "spike_01_screenshot",
+      "status": "pass",
+      "exit_code": 0,
+      "elapsed_s": 2.3
+    },
+    {
+      "name": "spike_02_resolution",
+      "status": "pass",
+      "exit_code": 0,
+      "elapsed_s": 1.1
+    },
+    {
+      "name": "spike_10_window_focus",
+      "status": "pass",
+      "exit_code": 0,
+      "elapsed_s": 7.0
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "others": 0
+  }
+}

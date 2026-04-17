@@ -1,0 +1,46 @@
+{
+  "spike": "A9: Send via Enter",
+  "spike_id": "spike_09",
+  "timestamp": "2026-04-14T01:57:01.396739",
+  "total_elapsed_ms": 3250.6,
+  "passed": 5,
+  "failed": 0,
+  "skipped": 0,
+  "steps": [
+    {
+      "num": 1,
+      "name": "确认 Windsurf/Cursor 在前台",
+      "status": "pass",
+      "detail": "Windsurf 在前台 ✓",
+      "elapsed_ms": 323.2
+    },
+    {
+      "num": 2,
+      "name": "OCR 检测输入框和发送按钮",
+      "status": "pass",
+      "detail": "输入框=✓, 发送按钮=✓",
+      "elapsed_ms": 2160.1
+    },
+    {
+      "num": 3,
+      "name": "Cmd+L 聚焦 Cascade 输入框",
+      "status": "pass",
+      "detail": "Cmd+L 已执行",
+      "elapsed_ms": 766.4
+    },
+    {
+      "num": 4,
+      "name": "Enter 键行为分析 (dry run)",
+      "status": "pass",
+      "detail": "脚本已准备 (使用 --allow-send 执行)",
+      "elapsed_ms": 0.0
+    },
+    {
+      "num": 5,
+      "name": "记录发现",
+      "status": "pass",
+      "detail": "发现已记录",
+      "elapsed_ms": 0.5
+    }
+  ]
+}

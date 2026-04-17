@@ -1,0 +1,8 @@
+# GUI Agent 依赖
+# macOS 原生框架绑定
+pyobjc-framework-Vision>=12.0
+pyobjc-framework-Quartz>=12.0
+pyobjc-framework-Cocoa>=12.0
+
+# 可选: 图像标注 (debug 用)
+Pillow>=10.0

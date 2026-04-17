@@ -1,0 +1,16 @@
+{
+  "screenshot_pixels": {
+    "w": 4064,
+    "h": 2324
+  },
+  "logical_screen": {
+    "w": 1440,
+    "h": 900
+  },
+  "pixel_to_logical_scale": 0.3543,
+  "window_offset": {
+    "x": 1440,
+    "y": 30
+  },
+  "formula": "screen_x = screenshot_x / scale + window_x"
+}

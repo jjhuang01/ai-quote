@@ -1,0 +1,39 @@
+{
+  "spike": "A6: Grid Overlay + Coordinate Mapping",
+  "spike_id": "spike_06",
+  "timestamp": "2026-04-14T01:56:54.793021",
+  "total_elapsed_ms": 2222.3,
+  "passed": 4,
+  "failed": 0,
+  "skipped": 0,
+  "steps": [
+    {
+      "num": 1,
+      "name": "检查依赖",
+      "status": "pass",
+      "detail": "Pillow 可用",
+      "elapsed_ms": 45.3
+    },
+    {
+      "num": 2,
+      "name": "截取目标窗口",
+      "status": "pass",
+      "detail": "截图: 4064x2324",
+      "elapsed_ms": 999.7
+    },
+    {
+      "num": 3,
+      "name": "画 50px 网格叠加",
+      "status": "pass",
+      "detail": "网格图: 50px 间隔, 200px 主线标注",
+      "elapsed_ms": 714.7
+    },
+    {
+      "num": 4,
+      "name": "计算截图像素 → 屏幕逻辑坐标映射",
+      "status": "pass",
+      "detail": "截图→逻辑 scale: 0.3543",
+      "elapsed_ms": 462.3
+    }
+  ]
+}

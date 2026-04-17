@@ -1,0 +1,39 @@
+{
+  "spike": "A3: Multi-screen + Window Locate",
+  "spike_id": "spike_03",
+  "timestamp": "2026-04-14T01:56:44.534279",
+  "total_elapsed_ms": 2587.5,
+  "passed": 4,
+  "failed": 0,
+  "skipped": 0,
+  "steps": [
+    {
+      "num": 1,
+      "name": "枚举所有显示器 (Quartz)",
+      "status": "pass",
+      "detail": "发现 2 个显示器",
+      "elapsed_ms": 773.5
+    },
+    {
+      "num": 2,
+      "name": "定位 Windsurf/Cursor 窗口位置",
+      "status": "pass",
+      "detail": "Windsurf 窗口: (1440,30) 1920x1050",
+      "elapsed_ms": 732.0
+    },
+    {
+      "num": 3,
+      "name": "判断窗口在哪个屏幕",
+      "status": "pass",
+      "detail": "窗口在 副屏 (display_id=2)",
+      "elapsed_ms": 0.0
+    },
+    {
+      "num": 4,
+      "name": "截取 Windsurf 窗口",
+      "status": "pass",
+      "detail": "窗口截图成功: 4064x2324, 1004ms",
+      "elapsed_ms": 1080.6
+    }
+  ]
+}

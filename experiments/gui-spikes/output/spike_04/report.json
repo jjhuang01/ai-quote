@@ -1,0 +1,39 @@
+{
+  "spike": "A4: OCR Basic Recognition",
+  "spike_id": "spike_04",
+  "timestamp": "2026-04-14T01:56:48.241440",
+  "total_elapsed_ms": 3412.1,
+  "passed": 4,
+  "failed": 0,
+  "skipped": 0,
+  "steps": [
+    {
+      "num": 1,
+      "name": "检查 pyobjc Vision 框架",
+      "status": "pass",
+      "detail": "Vision + Quartz 框架可用",
+      "elapsed_ms": 990.0
+    },
+    {
+      "num": 2,
+      "name": "截取目标窗口",
+      "status": "pass",
+      "detail": "Windsurf 窗口截图: 4064x2324",
+      "elapsed_ms": 869.5
+    },
+    {
+      "num": 3,
+      "name": "执行 Vision OCR",
+      "status": "pass",
+      "detail": "识别到 82 个文字片段",
+      "elapsed_ms": 1551.4
+    },
+    {
+      "num": 5,
+      "name": "置信度分析",
+      "status": "pass",
+      "detail": "有效片段: 77 (>=5), 平均置信度: 0.49",
+      "elapsed_ms": 0.3
+    }
+  ]
+}

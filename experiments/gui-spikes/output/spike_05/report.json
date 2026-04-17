@@ -1,0 +1,54 @@
+{
+  "spike": "A5: OCR Coordinate Precision",
+  "spike_id": "spike_05",
+  "timestamp": "2026-04-14T01:56:52.413381",
+  "total_elapsed_ms": 3987.5,
+  "passed": 5,
+  "failed": 1,
+  "skipped": 0,
+  "steps": [
+    {
+      "num": 1,
+      "name": "检查依赖: Pillow + Vision",
+      "status": "pass",
+      "detail": "所有依赖就绪",
+      "elapsed_ms": 76.9
+    },
+    {
+      "num": 2,
+      "name": "截取目标窗口",
+      "status": "pass",
+      "detail": "截图: 4064x2324",
+      "elapsed_ms": 1468.1
+    },
+    {
+      "num": 3,
+      "name": "执行 OCR 并收集坐标",
+      "status": "pass",
+      "detail": "OCR 完成: 82 个片段",
+      "elapsed_ms": 1088.9
+    },
+    {
+      "num": 4,
+      "name": "归一化坐标 → 像素坐标转换",
+      "status": "pass",
+      "detail": "转换完成: 82 个坐标",
+      "elapsed_ms": 26.9
+    },
+    {
+      "num": 5,
+      "name": "在截图上标注 bounding box",
+      "status": "pass",
+      "detail": "标注图保存: /Users/os/Desktop/code/tmp/ai-quote/experiments/gui-spikes/output/spike_05/annotated.png",
+      "elapsed_ms": 1326.3
+    },
+    {
+      "num": 6,
+      "name": "尝试定位 Cascade 输入框",
+      "status": "fail",
+      "detail": "无法定位输入框",
+      "elapsed_ms": 0.1,
+      "fatal": false
+    }
+  ]
+}

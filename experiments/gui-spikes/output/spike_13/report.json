@@ -1,0 +1,46 @@
+{
+  "spike": "A13: Verify Sent Message",
+  "spike_id": "spike_13",
+  "timestamp": "2026-04-14T01:57:38.852936",
+  "total_elapsed_ms": 1795.5,
+  "passed": 5,
+  "failed": 0,
+  "skipped": 0,
+  "steps": [
+    {
+      "num": 1,
+      "name": "检查 OCR 可用性",
+      "status": "pass",
+      "detail": "OCR 可用",
+      "elapsed_ms": 0.4
+    },
+    {
+      "num": 2,
+      "name": "激活 Windsurf/Cursor",
+      "status": "pass",
+      "detail": "已激活 Windsurf",
+      "elapsed_ms": 697.0
+    },
+    {
+      "num": 3,
+      "name": "发送前截图 + OCR 基线",
+      "status": "pass",
+      "detail": "基线已建立: 58 个片段",
+      "elapsed_ms": 1097.2
+    },
+    {
+      "num": 4,
+      "name": "Dry run: 生成特征标记",
+      "status": "pass",
+      "detail": "标记已生成: SPIKE13_2a01cadc (未发送)",
+      "elapsed_ms": 0.6
+    },
+    {
+      "num": 5,
+      "name": "验证流程模拟完毕",
+      "status": "pass",
+      "detail": "使用 --allow-send 执行完整验证",
+      "elapsed_ms": 0.0
+    }
+  ]
+}

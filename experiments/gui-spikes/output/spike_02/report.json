@@ -1,0 +1,40 @@
+{
+  "spike": "A2: Resolution Detection",
+  "spike_id": "spike_02",
+  "timestamp": "2026-04-14T02:07:35.523320",
+  "total_elapsed_ms": 1047.5,
+  "passed": 3,
+  "failed": 1,
+  "skipped": 0,
+  "steps": [
+    {
+      "num": 1,
+      "name": "system_profiler 获取显示器信息",
+      "status": "pass",
+      "detail": "发现 2 个显示器",
+      "elapsed_ms": 522.4
+    },
+    {
+      "num": 2,
+      "name": "Quartz API 获取物理像素信息",
+      "status": "pass",
+      "detail": "物理 1440x900, 逻辑 1440x900, scale=1.0",
+      "elapsed_ms": 217.6
+    },
+    {
+      "num": 3,
+      "name": "截图尺寸与分辨率交叉验证",
+      "status": "fail",
+      "detail": "截图尺寸不匹配任何已知分辨率",
+      "elapsed_ms": 306.4,
+      "fatal": false
+    },
+    {
+      "num": 4,
+      "name": "总结坐标映射规则",
+      "status": "pass",
+      "detail": "坐标映射规则: 截图坐标 / 2.0 = AppleScript 坐标",
+      "elapsed_ms": 0.0
+    }
+  ]
+}

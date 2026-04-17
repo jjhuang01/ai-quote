@@ -1,0 +1,17 @@
+{
+  "screenshot_pixels": {
+    "width": 2880,
+    "height": 1800
+  },
+  "logical_points": {
+    "width": 1440,
+    "height": 900
+  },
+  "physical_pixels": {
+    "width": 1440,
+    "height": 900
+  },
+  "screenshot_to_logical_scale": 0.5,
+  "screenshot_to_physical_scale": 0.5,
+  "note": "OCR 坐标是截图像素坐标，AppleScript 使用逻辑点坐标"
+}

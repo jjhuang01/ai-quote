@@ -1,0 +1,16 @@
+{
+  "display_id": 1,
+  "physical_pixels": {
+    "width": 1440,
+    "height": 900
+  },
+  "logical_points": {
+    "width": 1440,
+    "height": 900
+  },
+  "scale_factor": 1.0,
+  "screen_size_mm": {
+    "width": 286.9,
+    "height": 179.3
+  }
+}

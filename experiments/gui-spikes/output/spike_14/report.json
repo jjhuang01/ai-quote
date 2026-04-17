@@ -1,0 +1,46 @@
+{
+  "spike": "A14: @conversation Reference",
+  "spike_id": "spike_14",
+  "timestamp": "2026-04-14T01:57:15.032478",
+  "total_elapsed_ms": 1239.8,
+  "passed": 5,
+  "failed": 0,
+  "skipped": 0,
+  "steps": [
+    {
+      "num": 1,
+      "name": "检查依赖",
+      "status": "pass",
+      "detail": "OCR=✓",
+      "elapsed_ms": 0.2
+    },
+    {
+      "num": 2,
+      "name": "激活 Windsurf/Cursor",
+      "status": "pass",
+      "detail": "已激活 Windsurf",
+      "elapsed_ms": 686.5
+    },
+    {
+      "num": 3,
+      "name": "记录当前 session 状态",
+      "status": "pass",
+      "detail": "当前状态已截图",
+      "elapsed_ms": 551.9
+    },
+    {
+      "num": 4,
+      "name": "Dry run: @conversation 操作计划",
+      "status": "pass",
+      "detail": "操作计划已记录 (使用 --allow-send 执行)",
+      "elapsed_ms": 0.8
+    },
+    {
+      "num": 5,
+      "name": "分析 @ 触发机制",
+      "status": "pass",
+      "detail": "分析完成",
+      "elapsed_ms": 0.0
+    }
+  ]
+}

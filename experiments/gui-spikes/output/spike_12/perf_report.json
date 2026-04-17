@@ -1,0 +1,66 @@
+{
+  "runs": [
+    {
+      "run": 1,
+      "screenshot_ms": 482.4,
+      "ocr_texts": 51,
+      "ocr_ms": 385.1,
+      "applescript_ms": 51.7,
+      "verify_ms": 308.5,
+      "total_ms": 1227.7
+    },
+    {
+      "run": 2,
+      "screenshot_ms": 284.1,
+      "ocr_texts": 51,
+      "ocr_ms": 214.8,
+      "applescript_ms": 46.9,
+      "verify_ms": 261.3,
+      "total_ms": 807.1
+    },
+    {
+      "run": 3,
+      "screenshot_ms": 322.5,
+      "ocr_texts": 51,
+      "ocr_ms": 222.3,
+      "applescript_ms": 49.3,
+      "verify_ms": 279.4,
+      "total_ms": 873.5
+    },
+    {
+      "run": 4,
+      "screenshot_ms": 315.6,
+      "ocr_texts": 51,
+      "ocr_ms": 224.4,
+      "applescript_ms": 46.3,
+      "verify_ms": 254.4,
+      "total_ms": 840.7
+    },
+    {
+      "run": 5,
+      "screenshot_ms": 311.8,
+      "ocr_texts": 51,
+      "ocr_ms": 218.7,
+      "applescript_ms": 48.3,
+      "verify_ms": 278.0,
+      "total_ms": 856.8
+    }
+  ],
+  "summary": {
+    "total": {
+      "avg": 921.2,
+      "min": 807.1,
+      "max": 1227.7
+    },
+    "screenshot": {
+      "avg": 343.3
+    },
+    "ocr": {
+      "avg": 253.1
+    },
+    "applescript": {
+      "avg": 48.5
+    }
+  },
+  "pass": true
+}

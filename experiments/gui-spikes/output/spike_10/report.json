@@ -1,0 +1,53 @@
+{
+  "spike": "A10: Window Focus",
+  "spike_id": "spike_10",
+  "timestamp": "2026-04-14T02:07:42.474840",
+  "total_elapsed_ms": 6888.5,
+  "passed": 6,
+  "failed": 0,
+  "skipped": 0,
+  "steps": [
+    {
+      "num": 1,
+      "name": "检查 Windsurf 进程是否存在",
+      "status": "pass",
+      "detail": "应用 'Windsurf' 正在运行",
+      "elapsed_ms": 236.4
+    },
+    {
+      "num": 2,
+      "name": "获取当前前台应用",
+      "status": "pass",
+      "detail": "当前前台应用: Windsurf",
+      "elapsed_ms": 250.1
+    },
+    {
+      "num": 3,
+      "name": "切换到 Finder（制造焦点变化）",
+      "status": "pass",
+      "detail": "成功切换到 Finder",
+      "elapsed_ms": 1215.1
+    },
+    {
+      "num": 4,
+      "name": "激活 Windsurf",
+      "status": "pass",
+      "detail": "Windsurf 成为前台应用 ✓",
+      "elapsed_ms": 1019.1
+    },
+    {
+      "num": 5,
+      "name": "获取 Windsurf 窗口信息",
+      "status": "pass",
+      "detail": "位置=(0,30), 尺寸=1440x805, 前台=True",
+      "elapsed_ms": 492.2
+    },
+    {
+      "num": 6,
+      "name": "焦点切换压力测试 (Finder ↔ Windsurf × 3)",
+      "status": "pass",
+      "detail": "全部 3/3 次切换成功",
+      "elapsed_ms": 3675.4
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "spike": "A7: Mouse Click Precision",
+  "spike_id": "spike_07",
+  "timestamp": "2026-04-14T01:56:56.161856",
+  "total_elapsed_ms": 1148.5,
+  "passed": 5,
+  "failed": 0,
+  "skipped": 0,
+  "steps": [
+    {
+      "num": 1,
+      "name": "检查鼠标控制能力",
+      "status": "pass",
+      "detail": "Quartz 鼠标控制可用 (高精度)",
+      "elapsed_ms": 263.9
+    },
+    {
+      "num": 2,
+      "name": "读取当前鼠标位置",
+      "status": "pass",
+      "detail": "鼠标位置: (1800, 1002)",
+      "elapsed_ms": 51.5
+    },
+    {
+      "num": 3,
+      "name": "移动鼠标到屏幕中心区域",
+      "status": "pass",
+      "detail": "偏差 (0,0) ≤ 5 像素 ✓",
+      "elapsed_ms": 221.1
+    },
+    {
+      "num": 4,
+      "name": "多点移动精度测试",
+      "status": "pass",
+      "detail": "所有点精度 ≤ 5px (avg=0.0, max=0.0)",
+      "elapsed_ms": 508.9
+    },
+    {
+      "num": 5,
+      "name": "恢复原始鼠标位置",
+      "status": "pass",
+      "detail": "鼠标已恢复到 (1800, 1002)",
+      "elapsed_ms": 102.5
+    }
+  ]
+}

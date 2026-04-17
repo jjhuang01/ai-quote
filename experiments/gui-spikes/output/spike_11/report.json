@@ -1,0 +1,53 @@
+{
+  "spike": "A11: New Session (Cmd+L)",
+  "spike_id": "spike_11",
+  "timestamp": "2026-04-14T01:57:06.883630",
+  "total_elapsed_ms": 5421.2,
+  "passed": 6,
+  "failed": 0,
+  "skipped": 0,
+  "steps": [
+    {
+      "num": 1,
+      "name": "激活 Windsurf/Cursor",
+      "status": "pass",
+      "detail": "已激活 Windsurf",
+      "elapsed_ms": 657.0
+    },
+    {
+      "num": 2,
+      "name": "截图: Cmd+L 之前",
+      "status": "pass",
+      "detail": "before 截图已保存",
+      "elapsed_ms": 468.9
+    },
+    {
+      "num": 3,
+      "name": "执行第一次 Cmd+L",
+      "status": "pass",
+      "detail": "第一次 Cmd+L 已执行 + 截图",
+      "elapsed_ms": 1537.8
+    },
+    {
+      "num": 4,
+      "name": "执行第二次 Cmd+L (可能新建会话)",
+      "status": "pass",
+      "detail": "第二次 Cmd+L 已执行 + 截图",
+      "elapsed_ms": 1501.6
+    },
+    {
+      "num": 5,
+      "name": "OCR 对比前后状态",
+      "status": "pass",
+      "detail": "OCR 对比完成，请检查 ocr_diff.json",
+      "elapsed_ms": 1255.5
+    },
+    {
+      "num": 6,
+      "name": "总结 Cmd+L 行为",
+      "status": "pass",
+      "detail": "截图已保存，请人工确认",
+      "elapsed_ms": 0.0
+    }
+  ]
+}

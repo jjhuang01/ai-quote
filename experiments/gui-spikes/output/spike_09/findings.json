@@ -1,0 +1,7 @@
+{
+  "enter_sends": "需要实测确认 (--allow-send)",
+  "shift_enter_newline": "需要实测确认",
+  "send_button_detected": "见 Step 2 OCR 结果",
+  "cmd_l_focuses_input": true,
+  "safe_mode": true
+}

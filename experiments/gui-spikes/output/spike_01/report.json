@@ -1,0 +1,46 @@
+{
+  "spike": "A1: Screenshot Capture",
+  "spike_id": "spike_01",
+  "timestamp": "2026-04-14T02:07:34.421455",
+  "total_elapsed_ms": 2274.2,
+  "passed": 5,
+  "failed": 0,
+  "skipped": 0,
+  "steps": [
+    {
+      "num": 1,
+      "name": "检查 screencapture 命令可用性",
+      "status": "pass",
+      "detail": "screencapture 存在: /usr/sbin/screencapture",
+      "elapsed_ms": 0.6
+    },
+    {
+      "num": 2,
+      "name": "获取 screencapture 帮助信息",
+      "status": "pass",
+      "detail": "帮助信息获取成功, -l 参数: ✓",
+      "elapsed_ms": 69.9
+    },
+    {
+      "num": 3,
+      "name": "执行全屏截图",
+      "status": "pass",
+      "detail": "截图成功: 2880x1800, 1510.0KB, 401ms",
+      "elapsed_ms": 452.1
+    },
+    {
+      "num": 4,
+      "name": "验证截图有效性",
+      "status": "pass",
+      "detail": "所有验证通过",
+      "elapsed_ms": 0.1
+    },
+    {
+      "num": 5,
+      "name": "连续截图性能 (5 次)",
+      "status": "pass",
+      "detail": "平均 328ms (min=277, max=409)",
+      "elapsed_ms": 1750.9
+    }
+  ]
+}

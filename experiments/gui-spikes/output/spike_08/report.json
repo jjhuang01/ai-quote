@@ -1,0 +1,53 @@
+{
+  "spike": "A8: Clipboard Input",
+  "spike_id": "spike_08",
+  "timestamp": "2026-04-14T01:56:58.039361",
+  "total_elapsed_ms": 1744.9,
+  "passed": 6,
+  "failed": 0,
+  "skipped": 0,
+  "steps": [
+    {
+      "num": 1,
+      "name": "剪贴板基础读写 (英文)",
+      "status": "pass",
+      "detail": "英文读写一致 ✓",
+      "elapsed_ms": 203.5
+    },
+    {
+      "num": 2,
+      "name": "剪贴板中文读写",
+      "status": "pass",
+      "detail": "中文读写一致 ✓",
+      "elapsed_ms": 181.6
+    },
+    {
+      "num": 3,
+      "name": "特殊字符读写",
+      "status": "pass",
+      "detail": "特殊字符一致 ✓",
+      "elapsed_ms": 178.9
+    },
+    {
+      "num": 4,
+      "name": "剪贴板保护 (clipboard_guard) 验证",
+      "status": "pass",
+      "detail": "clipboard_guard 正确恢复 ✓",
+      "elapsed_ms": 241.3
+    },
+    {
+      "num": 5,
+      "name": "AppleScript Cmd+V 模拟能力 (dry run)",
+      "status": "pass",
+      "detail": "Cmd+V 脚本可用 (未实际执行, 需要 --allow-send 模式)",
+      "elapsed_ms": 96.2
+    },
+    {
+      "num": 6,
+      "name": "剪贴板读写性能 (10 次)",
+      "status": "pass",
+      "detail": "平均读写耗时: 65.9ms",
+      "elapsed_ms": 734.8
+    }
+  ]
+}
