@@ -82,6 +82,7 @@ function createMockDataManager() {
       getCurrentAccountId: vi.fn(() => 'ws_1'),
       getRealCurrentAccountId: vi.fn(async () => 'ws_1'),
       getAutoSwitchConfig: vi.fn(() => ({ enabled: false, threshold: 5 })),
+      getLastAutoSwitchResult: vi.fn(() => undefined),
       getQuotaSnapshots: vi.fn(() => []),
       reloadFromDisk: vi.fn(async () => false),
       onDidChangeAccounts: vi.fn((listener: () => void) => ({ dispose: vi.fn() })),
@@ -753,7 +754,7 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       expect(result?.value?.success).toBe(true);
     });
 
-    it('单账号刷新不额外手动发送 accountsSync', async () => {
+    it('单账号刷新前后都同步 accountsSync', async () => {
       ctx.postMessage.mockClear();
 
       await ctx.send({ type: 'fetchQuota', value: 'ws_1' });
@@ -761,7 +762,7 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       const syncCalls = ctx.postMessage.mock.calls
         .map((c: any) => c[0])
         .filter((m: any) => m.type === 'accountsSync');
-      expect(syncCalls).toHaveLength(0);
+      expect(syncCalls.length).toBeGreaterThanOrEqual(2);
     });
   });
 
@@ -778,7 +779,7 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       expect(result?.value?.success).toBe(2);
     });
 
-    it('批量刷新不额外手动发送 accountsSync', async () => {
+    it('批量刷新前后都同步 accountsSync', async () => {
       ctx.postMessage.mockClear();
 
       await ctx.send({ type: 'fetchAllQuotas' });
@@ -786,7 +787,7 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       const syncCalls = ctx.postMessage.mock.calls
         .map((c: any) => c[0])
         .filter((m: any) => m.type === 'accountsSync');
-      expect(syncCalls).toHaveLength(0);
+      expect(syncCalls.length).toBeGreaterThanOrEqual(2);
     });
   });
 

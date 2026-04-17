@@ -7,6 +7,9 @@ import { WindsurfPatchService } from '../../src/adapters/windsurf-patch';
 // Mock vscode
 vi.mock('vscode', () => ({
   default: {},
+  env: {
+    appName: 'Windsurf',
+  },
   workspace: {
     createFileSystemWatcher: vi.fn(() => ({
       onDidChange: vi.fn(),
@@ -488,6 +491,19 @@ describe('WindsurfAccountManager', () => {
       await manager.initialize();
       const a1 = await manager.add('a1@test.com', 'p');
       const a2 = await manager.add('a2@test.com', 'p');
+      const fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a2@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      fetchFromLocalProto.mockImplementationOnce(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a1@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      (manager as any).quotaFetcher.fetchFromLocalProto = fetchFromLocalProto;
       await manager.setQuotaLimits(a1.id, 5, 100);
       await manager.setQuotaLimits(a2.id, 50, 200);
       await manager.updateAutoSwitch({ enabled: true, switchOnDaily: true, threshold: 5 });
@@ -548,6 +564,12 @@ describe('WindsurfAccountManager', () => {
       await manager.initialize();
       const a1 = await manager.add('a@test.com', 'p');
       const a2 = await manager.add('b@test.com', 'p');
+      (manager as any).quotaFetcher.fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'b@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
       void a1;
       const result = await manager.switchTo(a2.id);
       expect(result.success).toBe(true);
@@ -559,6 +581,12 @@ describe('WindsurfAccountManager', () => {
       await manager.initialize();
       await manager.add('a@test.com', 'p');
       const a2 = await manager.add('b@test.com', 'p');
+      (manager as any).quotaFetcher.fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'b@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
 
       const result = await manager.switchTo(a2.id);
 
@@ -609,53 +637,27 @@ describe('WindsurfAccountManager', () => {
       expect(result.success).toBe(false);
     });
 
-    it('pending switch 未与真实登录态对齐前，displayCurrent 仍保持新账号', async () => {
+    it('切换后若本地运行时仍是旧账号，则返回失败且不污染 currentAccountId', async () => {
+      vi.useFakeTimers();
       await manager.initialize();
-      await manager.add('a@test.com', 'p');
+      const a1 = await manager.add('a@test.com', 'p');
       const a2 = await manager.add('b@test.com', 'p');
 
-      const fetchFromLocalProto = vi.fn(async () => ({
+      (manager as any).quotaFetcher.fetchFromLocalProto = vi.fn(async () => ({
         success: true,
         source: 'proto',
         userEmail: 'a@test.com',
         fetchedAt: new Date().toISOString(),
       }));
-      (manager as any).quotaFetcher.fetchFromLocalProto = fetchFromLocalProto;
 
-      const result = await manager.switchTo(a2.id);
-      expect(result.success).toBe(true);
-      expect(await manager.getDisplayCurrentAccountId()).toBe(a2.id);
-      expect(manager.getImmediateCurrentAccountId()).toBe(a2.id);
-    });
+      const resultPromise = manager.switchTo(a2.id);
+      await vi.advanceTimersByTimeAsync(11_000);
+      const result = await resultPromise;
 
-    it('pending switch 存在时，displayCurrent 不等待 realCurrent 探测完成', async () => {
-      await manager.initialize();
-      await manager.add('a@test.com', 'p');
-      const a2 = await manager.add('b@test.com', 'p');
-
-      (manager as any).quotaFetcher.fetchFromLocalProto = vi.fn(
-        () =>
-          new Promise((resolve) => {
-            setTimeout(() => {
-              resolve({
-                success: true,
-                source: 'proto',
-                userEmail: 'a@test.com',
-                fetchedAt: new Date().toISOString(),
-              });
-            }, 50);
-          }),
-      );
-
-      const result = await manager.switchTo(a2.id);
-      expect(result.success).toBe(true);
-
-      const displayId = await Promise.race([
-        manager.getDisplayCurrentAccountId(),
-        new Promise<string>((resolve) => setTimeout(() => resolve('__timeout__'), 10)),
-      ]);
-
-      expect(displayId).toBe(a2.id);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('切换后校验失败');
+      expect(manager.getCurrentAccountId()).toBe(a1.id);
+      expect(manager.getImmediateCurrentAccountId()).toBe(a1.id);
     });
   });
 
@@ -792,6 +794,19 @@ describe('WindsurfAccountManager', () => {
       await manager.initialize();
       const a1 = await manager.add('a1@test.com', 'p');
       const a2 = await manager.add('a2@test.com', 'p');
+      const fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a2@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      fetchFromLocalProto.mockImplementationOnce(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a1@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      (manager as any).quotaFetcher.fetchFromLocalProto = fetchFromLocalProto;
       await manager.setQuotaLimits(a2.id, 50, 200);
       await manager.updateAutoSwitch({ enabled: true, switchOnDaily: true, threshold: 5 });
       (a1 as any).realQuota = {
@@ -816,7 +831,7 @@ describe('WindsurfAccountManager', () => {
       const fetchFromLocalProto = vi.fn(async () => ({
         success: true,
         source: 'proto',
-        userEmail: 'a1@test.com',
+        userEmail: 'a2@test.com',
         fetchedAt: new Date().toISOString(),
       }));
       (manager as any).quotaFetcher.fetchFromLocalProto = fetchFromLocalProto;
@@ -841,28 +856,87 @@ describe('WindsurfAccountManager', () => {
   });
 
   describe('resetMachineId', () => {
-    it('未找到 machineId 文件时返回 success:false', async () => {
-      // In test env machineId files don't exist → should return failure
-      (fs.access as any).mockRejectedValue(new Error('ENOENT'));
+    it('优先重置 storage.json telemetry 机器标识', async () => {
+      const storagePath = path.join(
+        '/Users/os/Library/Application Support/Cursor/User/globalStorage',
+        'storage.json',
+      );
+      (fs.access as any).mockImplementation(async (target: string) => {
+        if (target === storagePath) return undefined;
+        throw new Error('ENOENT');
+      });
+      (fs.readFile as any).mockImplementation(async (target: string) => {
+        if (target === storagePath) {
+          return JSON.stringify({
+            telemetry: {
+              machineId: 'old-1',
+              macMachineId: 'old-2',
+              sqmId: 'old-3',
+              devDeviceId: 'old-4',
+            },
+          });
+        }
+        throw new Error('ENOENT');
+      });
       await manager.initialize();
       const result = await manager.resetMachineId();
-      expect(result.success).toBe(false);
-      expect(result.message).toContain('未找到');
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('telemetry');
+      expect((fs.writeFile as any).mock.calls.some(
+        ([filePath, content]: [string, string]) => filePath === storagePath && content.includes('old-1') === false
+      )).toBe(true);
+    });
+
+    it('同时存在 Windsurf 和 Cursor telemetry 时，优先当前 IDE 并全部更新', async () => {
+      const windsurfPath = path.join(
+        '/Users/os/Library/Application Support/Windsurf/User/globalStorage',
+        'storage.json',
+      );
+      const cursorPath = path.join(
+        '/Users/os/Library/Application Support/Cursor/User/globalStorage',
+        'storage.json',
+      );
+      (fs.access as any).mockImplementation(async (target: string) => {
+        if (target === windsurfPath || target === cursorPath) return undefined;
+        throw new Error('ENOENT');
+      });
+      (fs.readFile as any).mockImplementation(async (target: string) => {
+        if (target === windsurfPath || target === cursorPath) {
+          return JSON.stringify({
+            telemetry: {
+              machineId: 'old-machine',
+              macMachineId: 'old-mac',
+              sqmId: 'old-sqm',
+              devDeviceId: 'old-device',
+            },
+          });
+        }
+        throw new Error('ENOENT');
+      });
+
+      await manager.initialize();
+      const result = await manager.resetMachineId();
+
+      expect(result.success).toBe(true);
+      const storageWrites = (fs.writeFile as any).mock.calls
+        .filter(([filePath]: [string]) => filePath === windsurfPath || filePath === cursorPath)
+        .map(([filePath]: [string]) => filePath);
+      expect(storageWrites).toEqual([windsurfPath, cursorPath]);
     });
 
     it('找到 machineId 文件时重置并返回 success:true', async () => {
-      // Mock access to succeed for the first candidate path
-      (fs.access as any).mockResolvedValueOnce(undefined);
-      (fs.writeFile as any).mockResolvedValueOnce(undefined);
+      const fallbackPath = path.join('/Users/os', '.windsurf', 'machineid');
+      (fs.access as any).mockImplementation(async (target: string) => {
+        if (target === fallbackPath) return undefined;
+        throw new Error('ENOENT');
+      });
       await manager.initialize();
       const result = await manager.resetMachineId();
       expect(result.success).toBe(true);
       expect(result.message).toContain('已重置');
-      // Verify writeFile was called with a 64-char hex string
-      const writeCall = (fs.writeFile as any).mock.calls.find(
-        (c: any[]) => typeof c[1] === 'string' && /^[0-9a-f]{64}$/.test(c[1])
-      );
-      expect(writeCall).toBeTruthy();
+      expect((fs.writeFile as any).mock.calls.some(
+        ([filePath, content]: [string, string]) => filePath === fallbackPath && /^[0-9a-f]{32}$/.test(content)
+      )).toBe(true);
     });
   });
 });

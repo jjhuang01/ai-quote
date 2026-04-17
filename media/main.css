@@ -1291,6 +1291,7 @@ button:focus-visible {
 .account-list-shell {
   margin-top: var(--sp-3);
   min-height: 320px;
+  min-width: 0;
 }
 
 .account-list-viewport {
@@ -1469,13 +1470,13 @@ button:focus-visible {
 }
 /* Head row: email + badges + actions */
 .ac-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
 .ac-email {
-  flex: 1;
   min-width: 0;
   font-size: var(--fs-base);
   font-weight: 500;
@@ -1484,6 +1485,7 @@ button:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
   letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 .ac-meta {
   display: flex;
@@ -1491,6 +1493,7 @@ button:focus-visible {
   gap: 6px;
   flex: 0 0 auto;
   min-width: 0;
+  max-width: 100%;
 }
 .ac-tags {
   display: flex;
@@ -1498,8 +1501,9 @@ button:focus-visible {
   gap: 4px;
   flex-shrink: 1;
   min-width: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
+  overflow: hidden;
 }
 .ac-end {
   font-size: 10px;
@@ -1512,6 +1516,11 @@ button:focus-visible {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+}
+
+.auto-switch-summary {
+  margin-top: 0;
+  margin-bottom: var(--sp-3);
 }
 /* Switching loading animation */
 .ac-card.ac-switching {

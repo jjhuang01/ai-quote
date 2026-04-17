@@ -163,6 +163,15 @@ interface Bootstrap {
   currentAccountId?: string;
   quotaSnapshots: QuotaSnapshot[];
   quotaFetching?: boolean;
+  lastAutoSwitchResult?: {
+    triggeredAt: string;
+    triggered: boolean;
+    fromAccountId?: string;
+    toAccountId?: string;
+    reason?: string;
+    success?: boolean;
+    message?: string;
+  };
   responseQueue?: string[];
 }
 
@@ -709,7 +718,7 @@ function patchAccountTab(): void {
 }
 
 function renderAccountTab(bs: Bootstrap): string {
-  const { accounts, autoSwitch } = bs;
+  const { accounts, autoSwitch, lastAutoSwitchResult } = bs;
   const isFetching = bs.quotaFetching || state.quotaFetching;
   const { availableCount } = getAccountTabData(bs);
 
@@ -780,6 +789,18 @@ function renderAccountTab(bs: Bootstrap): string {
 
       <section class="card">
         <div class="section-header"><h2>自动切换</h2></div>
+        ${
+          lastAutoSwitchResult
+            ? `
+        <p class="hint auto-switch-summary">
+          最近一次：${escapeHtml(lastAutoSwitchResult.triggered ? "已触发" : "未触发")} ·
+          ${escapeHtml(lastAutoSwitchResult.success === false ? "失败" : "成功/未触发")}
+          ${lastAutoSwitchResult.fromAccountId ? ` · 从 ${escapeHtml(lastAutoSwitchResult.fromAccountId)}` : ""}
+          ${lastAutoSwitchResult.toAccountId ? ` 切到 ${escapeHtml(lastAutoSwitchResult.toAccountId)}` : ""}
+          ${lastAutoSwitchResult.reason ? ` · ${escapeHtml(lastAutoSwitchResult.reason)}` : ""}
+        </p>`
+            : ""
+        }
         <div class="settings-section">
           <div class="setting-row">
             <span class="setting-label">启用自动切换</span>
@@ -2766,7 +2787,7 @@ window.addEventListener("message", (event) => {
   }
 
   if (msg.type === "accountsSync") {
-    const value = msg.value as Pick<Bootstrap, "accounts" | "currentAccountId" | "autoSwitch" | "quotaSnapshots" | "quotaFetching">;
+    const value = msg.value as Pick<Bootstrap, "accounts" | "currentAccountId" | "autoSwitch" | "quotaSnapshots" | "quotaFetching" | "lastAutoSwitchResult">;
     bootstrap = {
       ...bootstrap,
       accounts: value.accounts,
@@ -2774,6 +2795,7 @@ window.addEventListener("message", (event) => {
       autoSwitch: value.autoSwitch,
       quotaSnapshots: value.quotaSnapshots,
       quotaFetching: value.quotaFetching,
+      lastAutoSwitchResult: value.lastAutoSwitchResult,
     };
     window.__QUOTE_BOOTSTRAP__ = bootstrap;
 
@@ -2922,9 +2944,11 @@ window.addEventListener("message", (event) => {
   }
 
   if (msg.type === "quotaFetchResult") {
+    const r = msg.value as { success: boolean; error?: string; accountId?: string };
     state.quotaFetching = false;
-    state.quotaFetchingId = undefined;
-    const r = msg.value as { success: boolean; error?: string };
+    if (!r.accountId || state.quotaFetchingId === r.accountId) {
+      state.quotaFetchingId = undefined;
+    }
     showToast(
       r.success ? "配额已更新" : `配额获取失败: ${r.error ?? "未知错误"}`,
       r.success ? "success" : "error",

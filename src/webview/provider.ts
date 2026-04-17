@@ -134,7 +134,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async buildAccountsPayload(options?: { preferFastCurrentId?: boolean }): Promise<Pick<WebviewBootstrap, 'accounts' | 'currentAccountId' | 'autoSwitch' | 'quotaSnapshots' | 'quotaFetching'>> {
+  private async buildAccountsPayload(options?: { preferFastCurrentId?: boolean }): Promise<Pick<WebviewBootstrap, 'accounts' | 'currentAccountId' | 'autoSwitch' | 'quotaSnapshots' | 'quotaFetching' | 'lastAutoSwitchResult'>> {
     const accounts = this.dataManager.windsurfAccounts.getAll().map(a => ({
       ...a,
       password: '***'
@@ -181,6 +181,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
       currentAccountId,
       quotaSnapshots: this.dataManager.windsurfAccounts.getQuotaSnapshots(),
       quotaFetching: this.dataManager.windsurfAccounts.isQuotaFetching,
+      lastAutoSwitchResult: this.dataManager.windsurfAccounts.getLastAutoSwitchResult?.(),
     };
   }
 
@@ -483,12 +484,16 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         return true;
       case 'fetchQuota': {
         const id = typeof value === 'string' ? value : undefined;
+        await this.postAccountsSync({ preferFastCurrentId: true });
         const result = await this.dataManager.windsurfAccounts.fetchRealQuota(id);
-        void this.view?.webview.postMessage({ type: 'quotaFetchResult', value: result });
+        await this.postAccountsSync({ preferFastCurrentId: true });
+        void this.view?.webview.postMessage({ type: 'quotaFetchResult', value: { ...result, accountId: id } });
         return true;
       }
       case 'fetchAllQuotas': {
+        await this.postAccountsSync({ preferFastCurrentId: true });
         const result = await this.dataManager.windsurfAccounts.fetchAllRealQuotas();
+        await this.postAccountsSync({ preferFastCurrentId: true });
         void this.view?.webview.postMessage({ type: 'quotaFetchAllResult', value: result });
         return true;
       }

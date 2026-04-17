@@ -259,6 +259,16 @@ export interface AutoSwitchConfig {
   switchOnWeekly: boolean;     // 周配额触顶时切换
 }
 
+export interface AutoSwitchResult {
+  triggeredAt: string;
+  triggered: boolean;
+  fromAccountId?: string;
+  toAccountId?: string;
+  reason?: string;
+  success?: boolean;
+  message?: string;
+}
+
 export const DEFAULT_AUTO_SWITCH: AutoSwitchConfig = {
   enabled: false,
   threshold: 10,
@@ -300,6 +310,7 @@ export interface WebviewBootstrap {
   licenseInfo?: LicenseInfo;
   quotaSnapshots: QuotaSnapshot[];
   quotaFetching?: boolean;
+  lastAutoSwitchResult?: AutoSwitchResult;
   responseQueue?: string[];
 }
 

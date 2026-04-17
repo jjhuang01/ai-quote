@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
@@ -6,6 +7,7 @@ import { safeWriteJson, safeReadJson } from "../utils/safe-json";
 import type {
   WindsurfAccount,
   AutoSwitchConfig,
+  AutoSwitchResult,
   QuotaSnapshot,
   AccountQuota,
   RealQuotaInfo,
@@ -20,6 +22,8 @@ import type { WindsurfPlanInfo } from "../adapters/quota-fetcher";
 const WINDSURF_API_SERVER = "https://server.codeium.com";
 const WINDSURF_COMMAND_DISCOVERY_TIMEOUT_MS = 3000;
 const WINDSURF_COMMAND_EXECUTION_TIMEOUT_MS = 15000;
+const WINDSURF_SWITCH_VERIFY_TIMEOUT_MS = 10000;
+const WINDSURF_SWITCH_VERIFY_INTERVAL_MS = 500;
 
 async function withTimeout<T>(
   promise: PromiseLike<T>,
@@ -87,6 +91,12 @@ interface PersistedWindsurfAccounts {
   pendingSwitchId?: string;
 }
 
+interface RuntimeSwitchVerification {
+  verified: boolean;
+  observedEmail?: string;
+  error?: string;
+}
+
 export class WindsurfAccountManager {
   private readonly filePath: string;
   private accounts: WindsurfAccount[] = [];
@@ -102,6 +112,7 @@ export class WindsurfAccountManager {
   private readonly auth: WindsurfAuth;
   private readonly quotaFetcher: WindsurfQuotaFetcher;
   private _quotaFetching = false;
+  private lastAutoSwitchResult?: AutoSwitchResult;
 
   public readonly onDidChangeAccounts = this.onDidChangeAccountsEmitter.event;
 
@@ -117,6 +128,10 @@ export class WindsurfAccountManager {
 
   public get isQuotaFetching(): boolean {
     return this._quotaFetching;
+  }
+
+  public getLastAutoSwitchResult(): AutoSwitchResult | undefined {
+    return this.lastAutoSwitchResult;
   }
 
   public setFirebaseApiKey(key: string): void {
@@ -231,6 +246,57 @@ export class WindsurfAccountManager {
     if (persist && changed) {
       await this.save();
     }
+  }
+
+  private async verifyRuntimeSwitch(
+    expectedEmail: string,
+    timeoutMs = WINDSURF_SWITCH_VERIFY_TIMEOUT_MS,
+  ): Promise<RuntimeSwitchVerification> {
+    const deadline = Date.now() + timeoutMs;
+    let lastObservedEmail: string | undefined;
+    let lastError: string | undefined;
+
+    while (Date.now() <= deadline) {
+      const result = await this.quotaFetcher.fetchFromLocalProto();
+      if (result.success) {
+        const runtimeEmail = result.userEmail?.trim().toLowerCase();
+        if (runtimeEmail === expectedEmail.toLowerCase()) {
+          return {
+            verified: true,
+            observedEmail: result.userEmail,
+          };
+        }
+        lastObservedEmail = result.userEmail;
+        lastError = runtimeEmail
+          ? `当前运行时账号仍是 ${result.userEmail}`
+          : "本地 proto 未返回当前账号邮箱";
+      } else {
+        lastError = result.error;
+      }
+
+      if (Date.now() >= deadline) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, WINDSURF_SWITCH_VERIFY_INTERVAL_MS));
+    }
+
+    return {
+      verified: false,
+      observedEmail: lastObservedEmail,
+      error: lastError,
+    };
+  }
+
+  private async finalizePendingSwitchIfRuntimeMatches(
+    expectedId: string,
+    persist: boolean,
+  ): Promise<boolean> {
+    const runtimeId = await this.getRealCurrentAccountId();
+    if (runtimeId !== expectedId) {
+      return false;
+    }
+    await this.finalizePendingSwitch(expectedId, persist);
+    return true;
   }
 
   public getAutoSwitchConfig(): AutoSwitchConfig {
@@ -645,15 +711,29 @@ export class WindsurfAccountManager {
       }
     }
 
-    // ── 步骤4: 更新内部状态 ──────────────────────────────────────────────
-    // 注: 不需要重启 LS。handleAuthToken 内部已执行:
-    //   _cachedSessions=[newSession] + secrets.store + _sessionChangeEmitter.fire
-    //   LS 的下一次请求会自动读取新 session。
+    // ── 步骤4: 验证运行时当前账号确实已切换 ───────────────────────────────
+    const verification = await this.verifyRuntimeSwitch(account.email);
+    if (!verification.verified) {
+      this.logger.warn("Windsurf runtime account verification failed after switch.", {
+        expectedEmail: account.email,
+        observedEmail: verification.observedEmail,
+        error: verification.error,
+      });
+      const detail = verification.observedEmail
+        ? `当前仍检测到 ${verification.observedEmail}`
+        : verification.error ?? "无法从本地运行时确认当前账号";
+      return {
+        success: false,
+        error: `切换后校验失败：${detail}。为避免账号混乱，本次切换未标记为成功。`,
+      };
+    }
+
+    // ── 步骤5: 更新内部状态 ──────────────────────────────────────────────
     this.accounts.forEach((a) => {
       a.isActive = a.id === id;
     });
     this.currentAccountId = id;
-    this.pendingSwitchId = id;
+    this.pendingSwitchId = undefined;
     account.apiKey = injectedApiKey;
     await this.save();
     this.logger.info("Switched to account.", {
@@ -673,7 +753,16 @@ export class WindsurfAccountManager {
 
     // ── 判断当前账号是否需要切换 ──────────────────────────────────────────
     const needSwitch = this._accountNeedsSwitch(current);
-    if (!needSwitch) return false;
+    if (!needSwitch) {
+      this.lastAutoSwitchResult = {
+        triggeredAt: new Date().toISOString(),
+        triggered: false,
+        fromAccountId: current.id,
+        reason: "当前账号配额仍充足",
+        success: true,
+      };
+      return false;
+    }
 
     // ── 找余量充足的候选账号 ──────────────────────────────────────────────
     const next = this.accounts.find((a) => {
@@ -685,18 +774,44 @@ export class WindsurfAccountManager {
       this.logger.warn(
         "Auto-switch: no available account with sufficient quota.",
       );
+      this.lastAutoSwitchResult = {
+        triggeredAt: new Date().toISOString(),
+        triggered: true,
+        fromAccountId: current.id,
+        reason: "未找到可切入的候选账号",
+        success: false,
+        message: "自动换号失败：没有可用账号",
+      };
       return false;
     }
 
     const switchResult = await this.switchTo(next.id);
     if (!switchResult.success) {
       this.logger.warn("Auto-switch failed.", { error: switchResult.error });
+      this.lastAutoSwitchResult = {
+        triggeredAt: new Date().toISOString(),
+        triggered: true,
+        fromAccountId: current.id,
+        toAccountId: next.id,
+        reason: switchResult.error ?? "切换失败",
+        success: false,
+        message: switchResult.error ?? "自动换号失败",
+      };
       return false;
     }
     this.logger.info("Auto-switched account.", {
       from: current.id,
       to: next.id,
     });
+    this.lastAutoSwitchResult = {
+      triggeredAt: new Date().toISOString(),
+      triggered: true,
+      fromAccountId: current.id,
+      toAccountId: next.id,
+      reason: "触发自动换号",
+      success: true,
+      message: "自动换号成功",
+    };
     return true;
   }
 
@@ -943,7 +1058,7 @@ export class WindsurfAccountManager {
           }
           target.lastCheckedAt = result.fetchedAt;
           if (id && id === this.pendingSwitchId) {
-            await this.finalizePendingSwitch(id, false);
+            await this.finalizePendingSwitchIfRuntimeMatches(id, false);
           }
           await this.save();
         }
@@ -1158,15 +1273,52 @@ export class WindsurfAccountManager {
     success: boolean;
     message: string;
   }> {
+    const telemetryPaths = await this.findTelemetryStoragePaths();
+    const newId = randomBytes(16).toString("hex");
+    const updatedTelemetryPaths: string[] = [];
+
+    for (const storagePath of telemetryPaths) {
+      try {
+        const raw = await fs.readFile(storagePath, "utf8");
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const telemetry = this.asObject(parsed.telemetry);
+        if (!telemetry) continue;
+
+        telemetry.machineId = newId;
+        telemetry.macMachineId = newId;
+        telemetry.sqmId = newId;
+        telemetry.devDeviceId = newId;
+        parsed.telemetry = telemetry;
+
+        const backupPath = `${storagePath}.bak-${Date.now()}`;
+        await fs.writeFile(backupPath, raw, "utf8");
+        await fs.writeFile(storagePath, JSON.stringify(parsed, null, 2), "utf8");
+        this.logger.info("Machine ID reset via telemetry storage.", {
+          path: storagePath,
+          backupPath,
+        });
+        updatedTelemetryPaths.push(storagePath);
+      } catch (error) {
+        this.logger.debug("Telemetry machine ID reset skipped.", {
+          path: storagePath,
+          error: String(error),
+        });
+      }
+    }
+
+    if (updatedTelemetryPaths.length > 0) {
+      const targets = updatedTelemetryPaths.map((storagePath) => path.dirname(storagePath));
+      return {
+        success: true,
+        message: `已重置 telemetry 机器标识 (${updatedTelemetryPaths.length} 个): ${targets.join(", ")}`,
+      };
+    }
+
     const machineIdPaths = [
       path.join(os.homedir(), ".windsurf", "machineid"),
       path.join(os.homedir(), ".config", "windsurf", "machineid"),
       path.join(process.env.APPDATA ?? os.homedir(), "Windsurf", "machineid"),
     ];
-
-    const newId = Array.from({ length: 64 }, () =>
-      Math.floor(Math.random() * 16).toString(16),
-    ).join("");
 
     for (const p of machineIdPaths) {
       try {
@@ -1180,6 +1332,68 @@ export class WindsurfAccountManager {
     }
 
     return { success: false, message: "未找到 Windsurf machineId 文件" };
+  }
+
+  private async findTelemetryStoragePaths(): Promise<string[]> {
+    const candidates = this.getTelemetryStorageCandidates();
+
+    const found: string[] = [];
+    for (const candidate of candidates) {
+      try {
+        await fs.access(candidate);
+        found.push(candidate);
+      } catch {
+        // ignore missing candidates
+      }
+    }
+    return found;
+  }
+
+  private getTelemetryStorageCandidates(): string[] {
+    const appName = vscode.env.appName.toLowerCase();
+    const ideOrder = appName.includes("cursor")
+      ? ["Cursor", "Windsurf"]
+      : ["Windsurf", "Cursor"];
+    const candidates: string[] = [];
+
+    for (const ideName of ideOrder) {
+      candidates.push(
+        path.join(
+          os.homedir(),
+          "Library/Application Support",
+          ideName,
+          "User",
+          "globalStorage",
+          "storage.json",
+        ),
+        path.join(
+          os.homedir(),
+          ".config",
+          ideName,
+          "User",
+          "globalStorage",
+          "storage.json",
+        ),
+      );
+      if (process.env.APPDATA) {
+        candidates.push(
+          path.join(
+            process.env.APPDATA,
+            ideName,
+            "User",
+            "globalStorage",
+            "storage.json",
+          ),
+        );
+      }
+    }
+
+    return [...new Set(candidates)];
+  }
+
+  private asObject(value: unknown): Record<string, unknown> | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    return value as Record<string, unknown>;
   }
 
   // --- Persistence ---

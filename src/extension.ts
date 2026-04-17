@@ -424,8 +424,8 @@ export async function activate(
     if (Date.now() - lastAutoSwitchCheckAt < intervalMs) return;
     lastAutoSwitchCheckAt = Date.now();
     const switched = await dataManager.windsurfAccounts.autoSwitchIfNeeded();
+    sidebarProvider.postBootstrap();
     if (switched) {
-      sidebarProvider.postBootstrap();
       logger?.info('Auto-switch triggered by timer.');
     }
   }, 10_000);
@@ -442,8 +442,8 @@ export async function activate(
     const cfg = dataManager.windsurfAccounts.getAutoSwitchConfig();
     if (cfg.enabled) {
       const switched = await dataManager.windsurfAccounts.autoSwitchIfNeeded();
+      sidebarProvider.postBootstrap();
       if (switched) {
-        sidebarProvider.postBootstrap();
         logger?.info('Auto-switch triggered after quota refresh.');
       }
     }
