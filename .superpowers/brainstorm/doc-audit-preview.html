@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文档审计方案预览</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #58a6ff; --green: #3fb950; --red: #f85149; --yellow: #d29922; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 24px; max-width: 1200px; margin: 0 auto; }
+  h1 { color: #fff; font-size: 28px; margin-bottom: 8px; }
+  h2 { color: var(--accent); font-size: 20px; margin: 32px 0 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  h3 { color: #fff; font-size: 16px; margin: 16px 0 8px; }
+  .subtitle { color: #8b949e; font-size: 14px; margin-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin: 16px 0; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+  .tag-cut { background: rgba(248,81,73,0.15); color: var(--red); }
+  .tag-keep { background: rgba(63,185,80,0.15); color: var(--green); }
+  .tag-new { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .tag-rewrite { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+  th, td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; font-size: 13px; }
+  th { background: #1c2128; color: #fff; }
+  .toc { list-style: none; }
+  .toc li { padding: 6px 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .toc li:last-child { border-bottom: none; }
+  .toc .section-name { font-weight: 600; }
+  .toc .section-desc { color: #8b949e; font-size: 13px; }
+  .metric { display: flex; gap: 24px; margin: 16px 0; }
+  .metric-item { text-align: center; }
+  .metric-value { font-size: 32px; font-weight: 700; color: var(--accent); }
+  .metric-label { font-size: 12px; color: #8b949e; }
+  .mermaid { background: #1c2128; border-radius: 8px; padding: 16px; margin: 12px 0; }
+  .diagram-label { font-size: 12px; color: #8b949e; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+
+<h1>📋 文档审计方案预览</h1>
+<p class="subtitle">automation-feasibility-research.md → autopilot-architecture.md</p>
+
+<div class="metric">
+  <div class="metric-item"><div class="metric-value">1066</div><div class="metric-label">当前行数</div></div>
+  <div class="metric-item"><div class="metric-value" style="color:var(--green)">~400</div><div class="metric-label">目标行数</div></div>
+  <div class="metric-item"><div class="metric-value" style="color:var(--red)">-62%</div><div class="metric-label">精简比例</div></div>
+  <div class="metric-item"><div class="metric-value" style="color:var(--yellow)">6</div><div class="metric-label">Mermaid 图</div></div>
+</div>
+
+<h2>一、砍留决策</h2>
+
+<div class="card">
+<table>
+<tr><th>原章节</th><th>行数</th><th>决策</th><th>理由</th></tr>
+<tr><td>一、核心发现摘要</td><td>~15</td><td><span class="tag tag-rewrite">重写</span></td><td>压缩为3行概述</td></tr>
+<tr><td>1.5、代码能力验证</td><td>~30</td><td><span class="tag tag-cut">砍掉</span></td><td>实施前已验证，移入实施备注</td></tr>
+<tr><td>二、技术路径分析 (全部)</td><td>~280</td><td><span class="tag tag-cut">砍掉</span></td><td>探索过程，最终方案已确定</td></tr>
+<tr><td>&nbsp;&nbsp;└ 路径A: Hooks</td><td>~70</td><td><span class="tag tag-keep">保留核心</span></td><td>Hook 数据格式移入组件规格</td></tr>
+<tr><td>&nbsp;&nbsp;└ 路径B: VS Code API</td><td>~40</td><td><span class="tag tag-cut">砍掉</span></td><td>已确认不可行</td></tr>
+<tr><td>&nbsp;&nbsp;└ 路径C: 全部UI方案</td><td>~140</td><td><span class="tag tag-cut">砍掉</span></td><td>只留 AppleScript 接口规格</td></tr>
+<tr><td>&nbsp;&nbsp;└ 路径D: AX API</td><td>~20</td><td><span class="tag tag-cut">砍掉</span></td><td>已确认不可行</td></tr>
+<tr><td>三、推荐架构</td><td>~490</td><td><span class="tag tag-rewrite">重写</span></td><td>核心保留，换 Mermaid 图，压缩代码</td></tr>
+<tr><td>四、Windsurf辅助能力</td><td>~25</td><td><span class="tag tag-cut">砍掉</span></td><td>合并为架构约束1行</td></tr>
+<tr><td>五、风险与缓解</td><td>~30</td><td><span class="tag tag-cut">砍掉</span></td><td>合并到 Edge Cases</td></tr>
+<tr><td>六、替代方案对比</td><td>~15</td><td><span class="tag tag-cut">砍掉</span></td><td>已决策完成</td></tr>
+<tr><td>七、实施 SOP</td><td>~75</td><td><span class="tag tag-keep">保留</span></td><td>核心内容</td></tr>
+<tr><td>八、技术参考</td><td>~25</td><td><span class="tag tag-rewrite">压缩</span></td><td>只留3个关键链接</td></tr>
+<tr><td>九、结论</td><td>~55</td><td><span class="tag tag-cut">砍掉</span></td><td>概述已涵盖</td></tr>
+</table>
+</div>
+
+<h2>二、新文档目录结构</h2>
+
+<div class="card">
+<ul class="toc">
+  <li><span class="section-name">§0 概述</span> <span class="section-desc">3行：目标 + 架构一句话 + 约束</span></li>
+  <li><span class="section-name">§1 架构总览</span> <span class="section-desc">Mermaid 架构图 + 职责矩阵表</span></li>
+  <li><span class="section-name">§2 数据流</span> <span class="section-desc">4个场景的 Mermaid 时序图（泳道）</span></li>
+  <li><span class="section-name">§3 决策引擎</span> <span class="section-desc">OpenClaw 决策树 Mermaid 流程图</span></li>
+  <li><span class="section-name">§4 组件接口规格</span> <span class="section-desc">4个组件的 API/CLI 接口表 + 数据格式</span></li>
+  <li><span class="section-name">§5 实施 SOP</span> <span class="section-desc">Phase 1-4 任务表 + 验证方式</span></li>
+  <li><span class="section-name">§6 故障矩阵</span> <span class="section-desc">Edge Cases 表 + 未验证假设</span></li>
+  <li><span class="section-name">§7 参考</span> <span class="section-desc">3个关键链接</span></li>
+</ul>
+</div>
+
+<h2>三、Mermaid 图表预览</h2>
+
+<h3>图1: 架构总览 (C4-style)</h3>
+<div class="diagram-label">graph TD — 四方职责一目了然</div>
+<pre class="mermaid">
+graph TD
+    subgraph 感知层
+        WS[Windsurf Cascade] -->|stdin JSON| HK[🐍 cascade-hook.py]
+    end
+
+    subgraph 决策层
+        HK -->|HTTP webhook| OC[🧠 OpenClaw<br/>决策引擎]
+    end
+
+    subgraph 执行层
+        OC -->|HTTP API| QE[⚡ Quote 插件<br/>换号服务]
+        OC -->|subprocess| UI[🖥️ ui-control.sh<br/>GUI 操作]
+    end
+
+    UI -->|AppleScript| WS
+    QE -.->|session 刷新| WS
+
+    style HK fill:#1f6feb,color:#fff
+    style OC fill:#8957e5,color:#fff
+    style QE fill:#238636,color:#fff
+    style UI fill:#da3633,color:#fff
+    style WS fill:#30363d,color:#c9d1d9
+</pre>
+
+<h3>图2: 核心场景泳道图 — 配额耗尽</h3>
+<div class="diagram-label">sequenceDiagram — 谁在什么时候做什么</div>
+<pre class="mermaid">
+sequenceDiagram
+    participant W as Windsurf
+    participant H as Hook 脚本
+    participant O as OpenClaw
+    participant Q as Quote 插件
+    participant U as GUI 脚本
+
+    W->>H: stdin: {event: post_cascade_response}
+    H->>H: 分类: quota_exhausted
+    H->>O: POST /hooks/cascade-event
+    Note over H: 退出 (< 1s)
+
+    O->>Q: GET /api/ap/quota
+    Q-->>O: {current: {remaining: 0%}}
+    O->>Q: POST /api/ap/switch-next
+    Q->>Q: autoSwitchIfNeeded()
+    Q-->>O: {success, switchedTo: "b@x.com"}
+
+    O->>O: sleep 3s
+    O->>U: ui-control.sh send "继续上面的任务"
+    U->>W: AppleScript: Cmd+L → 粘贴 → Enter
+</pre>
+
+<h3>图3: OpenClaw 决策流程</h3>
+<div class="diagram-label">flowchart — 决策树可视化</div>
+<pre class="mermaid">
+flowchart TD
+    E[收到 Hook 事件] --> C{事件类型?}
+
+    C -->|completed| Q1{任务队列?}
+    Q1 -->|有| S1[ui-control.sh send next_prompt]
+    Q1 -->|空| IDLE[状态 → idle]
+
+    C -->|rate_limit_temp| W[等待 30s]
+    W --> S2[ui-control.sh send 继续]
+
+    C -->|quota_exhausted| SW[POST /api/ap/switch-next]
+    SW --> R{成功?}
+    R -->|是| D[sleep 3s]
+    D --> S3[ui-control.sh send 继续上面的任务]
+    R -->|否| WAIT[状态 → waiting]
+    WAIT --> P[每5分钟 GET /api/ap/quota]
+    P --> R2{有账号恢复?}
+    R2 -->|是| SW
+    R2 -->|否| WAIT
+
+    C -->|context_overflow| NS[ui-control.sh new-session]
+
+    style E fill:#1f6feb,color:#fff
+    style IDLE fill:#238636,color:#fff
+    style WAIT fill:#da3633,color:#fff
+</pre>
+
+<h3>图4: 组件思维导图</h3>
+<div class="diagram-label">mindmap — 系统全景</div>
+<pre class="mermaid">
+mindmap
+  root((Autopilot))
+    感知
+      cascade-hook.py
+        post_cascade_response
+        post_cascade_response_with_transcript
+      分类输出
+        completed
+        rate_limit_temp
+        quota_exhausted
+        context_overflow
+    决策
+      OpenClaw
+        webhook 接收
+        规则引擎
+        任务队列
+        状态机
+    执行:换号
+      Quote 插件
+        /api/ap/switch-next
+        /api/ap/quota
+        /api/ap/accounts
+        /api/ap/refresh
+    执行:GUI
+      ui-control.sh
+        check
+        focus
+        send MSG
+        new-session MSG
+</pre>
+
+<h3>图5: 部署拓扑</h3>
+<div class="diagram-label">graph LR — 端口和文件发现</div>
+<pre class="mermaid">
+graph LR
+    subgraph macOS
+        WS[Windsurf :IDE] --> HK[Hook 进程]
+        QE[Quote Bridge :3456] --> PF[~/.quote-bridge-port]
+        HK --> PF
+        OC[OpenClaw :9090] --> PF
+    end
+
+    subgraph 文件系统
+        HC[~/.codeium/windsurf/hooks.json]
+        PF
+        LOG[~/.quote-autopilot.log]
+    end
+
+    HC -.-> HK
+    HK --> LOG
+    HK -->|HTTP| OC
+    OC -->|HTTP| QE
+    OC -->|subprocess| UIC[ui-control.sh]
+    UIC -->|AppleScript| WS
+
+    style QE fill:#238636,color:#fff
+    style OC fill:#8957e5,color:#fff
+</pre>
+
+<h3>图6: 实施阶段甘特图</h3>
+<div class="diagram-label">gantt — Phase 依赖关系</div>
+<pre class="mermaid">
+gantt
+    title 实施路线图
+    dateFormat  YYYY-MM-DD
+    axisFormat  %m/%d
+
+    section Phase 1: 插件 API
+    Bridge 新增5个路由        :p1a, 2026-04-15, 1d
+    端口文件读写              :p1b, after p1a, 0.5d
+    单元测试                  :p1c, after p1b, 0.5d
+
+    section Phase 2: 脚本
+    ui-control.sh             :p2a, after p1c, 0.5d
+    cascade-hook.py           :p2b, after p1c, 0.5d
+    hooks.json 配置           :p2c, after p2b, 0.25d
+
+    section Phase 3: OpenClaw
+    webhook 接入              :p3a, after p2c, 0.5d
+    4个决策规则               :p3b, after p3a, 1d
+    全链路联调                :p3c, after p3b, 1d
+
+    section Phase 4: 稳定化
+    去重/重试/恢复            :p4a, after p3c, 2d
+    夜间空跑测试              :p4b, after p4a, 1d
+</pre>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'dark',
+  themeVariables: {
+    primaryColor: '#1f6feb',
+    primaryTextColor: '#c9d1d9',
+    primaryBorderColor: '#30363d',
+    lineColor: '#8b949e',
+    secondaryColor: '#161b22',
+    tertiaryColor: '#1c2128',
+    noteBkgColor: '#1c2128',
+    noteTextColor: '#c9d1d9',
+    noteBorderColor: '#30363d',
+  },
+  flowchart: { curve: 'basis', padding: 16 },
+  sequence: { mirrorActors: false, actorMargin: 50, messageMargin: 40 },
+});
+</script>
+
+</body>
+</html>

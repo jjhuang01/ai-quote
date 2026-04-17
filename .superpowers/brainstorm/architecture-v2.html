@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>架构 v2：感知型 GUI 自动化</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #58a6ff; --green: #3fb950; --red: #f85149; --yellow: #d29922; --purple: #8957e5; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 24px; max-width: 1200px; margin: 0 auto; }
+  h1 { color: #fff; font-size: 28px; margin-bottom: 8px; }
+  h2 { color: var(--accent); font-size: 20px; margin: 36px 0 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  h3 { color: #fff; font-size: 16px; margin: 20px 0 8px; }
+  .subtitle { color: #8b949e; font-size: 14px; margin-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin: 16px 0; }
+  .card-red { border-color: var(--red); }
+  .card-green { border-color: var(--green); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+  .tag-old { background: rgba(248,81,73,0.15); color: var(--red); }
+  .tag-new { background: rgba(63,185,80,0.15); color: var(--green); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th, td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; }
+  th { background: #1c2128; color: #fff; }
+  .mermaid { background: #1c2128; border-radius: 8px; padding: 16px; margin: 12px 0; }
+  .diagram-label { font-size: 12px; color: #8b949e; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+  .problem { color: var(--red); font-weight: 600; }
+  .solution { color: var(--green); font-weight: 600; }
+  .callout { background: rgba(137,87,229,0.1); border-left: 3px solid var(--purple); padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  code { background: #1c2128; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
+  .step-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 16px 0; }
+  .step { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 12px; text-align: center; }
+  .step-num { font-size: 24px; margin-bottom: 4px; }
+  .step-label { font-size: 12px; color: #8b949e; }
+  .step-action { font-size: 13px; font-weight: 600; margin-top: 4px; }
+  .arrow { color: var(--accent); font-size: 20px; display: flex; align-items: center; justify-content: center; }
+</style>
+</head>
+<body>
+
+<h1>🏗️ 架构升级：盲操作 → 感知型 GUI 自动化</h1>
+<p class="subtitle">核心洞察：模拟真人需要"眼睛"，不只是"手"</p>
+
+<!-- ============================================================ -->
+<h2>一、问题：当前 GUI 脚本是"盲的"</h2>
+
+<div class="split">
+  <div class="card card-red">
+    <h3><span class="tag tag-old">v1 盲操作</span> ui-control.sh</h3>
+    <p style="margin-top:8px;">发射键盘指令，祈祷它能工作：</p>
+    <pre style="margin-top:8px;font-size:12px;color:#8b949e;">
+Cmd+L       # 希望 Cascade 打开了
+sleep 0.3   # 希望够快
+Cmd+V       # 希望输入框有焦点
+Enter       # 希望消息发出去了
+    </pre>
+    <p style="margin-top:12px;" class="problem">❌ 不知道屏幕上发生了什么</p>
+    <p class="problem">❌ 弹窗/loading/焦点丢失 → 静默失败</p>
+    <p class="problem">❌ 无法检测 rate limit 弹窗</p>
+    <p class="problem">❌ 无法确认消息是否发送成功</p>
+    <p class="problem">❌ 无法找到正确的 tab</p>
+  </div>
+  <div class="card card-green">
+    <h3><span class="tag tag-new">v2 感知型</span> gui-agent.py</h3>
+    <p style="margin-top:8px;">看屏幕 → 理解 → 行动 → 验证：</p>
+    <pre style="margin-top:8px;font-size:12px;color:#8b949e;">
+screenshot()           # 先看
+state = analyze(img)   # 理解当前状态
+if state.has_dialog:   # 处理意外情况
+    dismiss_dialog()
+focus_input()          # 精确定位输入框
+type_message(msg)      # 输入
+verify_sent()          # 确认发送成功
+    </pre>
+    <p style="margin-top:12px;" class="solution">✅ 每一步都有视觉验证</p>
+    <p class="solution">✅ 能处理弹窗、loading、焦点丢失</p>
+    <p class="solution">✅ 能在屏幕上识别 rate limit 文字</p>
+    <p class="solution">✅ 知道消息是否真的发出去了</p>
+    <p class="solution">✅ 能识别并切换 tab</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>二、感知-行动循环 (Perceive-Act Loop)</h2>
+
+<p>真人操作 GUI 的每一步都是：<strong>看 → 判断 → 做 → 验</strong></p>
+
+<div class="step-grid">
+  <div class="step">
+    <div class="step-num">📸</div>
+    <div class="step-label">PERCEIVE</div>
+    <div class="step-action">截图</div>
+  </div>
+  <div class="step">
+    <div class="step-num">🧠</div>
+    <div class="step-label">ANALYZE</div>
+    <div class="step-action">识别状态</div>
+  </div>
+  <div class="step">
+    <div class="step-num">🎯</div>
+    <div class="step-label">PLAN</div>
+    <div class="step-action">决定动作</div>
+  </div>
+  <div class="step">
+    <div class="step-num">⚡</div>
+    <div class="step-label">ACT</div>
+    <div class="step-action">执行操作</div>
+  </div>
+  <div class="step">
+    <div class="step-num">✅</div>
+    <div class="step-label">VERIFY</div>
+    <div class="step-action">确认结果</div>
+  </div>
+</div>
+
+<pre class="mermaid">
+stateDiagram-v2
+    [*] --> Perceive: 开始操作
+
+    Perceive --> Analyze: 截图完成
+    Analyze --> Plan: 状态已识别
+
+    state Plan {
+        [*] --> CheckState
+        CheckState --> HandleDialog: 有弹窗
+        CheckState --> HandleLoading: 加载中
+        CheckState --> HandleRateLimit: 检测到限速
+        CheckState --> ReadyToAct: 正常状态
+        HandleDialog --> ReadyToAct: 弹窗已处理
+        HandleLoading --> Perceive: 等待 → 重新截图
+    }
+
+    Plan --> Act: 动作已确定
+    Act --> Verify: 动作已执行
+    Verify --> Success: 验证通过
+    Verify --> Perceive: 验证失败 → 重试
+
+    Success --> [*]
+
+    note right of HandleRateLimit: 上报 OpenClaw\n不自行决策
+</pre>
+
+<!-- ============================================================ -->
+<h2>三、"发送一条消息"的真实步骤</h2>
+
+<div class="callout">
+  人类发送一条 Cascade 消息，实际上经历了 <strong>7 个微步骤</strong>，每一步都可能失败。
+</div>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant G as GUI Agent
+    participant S as Screen
+    participant W as Windsurf
+
+    G->>S: ① 截图: 当前屏幕状态
+    G->>G: ② 分析: Cascade面板在哪？输入框在哪？<br/>有弹窗吗？正在loading吗？
+
+    alt Cascade 不可见
+        G->>W: ③a AppleScript: Cmd+L 打开
+        G->>S: ③b 截图验证: Cascade 打开了？
+    end
+
+    alt 有弹窗阻挡
+        G->>W: ③c 处理弹窗 (ESC / 点击关闭)
+        G->>S: ③d 截图验证: 弹窗消失了？
+    end
+
+    G->>G: ④ 定位输入框 (OCR/模板匹配)
+    G->>W: ⑤ 点击输入框 → 粘贴消息
+    G->>S: ⑥ 截图验证: 文字出现在输入框中？
+    G->>W: ⑦ 按 Enter 发送
+
+    G->>S: ⑧ 截图验证: 消息出现在对话中？
+    G->>G: ⑨ 返回结果: success / retry / error
+</pre>
+
+<!-- ============================================================ -->
+<h2>四、技术方案对比</h2>
+
+<div class="callout">
+  关键问题：<strong>用什么来"看"屏幕？</strong>
+</div>
+
+<table>
+<tr>
+  <th>方案</th>
+  <th>感知能力</th>
+  <th>行动能力</th>
+  <th>速度</th>
+  <th>复杂度</th>
+  <th>推荐度</th>
+</tr>
+<tr>
+  <td><strong>A: Python + OCR</strong><br/><code>screencapture</code> + <code>tesseract</code></td>
+  <td>文字识别 ✅<br/>位置定位 ✅<br/>复杂判断 ❌</td>
+  <td>AppleScript ✅</td>
+  <td>~0.5s/次</td>
+  <td>中</td>
+  <td>⭐⭐⭐</td>
+</tr>
+<tr>
+  <td><strong>B: Python + 模板匹配</strong><br/><code>screencapture</code> + <code>OpenCV</code></td>
+  <td>UI元素定位 ✅<br/>状态识别 ✅<br/>文字读取 ❌</td>
+  <td>AppleScript ✅</td>
+  <td>~0.3s/次</td>
+  <td>中</td>
+  <td>⭐⭐⭐</td>
+</tr>
+<tr>
+  <td><strong>C: Python + macOS Vision</strong><br/><code>screencapture</code> + <code>pyobjc VNRecognizeTextRequest</code></td>
+  <td>OCR(原生高精度) ✅<br/>位置定位 ✅<br/>无需装tesseract</td>
+  <td>AppleScript ✅</td>
+  <td>~0.3s/次</td>
+  <td>中低</td>
+  <td>⭐⭐⭐⭐</td>
+</tr>
+<tr style="background:rgba(63,185,80,0.05);">
+  <td><strong>D: Python + AI Vision</strong><br/><code>screencapture</code> + LLM vision API</td>
+  <td>任意理解 ✅✅✅<br/>自然语言描述状态<br/>最接近人类视觉</td>
+  <td>AppleScript ✅</td>
+  <td>~2-5s/次</td>
+  <td>低(最灵活)</td>
+  <td>⭐⭐⭐⭐⭐</td>
+</tr>
+<tr>
+  <td><strong>E: 混合分层</strong><br/>快速OCR做常规 + AI做兜底</td>
+  <td>两层感知:<br/>L1快速OCR ✅<br/>L2 AI兜底 ✅✅✅</td>
+  <td>AppleScript ✅</td>
+  <td>L1: 0.3s<br/>L2: 2-5s</td>
+  <td>中高</td>
+  <td>⭐⭐⭐⭐</td>
+</tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>五、推荐架构 v2</h2>
+
+<pre class="mermaid">
+graph TD
+    subgraph 感知层 [" 🔍 感知层 "]
+        WS[Windsurf Cascade] -->|stdin JSON| HK[cascade-hook.py<br/>对话事件感知]
+    end
+
+    subgraph 决策层 [" 🧠 决策层 "]
+        HK -->|HTTP webhook| OC[OpenClaw<br/>决策引擎]
+    end
+
+    subgraph 执行层 [" ⚡ 执行层 "]
+        OC -->|HTTP API| QE[Quote 插件<br/>换号服务]
+        OC -->|subprocess| GA[gui-agent.py<br/>感知型 GUI 代理]
+    end
+
+    subgraph GUI代理内部 [" 🖥️ GUI Agent 感知-行动循环 "]
+        GA --> SC[screencapture 截图]
+        SC --> AN[Vision 分析<br/>OCR / AI]
+        AN --> PL{状态判断}
+        PL -->|正常| ACT[AppleScript 执行]
+        PL -->|异常| RPT[上报 OpenClaw]
+        ACT --> VF[截图验证]
+        VF -->|成功| DONE[返回结果]
+        VF -->|失败| SC
+    end
+
+    QE -.->|session 刷新| WS
+    ACT -->|键盘/鼠标| WS
+
+    style HK fill:#1f6feb,color:#fff
+    style OC fill:#8957e5,color:#fff
+    style QE fill:#238636,color:#fff
+    style GA fill:#da3633,color:#fff
+    style AN fill:#d29922,color:#fff
+    style WS fill:#30363d,color:#c9d1d9
+</pre>
+
+<!-- ============================================================ -->
+<h2>六、职责矩阵 v2</h2>
+
+<table>
+<tr><th>角色</th><th>职责</th><th>不做什么</th><th>技术栈</th></tr>
+<tr>
+  <td><strong>Quote 插件</strong></td>
+  <td>换号、配额查询、状态 API</td>
+  <td>不操作 GUI、不做决策</td>
+  <td>TypeScript, bridge.ts HTTP</td>
+</tr>
+<tr>
+  <td><strong>GUI Agent</strong><br/><code>gui-agent.py</code></td>
+  <td>感知屏幕状态 → 执行 GUI 操作 → 验证结果</td>
+  <td>不换号、不做业务决策</td>
+  <td>Python + screencapture + Vision/OCR + AppleScript</td>
+</tr>
+<tr>
+  <td><strong>OpenClaw</strong></td>
+  <td>决策大脑：何时换号、何时重试、何时新 session</td>
+  <td>不直接操作任何东西</td>
+  <td>规则引擎 + webhook</td>
+</tr>
+<tr>
+  <td><strong>Cascade Hook</strong><br/><code>cascade-hook.py</code></td>
+  <td>解析 Cascade 回复 → 分类事件 → 通知 OpenClaw</td>
+  <td>不做决策、不做操作</td>
+  <td>Python, stdin → HTTP POST</td>
+</tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>七、GUI Agent CLI 接口</h2>
+
+<div class="callout">
+  <strong>关键变化</strong>：从 4 个简单命令变为 <strong>感知型命令</strong>，每个命令内部都有截图→分析→执行→验证循环。
+</div>
+
+<table>
+<tr><th>命令</th><th>内部流程</th><th>返回</th></tr>
+<tr>
+  <td><code>gui-agent.py status</code></td>
+  <td>截图 → 分析 → 返回 JSON 状态<br/>(cascade可见? 输入框位置? 有弹窗? loading?)</td>
+  <td><code>{"cascade_visible": true, "input_ready": true, "has_dialog": false}</code></td>
+</tr>
+<tr>
+  <td><code>gui-agent.py send "消息"</code></td>
+  <td>截图 → 确认 Cascade 可见 → 定位输入框 → 粘贴 → 发送 → 验证</td>
+  <td><code>{"success": true, "verified": true}</code></td>
+</tr>
+<tr>
+  <td><code>gui-agent.py new-tab "消息"</code></td>
+  <td>截图 → Cmd+L×2 → 验证新 tab → 粘贴 → 发送 → 验证</td>
+  <td><code>{"success": true, "tab": "new"}</code></td>
+</tr>
+<tr>
+  <td><code>gui-agent.py read-state</code></td>
+  <td>截图 → OCR Cascade 面板 → 提取最后一条回复文本</td>
+  <td><code>{"last_response": "...", "has_error": false}</code></td>
+</tr>
+<tr>
+  <td><code>gui-agent.py dismiss-dialog</code></td>
+  <td>截图 → 检测弹窗 → ESC/点击关闭 → 验证消失</td>
+  <td><code>{"success": true}</code></td>
+</tr>
+</table>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'dark',
+  themeVariables: {
+    primaryColor: '#1f6feb', primaryTextColor: '#c9d1d9', primaryBorderColor: '#30363d',
+    lineColor: '#8b949e', secondaryColor: '#161b22', tertiaryColor: '#1c2128',
+    noteBkgColor: '#1c2128', noteTextColor: '#c9d1d9', noteBorderColor: '#30363d',
+  },
+  flowchart: { curve: 'basis', padding: 16 },
+  sequence: { mirrorActors: false, actorMargin: 50, messageMargin: 40 },
+});
+</script>
+
+</body>
+</html>
