@@ -7,29 +7,13 @@ import type { LoggerLike } from '../core/logger';
 const PATCH_KEYWORD_1 = 'windsurf.provideAuthTokenToAuthProviderWithShit';
 const PATCH_KEYWORD_2 = 'handleAuthTokenWithShit';
 
-// ─── 原始 handleAuthToken 函数（精确匹配当前 Windsurf 混淆代码）──────────────────
-const ORIGINAL_HANDLE_AUTH_TOKEN =
-  'async handleAuthToken(A){const e=await(0,E.registerUser)(A),{apiKey:t,name:i}=e,' +
-  'n=(0,B.getApiServerUrl)(e.apiServerUrl);if(!t)throw new s.AuthMalformedLanguageServerResponseError' +
-  '("Auth login failure: empty api_key");if(!i)throw new s.AuthMalformedLanguageServerResponseError' +
-  '("Auth login failure: empty name");const r={id:(0,g.v4)(),accessToken:t,account:{label:i,id:i},' +
-  'scopes:[]},I=(0,B.isStaging)((0,a.getConfig)(a.Config.API_SERVER_URL))?"apiServerUrl.staging":"apiServerUrl";' +
-  'return await this.context.globalState.update(I,n),(0,o.isString)(n)&&!(0,o.isEmpty)(n)&&' +
-  'await this.context.secrets.store(u.getApiServerUrlSecretKey(),n),this._cachedSessions=[r],' +
-  'await this.context.secrets.store(u.getSessionsSecretKey(),JSON.stringify([r])),' +
-  'await this.restartLanguageServerIfNeeded(n),this._sessionChangeEmitter.fire({added:[r],removed:[],changed:[]}),r}';
-
-// ─── 新注入的 handleAuthTokenWithShit 函数（直接使用传入的 apiKey，跳过 registerUser）
-const NEW_HANDLE_AUTH_TOKEN_WITH_SHIT =
-  'async handleAuthTokenWithShit(A){const{apiKey:t,name:i}=A,' +
-  'n=(0,B.getApiServerUrl)(A.apiServerUrl);if(!t)throw new s.AuthMalformedLanguageServerResponseError' +
-  '("Auth login failure: empty api_key");if(!i)throw new s.AuthMalformedLanguageServerResponseError' +
-  '("Auth login failure: empty name");const r={id:(0,g.v4)(),accessToken:t,account:{label:i,id:i},' +
-  'scopes:[]},I=(0,B.isStaging)((0,a.getConfig)(a.Config.API_SERVER_URL))?"apiServerUrl.staging":"apiServerUrl";' +
-  'return await this.context.globalState.update(I,n),(0,o.isString)(n)&&!(0,o.isEmpty)(n)&&' +
-  'await this.context.secrets.store(u.getApiServerUrlSecretKey(),n),this._cachedSessions=[r],' +
-  'await this.context.secrets.store(u.getSessionsSecretKey(),JSON.stringify([r])),' +
-  'await this.restartLanguageServerIfNeeded(n),this._sessionChangeEmitter.fire({added:[r],removed:[],changed:[]}),r}';
+const IDENT = String.raw`[$A-Z_a-z][$\w]*`;
+const HANDLE_AUTH_TOKEN_PATTERN = new RegExp(
+  String.raw`async handleAuthToken\(A\)\{const e=await\(0,${IDENT}\.registerUser\)\(A\),\{apiKey:(${IDENT}),name:(${IDENT})\}=e,(${IDENT})=\(0,(${IDENT})\.getApiServerUrl\)\(e\.apiServerUrl\);.*?this\._sessionChangeEmitter\.fire\(\{added:\[${IDENT}\],removed:\[\],changed:\[\]\}\),${IDENT}\}`,
+);
+const HANDLE_AUTH_TOKEN_PREFIX_PATTERN = new RegExp(
+  String.raw`^async handleAuthToken\(A\)\{const e=await\(0,${IDENT}\.registerUser\)\(A\),\{apiKey:(${IDENT}),name:(${IDENT})\}=e,(${IDENT})=\(0,(${IDENT})\.getApiServerUrl\)\(e\.apiServerUrl\);`,
+);
 
 // ─── 原始命令注册块（当前 Windsurf 版本）────────────────────────────────────────
 const ORIGINAL_COMMAND_REGISTRATION =
@@ -52,6 +36,25 @@ const NEW_COMMAND_REGISTRATION =
   'async A=>{try{return{session:await e.handleAuthTokenWithShit(A),error:void 0}}catch(A){' +
   'return A instanceof a.WindsurfError?{error:A.errorMetadata}:{error:C.WindsurfExtensionMetadata' +
   '.getInstance().errorCodes.GENERIC_ERROR}}})),';
+
+export function buildHandleAuthTokenPatch(content: string): { original: string; patched: string } | undefined {
+  const match = content.match(HANDLE_AUTH_TOKEN_PATTERN);
+  const original = match?.[0];
+  if (!original) return undefined;
+
+  const patched = original
+    .replace(
+      HANDLE_AUTH_TOKEN_PREFIX_PATTERN,
+      (_prefix, apiKeyVar: string, nameVar: string, apiServerUrlVar: string, apiServerModule: string) =>
+        `async handleAuthTokenWithShit(A){const{apiKey:${apiKeyVar},name:${nameVar}}=A,${apiServerUrlVar}=(0,${apiServerModule}.getApiServerUrl)(A.apiServerUrl);`,
+    );
+
+  if (patched === original || !patched.startsWith('async handleAuthTokenWithShit')) {
+    return undefined;
+  }
+
+  return { original, patched };
+}
 
 // ─── 公开接口 ─────────────────────────────────────────────────────────────────
 
@@ -188,15 +191,16 @@ export class WindsurfPatchService {
     let content = fs.readFileSync(extensionPath, 'utf-8');
 
     // 步骤1：注入 handleAuthTokenWithShit 函数
-    const fnIdx = content.indexOf(ORIGINAL_HANDLE_AUTH_TOKEN);
-    if (fnIdx === -1) {
+    const handleAuthTokenPatch = buildHandleAuthTokenPatch(content);
+    if (!handleAuthTokenPatch) {
       return {
         success: false,
         error: '未找到 handleAuthToken 函数。当前 Windsurf 版本可能不兼容，请联系开发者。'
       };
     }
-    const insertFnAt = fnIdx + ORIGINAL_HANDLE_AUTH_TOKEN.length;
-    content = content.slice(0, insertFnAt) + NEW_HANDLE_AUTH_TOKEN_WITH_SHIT + content.slice(insertFnAt);
+    const fnIdx = content.indexOf(handleAuthTokenPatch.original);
+    const insertFnAt = fnIdx + handleAuthTokenPatch.original.length;
+    content = content.slice(0, insertFnAt) + handleAuthTokenPatch.patched + content.slice(insertFnAt);
 
     // 步骤2：注入新命令注册
     const cmdIdx = content.indexOf(ORIGINAL_COMMAND_REGISTRATION);

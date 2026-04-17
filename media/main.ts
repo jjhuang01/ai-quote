@@ -7,6 +7,7 @@ import {
 import {
   clampAccountScrollTop,
   filterAccountsForQuery,
+  getFilteredAccountIds,
   normalizeAccountSelection,
 } from "./account-webview-state";
 
@@ -1552,6 +1553,11 @@ function renderDebugTab(_bs: Bootstrap): string {
             <div class="dbg-value-row">
               ${patchBadge}
               ${info?.patchError ? `<span class="dbg-err">${escapeHtml(info.patchError)}</span>` : ""}
+              ${
+                info && !info.patchApplied
+                  ? `<button class="btn-xs btn-icon ${loading ? "disabled" : ""}" data-action="applyWindsurfPatch" ${loading ? "disabled" : ""}>${icon("wrench")} 启用补丁</button>`
+                  : ""
+              }
             </div>
           </div>
           ${
@@ -1566,7 +1572,7 @@ function renderDebugTab(_bs: Bootstrap): string {
           ${
             !info?.patchApplied && !loading
               ? `
-          <p class="hint">补丁未应用时，切换账号会失败并显示"版本不匹配"。请点击账号页的"切换"按钮，插件会自动尝试打补丁。</p>`
+          <p class="hint">补丁未应用时，切号会走兼容模式，无法保证下一次请求立刻无感生效。点击“启用补丁”后，需要重启 Windsurf 才能注册补丁命令。</p>`
               : ""
           }
         </div>
@@ -2164,7 +2170,7 @@ function handleAction(el: HTMLElement): void {
       const bs = window.__QUOTE_BOOTSTRAP__;
       if (bs) {
         state.selectedAccountIds = new Set(
-          bs.accounts.map((a: WindsurfAccount) => a.id),
+          getFilteredAccountIds(bs.accounts, state.accountSearchQuery),
         );
         render();
       }
@@ -2529,6 +2535,11 @@ function handleAction(el: HTMLElement): void {
       state.debugInfo = undefined;
       render();
       vscode.postMessage({ type: "getDebugInfo" });
+      break;
+    case "applyWindsurfPatch":
+      state.debugLoading = true;
+      render();
+      vscode.postMessage({ type: "applyWindsurfPatch" });
       break;
     case "debugCopyPath":
       if (state.debugInfo?.logPath) {
@@ -2981,6 +2992,37 @@ window.addEventListener("message", (event) => {
       patchExtensionPath: string | null;
       patchError: string | null;
     };
+    render();
+    return;
+  }
+
+  if (msg.type === "patchApplyResult") {
+    const value = msg.value as {
+      loading?: boolean;
+      success?: boolean;
+      needsRestart?: boolean;
+      error?: string;
+      permissionHint?: string;
+    };
+    if (value.loading) {
+      state.debugLoading = true;
+      render();
+      return;
+    }
+    state.debugLoading = false;
+    if (value.success) {
+      showToast(
+        value.needsRestart ? "补丁已写入，请重启 Windsurf 后生效" : "补丁已启用",
+        "success",
+        5000,
+      );
+    } else {
+      showToast(
+        `补丁应用失败: ${value.error ?? "未知错误"}${value.permissionHint ? `；${value.permissionHint}` : ""}`,
+        "error",
+        7000,
+      );
+    }
     render();
     return;
   }

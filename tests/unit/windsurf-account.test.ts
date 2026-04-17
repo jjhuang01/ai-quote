@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { WindsurfPatchService } from '../../src/adapters/windsurf-patch';
 
 // Mock vscode
 vi.mock('vscode', () => ({
@@ -48,7 +49,11 @@ vi.mock('vscode', () => ({
 vi.mock('../../src/adapters/windsurf-auth', () => ({
   WindsurfAuth: class {
     signIn = vi.fn(async () => ({ idToken: 'mock-token' }));
-    registerUser = vi.fn(async () => ({ apiKey: 'mock-api-key' }));
+    registerUser = vi.fn(async () => ({
+      apiKey: 'mock-api-key',
+      name: 'Mock User',
+      apiServerUrl: 'https://server.codeium.com',
+    }));
     setApiKey = vi.fn();
   }
 }));
@@ -93,6 +98,18 @@ describe('WindsurfAccountManager', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    (vscode.commands.getCommands as any).mockResolvedValue([
+      'windsurf.provideAuthTokenToAuthProvider',
+      'windsurf.provideAuthTokenToAuthProviderWithShit',
+    ]);
+    (WindsurfPatchService.isPatchApplied as any).mockResolvedValue({
+      applied: true,
+      extensionPath: '/mock/extension.js',
+    });
+    (WindsurfPatchService.checkAndApply as any).mockResolvedValue({
+      success: true,
+      needsRestart: false,
+    });
     (fs.readFile as any).mockRejectedValue(new Error('ENOENT'));
     (fs.writeFile as any).mockResolvedValue(undefined);
     (fs.mkdir as any).mockResolvedValue(undefined);
@@ -538,6 +555,53 @@ describe('WindsurfAccountManager', () => {
       expect(manager.getImmediateCurrentAccountId()).toBe(a2.id);
     });
 
+    it('已安装无感补丁时优先走 patched command 直接注入 apiKey session', async () => {
+      await manager.initialize();
+      await manager.add('a@test.com', 'p');
+      const a2 = await manager.add('b@test.com', 'p');
+
+      const result = await manager.switchTo(a2.id);
+
+      expect(result.success).toBe(true);
+      expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+        'windsurf.provideAuthTokenToAuthProviderWithShit',
+        {
+          apiKey: 'mock-api-key',
+          name: 'Mock User',
+          apiServerUrl: 'https://server.codeium.com',
+        },
+      );
+      expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
+        'windsurf.provideAuthTokenToAuthProvider',
+        'mock-token',
+      );
+    });
+
+    it('未安装无感补丁且自动写入成功时要求重启后再切号', async () => {
+      (vscode.commands.getCommands as any).mockResolvedValue([
+        'windsurf.provideAuthTokenToAuthProvider',
+      ]);
+      (WindsurfPatchService.isPatchApplied as any).mockResolvedValue({
+        applied: false,
+        extensionPath: '/mock/extension.js',
+      });
+      (WindsurfPatchService.checkAndApply as any).mockResolvedValue({
+        success: true,
+        needsRestart: true,
+      });
+
+      await manager.initialize();
+      await manager.add('a@test.com', 'p');
+      const a2 = await manager.add('b@test.com', 'p');
+
+      const result = await manager.switchTo(a2.id);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('请重启 Windsurf');
+      expect(WindsurfPatchService.checkAndApply).toHaveBeenCalled();
+      expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
+    });
+
     it('切换到不存在的账号返回 false', async () => {
       await manager.initialize();
       await manager.add('a@test.com', 'p');
@@ -562,6 +626,36 @@ describe('WindsurfAccountManager', () => {
       expect(result.success).toBe(true);
       expect(await manager.getDisplayCurrentAccountId()).toBe(a2.id);
       expect(manager.getImmediateCurrentAccountId()).toBe(a2.id);
+    });
+
+    it('pending switch 存在时，displayCurrent 不等待 realCurrent 探测完成', async () => {
+      await manager.initialize();
+      await manager.add('a@test.com', 'p');
+      const a2 = await manager.add('b@test.com', 'p');
+
+      (manager as any).quotaFetcher.fetchFromLocalProto = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(() => {
+              resolve({
+                success: true,
+                source: 'proto',
+                userEmail: 'a@test.com',
+                fetchedAt: new Date().toISOString(),
+              });
+            }, 50);
+          }),
+      );
+
+      const result = await manager.switchTo(a2.id);
+      expect(result.success).toBe(true);
+
+      const displayId = await Promise.race([
+        manager.getDisplayCurrentAccountId(),
+        new Promise<string>((resolve) => setTimeout(() => resolve('__timeout__'), 10)),
+      ]);
+
+      expect(displayId).toBe(a2.id);
     });
   });
 

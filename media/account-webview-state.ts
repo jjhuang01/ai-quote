@@ -14,6 +14,10 @@ export function filterAccountsForQuery<T extends SearchableAccountLike>(accounts
   });
 }
 
+export function getFilteredAccountIds<T extends SearchableAccountLike>(accounts: T[], query: string): string[] {
+  return filterAccountsForQuery(accounts, query).map((account) => account.id);
+}
+
 export function normalizeAccountSelection(current: Set<string>, existingIds: string[]): Set<string> {
   const allowed = new Set(existingIds);
   return new Set([...current].filter((id) => allowed.has(id)));

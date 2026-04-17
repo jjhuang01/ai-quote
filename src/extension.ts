@@ -26,6 +26,28 @@ function sanitizeAccount(account: WindsurfAccount): Omit<WindsurfAccount, "passw
   };
 }
 
+async function refreshQuotaAfterSwitch(accountId: string, reason: string): Promise<void> {
+  if (!dataManager) {
+    return;
+  }
+  try {
+    const quotaResult = await dataManager.windsurfAccounts.fetchRealQuota(accountId);
+    if (!quotaResult.success) {
+      logger?.warn("Fetch quota after account switch failed.", {
+        accountId,
+        reason,
+        error: quotaResult.error,
+      });
+    }
+  } catch (error) {
+    logger?.warn("Fetch quota after account switch threw.", {
+      accountId,
+      reason,
+      error: String(error),
+    });
+  }
+}
+
 async function updateStatusBar(): Promise<void> {
   if (!statusBarItem || !bridge) {
     return;
@@ -91,9 +113,7 @@ export async function activate(
       }
       const result = await dataManager.windsurfAccounts.switchTo(accountId);
       if (result.success) {
-        void dataManager.windsurfAccounts.fetchRealQuota(accountId).finally(() => {
-          sidebarProvider.postBootstrap();
-        });
+        await refreshQuotaAfterSwitch(accountId, "autopilot.switchAccount");
         sidebarProvider.postBootstrap();
       }
       const account = dataManager.windsurfAccounts.getById(accountId);
@@ -111,9 +131,7 @@ export async function activate(
       const switched = await dataManager.windsurfAccounts.autoSwitchIfNeeded();
       const afterId = await dataManager.windsurfAccounts.getDisplayCurrentAccountId();
       if (switched && afterId) {
-        void dataManager.windsurfAccounts.fetchRealQuota(afterId).finally(() => {
-          sidebarProvider.postBootstrap();
-        });
+        await refreshQuotaAfterSwitch(afterId, "autopilot.switchNext");
       }
       sidebarProvider.postBootstrap();
       return {

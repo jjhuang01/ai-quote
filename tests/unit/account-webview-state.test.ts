@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   clampAccountScrollTop,
   filterAccountsForQuery,
+  getFilteredAccountIds,
   normalizeAccountSelection,
 } from '../../media/account-webview-state';
 
@@ -19,6 +20,17 @@ describe('account-webview-state', () => {
   it('prunes selected ids that no longer exist', () => {
     const next = normalizeAccountSelection(new Set(['a', 'missing']), ['a', 'b']);
     expect([...next]).toEqual(['a']);
+  });
+
+  it('returns only filtered account ids for select-all flows', () => {
+    const accounts = [
+      { id: '1', email: 'alpha@test.com', plan: 'Pro' },
+      { id: '2', email: 'beta@test.com', plan: 'Teams' },
+      { id: '3', email: 'gamma@test.com', plan: 'Free' },
+    ];
+
+    expect(getFilteredAccountIds(accounts, 'teams')).toEqual(['2']);
+    expect(getFilteredAccountIds(accounts, '')).toEqual(['1', '2', '3']);
   });
 
   it('clamps scroll after account count shrinks', () => {

@@ -13,21 +13,63 @@ import type {
 import { DEFAULT_AUTO_SWITCH, DEFAULT_QUOTA } from "./contracts";
 import type { LoggerLike } from "./logger";
 import { WindsurfAuth } from "../adapters/windsurf-auth";
+import { WindsurfPatchService } from "../adapters/windsurf-patch";
 import { WindsurfQuotaFetcher } from "../adapters/quota-fetcher";
 import type { WindsurfPlanInfo } from "../adapters/quota-fetcher";
 
 const WINDSURF_API_SERVER = "https://server.codeium.com";
+const WINDSURF_COMMAND_DISCOVERY_TIMEOUT_MS = 3000;
+const WINDSURF_COMMAND_EXECUTION_TIMEOUT_MS = 15000;
+
+async function withTimeout<T>(
+  promise: PromiseLike<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(`${label} 超时 (${ms}ms)`));
+        }, ms);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
 
 /**
  * 运行时发现 Windsurf 原生的 auth 命令（无需补丁）
  * Windsurf 内部命令名由 metadata 动态生成，通过模式匹配获取
  */
 async function findWindsurfAuthCommand(): Promise<string | undefined> {
-  const cmds = await vscode.commands.getCommands(true);
+  const cmds = await withTimeout(
+    vscode.commands.getCommands(true),
+    WINDSURF_COMMAND_DISCOVERY_TIMEOUT_MS,
+    "发现 Windsurf 认证命令",
+  );
   return cmds.find(
     (c) =>
       c.toLowerCase().includes('provideauthtokentoauthprovider') &&
       !c.toLowerCase().includes('shit'),
+  );
+}
+
+async function findPatchedWindsurfAuthCommand(): Promise<string | undefined> {
+  const cmds = await withTimeout(
+    vscode.commands.getCommands(true),
+    WINDSURF_COMMAND_DISCOVERY_TIMEOUT_MS,
+    "发现 Windsurf 补丁认证命令",
+  );
+  return cmds.find(
+    (c) =>
+      c.toLowerCase().includes('provideauthtokentoauthprovider') &&
+      c.toLowerCase().includes('shit'),
   );
 }
 
@@ -130,6 +172,18 @@ export class WindsurfAccountManager {
   private async resolveCurrentAccountId(options?: {
     persistRealMatch?: boolean;
   }): Promise<string | undefined> {
+    if (this.pendingSwitchId) {
+      const pendingId = this.pendingSwitchId;
+      void this.getRealCurrentAccountId()
+        .then(async (realId) => {
+          if (realId === pendingId) {
+            await this.finalizePendingSwitch(realId, options?.persistRealMatch ?? false);
+          }
+        })
+        .catch(() => undefined);
+      return pendingId;
+    }
+
     const realId = await this.getRealCurrentAccountId();
 
     if (this.pendingSwitchId) {
@@ -439,8 +493,8 @@ export class WindsurfAccountManager {
   // --- Switch ---
 
   /**
-   * 切换到指定账号，执行真实的 Windsurf session 注入（无补丁方案）
-   * 流程: Firebase signIn → 获取 idToken → 调用 Windsurf 原生命令注入 session
+   * 切换到指定账号，执行真实的 Windsurf session 注入。
+   * 优先使用已安装的无感补丁命令直接注入 apiKey session；没有补丁时保留原生命令 fallback。
    */
   public async switchTo(id: string): Promise<SwitchResult> {
     await this.revalidateBeforeWrite();
@@ -464,29 +518,131 @@ export class WindsurfAccountManager {
       return { success: false, error: `登录失败: ${String(err)}` };
     }
 
-    // ── 步骤2: 发现 Windsurf 原生 auth 命令 ──────────────────────────────
-    const authCmd = await findWindsurfAuthCommand();
-    if (!authCmd) {
+    // ── 步骤2: 发现 Windsurf session 注入命令 ────────────────────────────
+    this.logger.info("Discovering Windsurf auth commands.", { email: account.email });
+    let patchedAuthCmd: string | undefined;
+    let nativeAuthCmd: string | undefined;
+    try {
+      [patchedAuthCmd, nativeAuthCmd] = await Promise.all([
+        findPatchedWindsurfAuthCommand(),
+        findWindsurfAuthCommand(),
+      ]);
+    } catch (err) {
+      this.logger.warn("Windsurf auth command discovery failed.", { error: String(err) });
+      return { success: false, error: `发现 Windsurf 认证命令失败: ${String(err)}` };
+    }
+
+    if (!patchedAuthCmd) {
+      const patchStatus = await WindsurfPatchService.isPatchApplied();
+      if (!patchStatus.applied) {
+        this.logger.warn("Windsurf seamless patch is not applied during switch.", {
+          extensionPath: patchStatus.extensionPath,
+          error: patchStatus.error,
+        });
+        const patchResult = await WindsurfPatchService.checkAndApply(this.logger);
+        if (patchResult.success && patchResult.needsRestart) {
+          return {
+            success: false,
+            error: "无感补丁已写入，请重启 Windsurf 后再次切换账号。",
+          };
+        }
+        if (!patchResult.success) {
+          this.logger.warn("Auto apply Windsurf seamless patch failed.", {
+            error: patchResult.error,
+            permissionHint: patchResult.permissionHint,
+          });
+        }
+      }
+    }
+
+    if (!patchedAuthCmd && !nativeAuthCmd) {
       return {
         success: false,
         error: "未找到 Windsurf 认证命令，请确保 Windsurf 已完全加载。",
       };
     }
-    this.logger.info("Found Windsurf auth command.", { command: authCmd });
+    this.logger.info("Found Windsurf auth command.", {
+      command: patchedAuthCmd ?? nativeAuthCmd,
+      mode: patchedAuthCmd ? "patched" : "native",
+    });
 
     // ── 步骤3: 注入新 session（不先 logout，避免中断当前会话） ──────────
+    let injectedApiKey: string | undefined;
     try {
-      // 传入 token，Windsurf 内部 handleAuthToken → registerUser(token) 完成注册
-      const result = await vscode.commands.executeCommand<{
-        session?: unknown;
-        error?: unknown;
-      }>(authCmd, idToken);
-      if (result?.error) {
-        this.logger.warn("Windsurf auth command returned error.", { error: result.error });
-        return { success: false, error: `Windsurf 认证失败: ${JSON.stringify(result.error)}` };
+      if (patchedAuthCmd) {
+        const registered = await this.auth.registerUser(idToken);
+        injectedApiKey = registered.apiKey;
+        const result = await withTimeout(
+          vscode.commands.executeCommand<{
+            session?: unknown;
+            error?: unknown;
+          }>(patchedAuthCmd, {
+            apiKey: registered.apiKey,
+            name: registered.name,
+            apiServerUrl: registered.apiServerUrl ?? WINDSURF_API_SERVER,
+          }),
+          WINDSURF_COMMAND_EXECUTION_TIMEOUT_MS,
+          "执行 Windsurf 补丁认证命令",
+        );
+        if (result?.error) {
+          this.logger.warn("Windsurf patched auth command returned error.", { error: result.error });
+          injectedApiKey = undefined;
+          if (!nativeAuthCmd) {
+            return { success: false, error: `Windsurf 认证失败: ${JSON.stringify(result.error)}` };
+          }
+        } else {
+          this.logger.info("Injected Windsurf session through patched command.", {
+            id,
+            email: account.email,
+          });
+        }
+      }
+
+      if (!patchedAuthCmd || !injectedApiKey) {
+        if (!nativeAuthCmd) {
+          return {
+            success: false,
+            error: "未找到 Windsurf 原生认证命令，且补丁注入未成功。",
+          };
+        }
+        // 传入 token，Windsurf 内部 handleAuthToken → registerUser(token) 完成注册
+        const result = await withTimeout(
+          vscode.commands.executeCommand<{
+            session?: unknown;
+            error?: unknown;
+          }>(nativeAuthCmd, idToken),
+          WINDSURF_COMMAND_EXECUTION_TIMEOUT_MS,
+          "执行 Windsurf 原生认证命令",
+        );
+        if (result?.error) {
+          this.logger.warn("Windsurf auth command returned error.", { error: result.error });
+          return { success: false, error: `Windsurf 认证失败: ${JSON.stringify(result.error)}` };
+        }
       }
     } catch (err) {
-      return { success: false, error: `Session 注入失败: ${String(err)}` };
+      if (!patchedAuthCmd || !nativeAuthCmd) {
+        return { success: false, error: `Session 注入失败: ${String(err)}` };
+      }
+      this.logger.warn("Patched session injection failed, falling back to native auth command.", {
+        error: String(err),
+      });
+      try {
+        const result = await withTimeout(
+          vscode.commands.executeCommand<{
+            session?: unknown;
+            error?: unknown;
+          }>(nativeAuthCmd, idToken),
+          WINDSURF_COMMAND_EXECUTION_TIMEOUT_MS,
+          "执行 Windsurf 原生认证命令 fallback",
+        );
+        if (result?.error) {
+          this.logger.warn("Windsurf auth command returned error.", { error: result.error });
+          return { success: false, error: `Windsurf 认证失败: ${JSON.stringify(result.error)}` };
+        }
+        injectedApiKey = undefined;
+      } catch (fallbackErr) {
+        return { success: false, error: `Session 注入失败: ${String(err)}; fallback: ${String(fallbackErr)}` };
+      }
     }
 
     // ── 步骤4: 更新内部状态 ──────────────────────────────────────────────
@@ -498,10 +654,13 @@ export class WindsurfAccountManager {
     });
     this.currentAccountId = id;
     this.pendingSwitchId = id;
-    // 清除缓存的 apiKey，下次 quota 获取时会重新通过 registerUser 获取
-    account.apiKey = undefined;
+    account.apiKey = injectedApiKey;
     await this.save();
-    this.logger.info("Switched to account (no-patch).", { id, email: account.email });
+    this.logger.info("Switched to account.", {
+      id,
+      email: account.email,
+      mode: injectedApiKey ? "patched" : "native",
+    });
     return { success: true };
   }
 

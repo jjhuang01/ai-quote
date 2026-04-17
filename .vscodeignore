@@ -24,5 +24,6 @@ debug/**
 logs/**
 scripts/**
 tmp/**
+.tmp/**
 .windsurfrules
 *.vsix

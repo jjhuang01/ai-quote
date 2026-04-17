@@ -383,6 +383,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           );
           if (delChoice === '删除') {
             await this.dataManager.windsurfAccounts.delete(value);
+            await this.postAccountsSync({ preferFastCurrentId: true });
             void this.view?.webview.postMessage({ type: 'opResult', value: { message: account ? `已删除 ${account.email}` : '账号已删除' } });
           }
         }
@@ -392,19 +393,35 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           void this.view?.webview.postMessage({ type: 'switchLoading', value: true });
           const account = this.dataManager.windsurfAccounts.getById(value);
           const switchResult = await this.dataManager.windsurfAccounts.switchTo(value);
-          void this.view?.webview.postMessage({ type: 'switchLoading', value: false });
 
           if (switchResult.success && account) {
-            // 立即刷新 UI（显示新 currentAccountId + 已有数据）
+            void this.view?.webview.postMessage({ type: 'switchLoading', value: false });
+            const quotaRefresh = this.dataManager.windsurfAccounts.fetchRealQuota(value);
+            // 切号成功后立刻同步 currentAccountId；真实配额后台完成后再二次同步。
             await this.postAccountsSync({ preferFastCurrentId: true });
-            const msg = `已切换到 ${account.email}`;
+            const msg = `已切换到 ${account.email}，正在刷新配额`;
             void this.view?.webview.postMessage({ type: 'switchResult', value: { success: true, message: msg } });
             vscode.window.setStatusBarMessage(`$(check) ${msg}`, 4000);
-            // 后台异步获取新账号配额，完成后再次刷新 UI
-            void this.dataManager.windsurfAccounts.fetchRealQuota(value).then(() => {
-              void this.postAccountsSync({ preferFastCurrentId: true });
-            });
+            void quotaRefresh
+              .then(async (quotaResult) => {
+                await this.postAccountsSync({ preferFastCurrentId: true });
+                void this.view?.webview.postMessage({ type: 'quotaFetchResult', value: quotaResult });
+                if (!quotaResult.success) {
+                  this.logger.warn('Fetch quota after account switch failed.', {
+                    error: quotaResult.error,
+                  });
+                }
+              })
+              .catch(async (err) => {
+                this.logger.warn('Fetch quota after account switch threw.', { error: String(err) });
+                await this.postAccountsSync({ preferFastCurrentId: true });
+                void this.view?.webview.postMessage({
+                  type: 'quotaFetchResult',
+                  value: { success: false, error: String(err) },
+                });
+              });
           } else {
+            void this.view?.webview.postMessage({ type: 'switchLoading', value: false });
             const errMsg = switchResult.error ?? '切换失败：未知错误';
             void this.view?.webview.postMessage({ type: 'switchResult', value: { success: false, message: errMsg } });
             vscode.window.showErrorMessage(`切换失败: ${errMsg}`);
@@ -419,6 +436,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           );
           if (choice === '删除') {
             const removed = await this.dataManager.windsurfAccounts.deleteBatch(ids);
+            await this.postAccountsSync({ preferFastCurrentId: true });
             void this.view?.webview.postMessage({ type: 'opResult', value: { message: `已删除 ${removed} 个账号` } });
           }
         }
@@ -430,6 +448,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         );
         if (clearAccChoice === '清空') {
           await this.dataManager.windsurfAccounts.clear();
+          await this.postAccountsSync({ preferFastCurrentId: true });
           void this.view?.webview.postMessage({ type: 'opResult', value: { message: '所有账号已清空' } });
         }
         return true;
@@ -657,6 +676,44 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
             patchError: patchStatus.error ?? null
           }
         });
+        return true;
+      }
+      case 'applyWindsurfPatch': {
+        void this.view?.webview.postMessage({ type: 'patchApplyResult', value: { loading: true } });
+        try {
+          const result = await WindsurfPatchService.checkAndApply(this.logger);
+          const patchStatus = await WindsurfPatchService.isPatchApplied();
+          const logContent = await this.logger.getRecentLogs(200);
+          void this.view?.webview.postMessage({
+            type: 'patchApplyResult',
+            value: result,
+          });
+          void this.view?.webview.postMessage({
+            type: 'debugInfo',
+            value: {
+              logPath: this.logger.getLogFilePath(),
+              logContent,
+              patchApplied: patchStatus.applied,
+              patchExtensionPath: patchStatus.extensionPath ?? null,
+              patchError: patchStatus.error ?? null
+            }
+          });
+          if (result.success) {
+            const msg = result.needsRestart
+              ? '无感补丁已写入，请重启 Windsurf 后生效'
+              : '无感补丁已启用';
+            vscode.window.showInformationMessage(msg);
+          } else {
+            const msg = result.permissionHint
+              ? `${result.error ?? '补丁应用失败'}\n${result.permissionHint}`
+              : result.error ?? '补丁应用失败';
+            vscode.window.showErrorMessage(msg);
+          }
+        } catch (err) {
+          const error = String(err);
+          void this.view?.webview.postMessage({ type: 'patchApplyResult', value: { success: false, error } });
+          vscode.window.showErrorMessage(`补丁应用失败: ${error}`);
+        }
         return true;
       }
       case 'maintenanceDiagnose':
