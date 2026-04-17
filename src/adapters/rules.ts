@@ -134,3 +134,24 @@ export async function configureGlobalRules(toolName: string): Promise<RuleWriteR
     await writeWindsurfWorkspaceRules(toolName),
   ];
 }
+
+export async function clearWorkspaceRulesIfMatch(toolName: string): Promise<string[]> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    return [];
+  }
+
+  const removed: string[] = [];
+  for (const fileName of ['.windsurfrules', 'AI_FEEDBACK_RULES.md']) {
+    const filePath = path.join(workspaceFolder.uri.fsPath, fileName);
+    try {
+      const content = await fs.readFile(filePath, 'utf8');
+      if (!content.includes(toolName)) continue;
+      await fs.unlink(filePath);
+      removed.push(filePath);
+    } catch {
+      // ignore missing/unreadable files
+    }
+  }
+  return removed;
+}

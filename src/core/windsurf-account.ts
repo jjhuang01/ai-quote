@@ -54,7 +54,8 @@ export class WindsurfAccountManager {
   private revision = 0;
   private updatedAt = '';
   private readonly onDidChangeAccountsEmitter = new vscode.EventEmitter<void>();
-  private watchInterval?: ReturnType<typeof setInterval>;
+  private accountsWatcher?: vscode.FileSystemWatcher;
+  private watcherDisposables: vscode.Disposable[] = [];
   private readonly logger: LoggerLike;
   private readonly auth: WindsurfAuth;
   private readonly quotaFetcher: WindsurfQuotaFetcher;
@@ -118,6 +119,66 @@ export class WindsurfAccountManager {
     return this.currentAccountId;
   }
 
+  public getImmediateCurrentAccountId(): string | undefined {
+    return this.pendingSwitchId ?? this.currentAccountId;
+  }
+
+  public async getDisplayCurrentAccountId(): Promise<string | undefined> {
+    return this.resolveCurrentAccountId({ persistRealMatch: true });
+  }
+
+  private async resolveCurrentAccountId(options?: {
+    persistRealMatch?: boolean;
+  }): Promise<string | undefined> {
+    const realId = await this.getRealCurrentAccountId();
+
+    if (this.pendingSwitchId) {
+      if (realId === this.pendingSwitchId) {
+        await this.finalizePendingSwitch(realId, options?.persistRealMatch ?? false);
+        return realId;
+      }
+      return this.pendingSwitchId;
+    }
+
+    if (realId) {
+      if (options?.persistRealMatch && realId !== this.currentAccountId) {
+        this.accounts.forEach((account) => {
+          account.isActive = account.id === realId;
+        });
+        this.currentAccountId = realId;
+        await this.save();
+      }
+      return realId;
+    }
+
+    return this.currentAccountId;
+  }
+
+  private async finalizePendingSwitch(
+    settledId: string,
+    persist: boolean,
+  ): Promise<void> {
+    let changed = false;
+    if (this.currentAccountId !== settledId) {
+      this.currentAccountId = settledId;
+      changed = true;
+    }
+    this.accounts.forEach((account) => {
+      const nextActive = account.id === settledId;
+      if (account.isActive !== nextActive) {
+        account.isActive = nextActive;
+        changed = true;
+      }
+    });
+    if (this.pendingSwitchId) {
+      this.pendingSwitchId = undefined;
+      changed = true;
+    }
+    if (persist && changed) {
+      await this.save();
+    }
+  }
+
   public getAutoSwitchConfig(): AutoSwitchConfig {
     return { ...this.autoSwitch };
   }
@@ -140,35 +201,70 @@ export class WindsurfAccountManager {
     return safeReadJson<PersistedWindsurfAccounts>(this.filePath);
   }
 
-  public async reloadFromDisk(): Promise<boolean> {
-    const data = await this.readPersistedState();
+  private applyDiskState(data: PersistedWindsurfAccounts | undefined): boolean {
     const nextRevision = data?.revision ?? 0;
     if (nextRevision <= this.revision) {
       return false;
     }
+    const previousRevision = this.revision;
     this.applyPersistedState(data);
-    this.onDidChangeAccountsEmitter.fire();
+    this.logger.info("Reloaded newer account state from disk.", {
+      previousRevision,
+      nextRevision,
+    });
     return true;
   }
 
-  private async revalidateBeforeWrite(): Promise<void> {
-    await this.reloadFromDisk();
+  public async reloadFromDisk(): Promise<boolean> {
+    const data = await this.readPersistedState();
+    const changed = this.applyDiskState(data);
+    if (changed) {
+      this.onDidChangeAccountsEmitter.fire();
+    }
+    return changed;
+  }
+
+  private async revalidateBeforeWrite(): Promise<boolean> {
+    const data = await this.readPersistedState();
+    const changed = this.applyDiskState(data);
+    if (changed) {
+      this.onDidChangeAccountsEmitter.fire();
+    }
+    return changed;
   }
 
   public startWatching(): void {
-    if (this.watchInterval) return;
-    this.watchInterval = setInterval(() => {
-      void this.reloadFromDisk().catch((error) => {
+    if (this.accountsWatcher) return;
+
+    const pattern = new vscode.RelativePattern(
+      path.dirname(this.filePath),
+      path.basename(this.filePath),
+    );
+    this.accountsWatcher = vscode.workspace.createFileSystemWatcher(pattern);
+
+    const reload = async (): Promise<void> => {
+      try {
+        await this.reloadFromDisk();
+      } catch (error) {
         this.logger.warn("Account sync reload failed.", { error: String(error) });
-      });
-    }, 1000);
+      }
+    };
+
+    this.watcherDisposables = [
+      this.accountsWatcher.onDidChange(() => {
+        void reload();
+      }),
+      this.accountsWatcher.onDidCreate(() => {
+        void reload();
+      }),
+    ];
   }
 
   public stopWatching(): void {
-    if (this.watchInterval) {
-      clearInterval(this.watchInterval);
-      this.watchInterval = undefined;
-    }
+    this.watcherDisposables.forEach((disposable) => disposable.dispose());
+    this.watcherDisposables = [];
+    this.accountsWatcher?.dispose();
+    this.accountsWatcher = undefined;
   }
 
   public dispose(): void {
@@ -179,7 +275,10 @@ export class WindsurfAccountManager {
   // --- CRUD ---
 
   public async add(email: string, password: string): Promise<WindsurfAccount> {
-    await this.revalidateBeforeWrite();
+    const reloaded = await this.revalidateBeforeWrite();
+    if (reloaded) {
+      throw new Error("账号状态已在其他窗口更新，请重试操作");
+    }
     const account: WindsurfAccount = {
       id: `ws_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       email,
@@ -204,7 +303,10 @@ export class WindsurfAccountManager {
   public async importBatch(
     lines: string,
   ): Promise<{ added: number; skipped: number }> {
-    await this.revalidateBeforeWrite();
+    const reloaded = await this.revalidateBeforeWrite();
+    if (reloaded) {
+      throw new Error("账号状态已在其他窗口更新，请重试操作");
+    }
     const entries = lines
       .split("\n")
       .map((l) => l.trim())
@@ -394,6 +496,7 @@ export class WindsurfAccountManager {
       a.isActive = a.id === id;
     });
     this.currentAccountId = id;
+    this.pendingSwitchId = id;
     // 清除缓存的 apiKey，下次 quota 获取时会重新通过 registerUser 获取
     account.apiKey = undefined;
     await this.save();
@@ -404,17 +507,8 @@ export class WindsurfAccountManager {
   public async autoSwitchIfNeeded(): Promise<boolean> {
     if (!this.autoSwitch.enabled) return false;
 
-    // Refresh currentAccountId from real Windsurf login state
-    const realId = await this.getRealCurrentAccountId();
-    if (realId && realId !== this.currentAccountId) {
-      this.accounts.forEach((a) => {
-        a.isActive = a.id === realId;
-      });
-      this.currentAccountId = realId;
-      await this.save();
-    }
-
-    const current = this.getCurrentAccount();
+    const currentId = await this.resolveCurrentAccountId({ persistRealMatch: true });
+    const current = currentId ? this.getById(currentId) : undefined;
     if (!current) return false;
 
     // ── 判断当前账号是否需要切换 ──────────────────────────────────────────
@@ -459,15 +553,19 @@ export class WindsurfAccountManager {
       // Free plan availablePromptCredits=0 导致 remainingMessages=0，但 dailyRemainingPercent=100）
       const hasDailyPct = rq.dailyRemainingPercent >= 0;
       const hasWeeklyPct = rq.weeklyRemainingPercent >= 0;
+      // -1 + resetAtUnix > 0 = no data but quota tracked → treat as exhausted
+      const dailyExhaustedNoData = !hasDailyPct && rq.dailyResetAtUnix > 0;
+      const weeklyExhaustedNoData = !hasWeeklyPct && rq.weeklyResetAtUnix > 0;
       const dailyExhausted =
         this.autoSwitch.switchOnDaily &&
-        (hasDailyPct
-          ? rq.dailyRemainingPercent <= 5
-          : rq.billingStrategy === 'credits' && rq.remainingMessages <= threshold);
+        (dailyExhaustedNoData ||
+          (hasDailyPct
+            ? rq.dailyRemainingPercent <= 5
+            : rq.billingStrategy === 'credits' && rq.remainingMessages <= threshold));
       const weeklyExhausted =
         this.autoSwitch.switchOnWeekly &&
-        hasWeeklyPct &&
-        rq.weeklyRemainingPercent <= 5;
+        (weeklyExhaustedNoData ||
+          (hasWeeklyPct && rq.weeklyRemainingPercent <= 5));
       return dailyExhausted || weeklyExhausted;
     }
 
@@ -503,17 +601,23 @@ export class WindsurfAccountManager {
     if (rq) {
       // quota 制下 remainingMessages 不可靠，优先用百分比判断
       const hasDailyPct = rq.dailyRemainingPercent >= 0;
+      const hasWeeklyPct = rq.weeklyRemainingPercent >= 0;
+      // -1 + resetAtUnix > 0 = no data but quota tracked → treat as exhausted
+      const dailyExhaustedNoData = !hasDailyPct && rq.dailyResetAtUnix > 0;
+      const weeklyExhaustedNoData = !hasWeeklyPct && rq.weeklyResetAtUnix > 0;
       const dailyOk =
         !this.autoSwitch.switchOnDaily ||
-        (hasDailyPct
-          ? rq.dailyRemainingPercent > 5
-          : rq.billingStrategy === 'credits'
-            ? rq.remainingMessages > threshold
-            : true);  // 无百分比且非 credits 制，默认允许切入
+        (!dailyExhaustedNoData &&
+          (hasDailyPct
+            ? rq.dailyRemainingPercent > 5
+            : rq.billingStrategy === 'credits'
+              ? rq.remainingMessages > threshold
+              : true));  // 无百分比且非 credits 制且无 reset 时间，默认允许切入
       const weeklyOk =
         !this.autoSwitch.switchOnWeekly ||
-        rq.weeklyRemainingPercent < 0 ||  // -1 = 无数据，不阻止切入
-        rq.weeklyRemainingPercent > 5;
+        (!weeklyExhaustedNoData &&
+          (!hasWeeklyPct ||  // -1 without reset time = 真的无数据，不阻止切入
+            rq.weeklyRemainingPercent > 5));
       return dailyOk && weeklyOk;
     }
 
@@ -579,8 +683,11 @@ export class WindsurfAccountManager {
       // 优先使用真实配额数据计算 warningLevel
       let warningLevel: QuotaSnapshot["warningLevel"] = "ok";
       if (rq) {
-        // -1 = API 未返回百分比字段（无数据），不应触发 warning
-        if (rq.dailyRemainingPercent >= 0 && rq.dailyRemainingPercent <= 0) warningLevel = "critical";
+        // -1 = API 未返回百分比字段；但 resetAtUnix > 0 表示配额有跟踪 → 视为耗尽
+        const dailyExhaustedNoData = rq.dailyRemainingPercent < 0 && rq.dailyResetAtUnix > 0;
+        const weeklyExhaustedNoData = rq.weeklyRemainingPercent < 0 && rq.weeklyResetAtUnix > 0;
+        if (dailyExhaustedNoData || (rq.dailyRemainingPercent >= 0 && rq.dailyRemainingPercent <= 0)) warningLevel = "critical";
+        else if (weeklyExhaustedNoData) warningLevel = "critical";
         else if (rq.dailyRemainingPercent >= 0 && rq.dailyRemainingPercent <= 10) warningLevel = "warn";
         else if (rq.weeklyRemainingPercent >= 0 && rq.weeklyRemainingPercent <= 10) warningLevel = "warn";
       } else {
@@ -660,18 +767,26 @@ export class WindsurfAccountManager {
       }
 
       if (result.success && result.planInfo) {
-        account.realQuota = this.planInfoToRealQuota(
-          result.planInfo,
-          result.source,
-          result.fetchedAt,
-        );
-        // cache/proto 数据属于当前 Windsurf 登录账号，不一定是被查询账号
-        // 只有 api/apikey 来源才可信地更新 plan
-        if (result.source === 'api' || result.source === 'apikey') {
-          account.plan = this.validPlan(result.planInfo.planName, account.plan);
+        // Revalidate may rebuild this.accounts, so re-find the target after
+        await this.revalidateBeforeWrite();
+        const target = this.accounts.find((a) => a.id === id);
+        if (target) {
+          target.realQuota = this.planInfoToRealQuota(
+            result.planInfo,
+            result.source,
+            result.fetchedAt,
+          );
+          // cache/proto 数据属于当前 Windsurf 登录账号，不一定是被查询账号
+          // 只有 api/apikey 来源才可信地更新 plan
+          if (result.source === 'api' || result.source === 'apikey') {
+            target.plan = this.validPlan(result.planInfo.planName, target.plan);
+          }
+          target.lastCheckedAt = result.fetchedAt;
+          if (id && id === this.pendingSwitchId) {
+            await this.finalizePendingSwitch(id, false);
+          }
+          await this.save();
         }
-        account.lastCheckedAt = result.fetchedAt;
-        await this.save();
         return { success: true };
       }
 
@@ -916,6 +1031,9 @@ export class WindsurfAccountManager {
   }
 
   public async clearPendingSwitchId(): Promise<void> {
+    if (await this.revalidateBeforeWrite()) {
+      return;
+    }
     this.pendingSwitchId = undefined;
     await this.save();
   }
@@ -926,6 +1044,16 @@ export class WindsurfAccountManager {
   }
 
   private async save(): Promise<void> {
+    const diskState = await this.readPersistedState();
+    const diskRevision = diskState?.revision ?? 0;
+    if (diskRevision > this.revision) {
+      const changed = this.applyDiskState(diskState);
+      if (changed) {
+        this.onDidChangeAccountsEmitter.fire();
+      }
+      throw new Error("账号状态已在其他窗口更新，请刷新后重试");
+    }
+
     this.revision += 1;
     this.updatedAt = new Date().toISOString();
 

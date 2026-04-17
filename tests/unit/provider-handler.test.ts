@@ -66,7 +66,10 @@ function createMockDataManager() {
     windsurfAccounts: {
       getAll: vi.fn(() => []),
       getById: vi.fn((id: string) => ({ id, email: 'test@example.com', isActive: true })),
+      getDisplayCurrentAccountId: vi.fn(async () => 'ws_1'),
+      getImmediateCurrentAccountId: vi.fn(() => 'ws_1'),
       getCurrentAccountId: vi.fn(() => 'ws_1'),
+      getRealCurrentAccountId: vi.fn(async () => 'ws_1'),
       getAutoSwitchConfig: vi.fn(() => ({ enabled: false, threshold: 5 })),
       getQuotaSnapshots: vi.fn(() => []),
       reloadFromDisk: vi.fn(async () => false),
@@ -75,6 +78,7 @@ function createMockDataManager() {
       add: vi.fn(async () => ({ id: 'ws_new', email: 'new@test.com' })),
       importBatch: vi.fn(async () => ({ added: 2, skipped: 1 })),
       delete: vi.fn(async () => true),
+      deleteBatch: vi.fn(async () => 0),
       switchTo: vi.fn(async () => ({ success: true })),
       clear: vi.fn(async () => {}),
       updateAutoSwitch: vi.fn(async () => ({})),
@@ -214,6 +218,7 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       provider.resolveWebviewView(mockWebviewView, {} as any, {} as any);
       listenerStore.fn?.();
       await Promise.resolve();
+      await Promise.resolve();
 
       const calls = postMessage.mock.calls.map((c: any) => c[0]);
       const syncMsg = calls.find((m: any) => m.type === 'accountsSync');
@@ -229,6 +234,22 @@ describe('QuoteSidebarProvider - handleMessage', () => {
 
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
       expect(calls.some((m: any) => m.type === 'accountsSync')).toBe(true);
+    });
+
+    it('accountAdd 使用内存 currentAccountId，避免触发真实账号探测', async () => {
+      ctx.postMessage.mockClear();
+      ctx.dataManager.windsurfAccounts.getImmediateCurrentAccountId.mockClear();
+      ctx.dataManager.windsurfAccounts.getCurrentAccountId.mockClear();
+      ctx.dataManager.windsurfAccounts.getRealCurrentAccountId.mockClear();
+
+      await ctx.send({ type: 'accountAdd', payload: { email: 'new@test.com', password: 'secret' } });
+
+      expect(ctx.dataManager.windsurfAccounts.getImmediateCurrentAccountId).toHaveBeenCalled();
+      expect(ctx.dataManager.windsurfAccounts.getRealCurrentAccountId).not.toHaveBeenCalled();
+      const syncMsg = ctx.postMessage.mock.calls
+        .map((c: any) => c[0])
+        .find((m: any) => m.type === 'accountsSync');
+      expect(syncMsg?.value?.currentAccountId).toBe('ws_1');
     });
 
     it('关闭后重新打开视图，账号同步订阅仍然生效', async () => {
@@ -282,6 +303,7 @@ describe('QuoteSidebarProvider - handleMessage', () => {
 
       listenerStore.fn?.();
       await Promise.resolve();
+      await Promise.resolve();
 
       expect(firstView.postMessage).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: 'accountsSync' })
@@ -300,13 +322,76 @@ describe('QuoteSidebarProvider - handleMessage', () => {
 
       expect(ctx.dataManager.windsurfAccounts.reloadFromDisk).toHaveBeenCalled();
       await Promise.resolve();
+      await Promise.resolve();
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
       expect(calls.some((m: any) => m.type === 'bootstrap')).toBe(false);
       expect(calls.some((m: any) => m.type === 'accountsSync')).toBe(true);
     });
-  });
+    it('accountsSync payload still includes account tab data needed for local filtering', async () => {
+      ctx.dataManager.windsurfAccounts.getAll.mockReturnValueOnce([
+        {
+          id: 'ws_1',
+          email: 'alpha@test.com',
+          password: '***',
+          plan: 'Pro',
+          creditsUsed: 0,
+          creditsTotal: 0,
+          quota: { dailyUsed: 0, dailyLimit: 0, dailyResetAt: '', weeklyUsed: 0, weeklyLimit: 0, weeklyResetAt: '' },
+          expiresAt: '',
+          isActive: true,
+          addedAt: '2026-04-14T00:00:00.000Z',
+        },
+      ]);
+      ctx.dataManager.windsurfAccounts.getQuotaSnapshots.mockReturnValueOnce([
+        {
+          accountId: 'ws_1',
+          email: 'alpha@test.com',
+          plan: 'Pro',
+          dailyUsed: 0,
+          dailyLimit: 0,
+          dailyRemaining: 0,
+          dailyResetIn: '',
+          weeklyUsed: 0,
+          weeklyLimit: 0,
+          weeklyRemaining: 0,
+          weeklyResetIn: '',
+          warningLevel: 'ok',
+          real: { dailyRemainingPercent: 80, weeklyRemainingPercent: 90 },
+        },
+      ]);
 
-  // --- Account Switch ---
+      await (ctx.provider as any).postAccountsSync();
+
+      expect(ctx.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'accountsSync',
+          value: expect.objectContaining({
+            accounts: expect.any(Array),
+            currentAccountId: 'ws_1',
+            autoSwitch: expect.any(Object),
+            quotaSnapshots: expect.any(Array),
+            quotaFetching: false,
+          }),
+        })
+      );
+    });
+
+    it('visibility revalidate continues to use accountsSync instead of forcing bootstrap', async () => {
+      ctx.dataManager.windsurfAccounts.reloadFromDisk.mockResolvedValueOnce(true);
+      ctx.postMessage.mockClear();
+
+      ctx.visibilityHandlers[0]?.();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const sentTypes = ctx.postMessage.mock.calls.map((call: any) => call[0]?.type);
+      expect(sentTypes).toContain('selectTab');
+      expect(sentTypes).toContain('accountsSync');
+      expect(sentTypes).not.toContain('bootstrap');
+    });
+
+  });
 
   describe('accountSwitch', () => {
     it('发送 loading → 切换 → success toast + 状态栏消息', async () => {
@@ -328,6 +413,24 @@ describe('QuoteSidebarProvider - handleMessage', () => {
         expect.stringContaining('test@example.com'),
         4000
       );
+    });
+
+    it('成功切换后仅使用快速 currentAccountId 同步', async () => {
+      ctx.postMessage.mockClear();
+      ctx.dataManager.windsurfAccounts.getImmediateCurrentAccountId.mockClear();
+      ctx.dataManager.windsurfAccounts.getCurrentAccountId.mockClear();
+      ctx.dataManager.windsurfAccounts.getRealCurrentAccountId.mockClear();
+
+      await ctx.send({ type: 'accountSwitch', value: 'ws_1' });
+      await Promise.resolve();
+
+      expect(ctx.dataManager.windsurfAccounts.getImmediateCurrentAccountId).toHaveBeenCalled();
+      expect(ctx.dataManager.windsurfAccounts.getRealCurrentAccountId).not.toHaveBeenCalled();
+      const syncCalls = ctx.postMessage.mock.calls
+        .map((c: any) => c[0])
+        .filter((m: any) => m.type === 'accountsSync');
+      expect(syncCalls.length).toBeGreaterThanOrEqual(1);
+      expect(syncCalls.every((m: any) => m.value?.currentAccountId === 'ws_1')).toBe(true);
     });
 
     it('切换失败时返回失败消息', async () => {
@@ -357,11 +460,39 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       expect(opResult?.value?.message).toContain('test@example.com');
     });
 
+    it('确认删除后不重复手动发送 accountsSync', async () => {
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('删除' as any);
+      ctx.postMessage.mockClear();
+
+      await ctx.send({ type: 'accountDelete', value: 'ws_1' });
+
+      const syncCalls = ctx.postMessage.mock.calls
+        .map((c: any) => c[0])
+        .filter((m: any) => m.type === 'accountsSync');
+      expect(syncCalls).toHaveLength(0);
+    });
+
     it('取消删除时不执行', async () => {
       vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as any);
       await ctx.send({ type: 'accountDelete', value: 'ws_1' });
 
       expect(ctx.dataManager.windsurfAccounts.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('accountDeleteBatch', () => {
+    it('确认批量删除后发送 opResult 且不重复手动发送 accountsSync', async () => {
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('删除' as any);
+      ctx.dataManager.windsurfAccounts.deleteBatch.mockResolvedValue(2);
+      ctx.postMessage.mockClear();
+
+      await ctx.send({ type: 'accountDeleteBatch', value: ['ws_1', 'ws_2'] });
+
+      expect(ctx.dataManager.windsurfAccounts.deleteBatch).toHaveBeenCalledWith(['ws_1', 'ws_2']);
+      const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      const opResult = calls.find((m: any) => m.type === 'opResult');
+      expect(opResult?.value?.message).toContain('2');
+      expect(calls.filter((m: any) => m.type === 'accountsSync')).toHaveLength(0);
     });
   });
 
@@ -529,6 +660,17 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       const result = calls.find((m: any) => m.type === 'quotaFetchResult');
       expect(result?.value?.success).toBe(true);
     });
+
+    it('单账号刷新不额外手动发送 accountsSync', async () => {
+      ctx.postMessage.mockClear();
+
+      await ctx.send({ type: 'fetchQuota', value: 'ws_1' });
+
+      const syncCalls = ctx.postMessage.mock.calls
+        .map((c: any) => c[0])
+        .filter((m: any) => m.type === 'accountsSync');
+      expect(syncCalls).toHaveLength(0);
+    });
   });
 
   // --- Fetch All Quotas ---
@@ -542,6 +684,17 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
       const result = calls.find((m: any) => m.type === 'quotaFetchAllResult');
       expect(result?.value?.success).toBe(2);
+    });
+
+    it('批量刷新不额外手动发送 accountsSync', async () => {
+      ctx.postMessage.mockClear();
+
+      await ctx.send({ type: 'fetchAllQuotas' });
+
+      const syncCalls = ctx.postMessage.mock.calls
+        .map((c: any) => c[0])
+        .filter((m: any) => m.type === 'accountsSync');
+      expect(syncCalls).toHaveLength(0);
     });
   });
 

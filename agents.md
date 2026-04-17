@@ -44,33 +44,11 @@
 - 错误详情（版本不匹配、权限问题、网络异常）
 - MCP 配置写入、规则文件操作
 
-## 打包与归档
+## 打包约定
 
-### 自动归档机制
-
-- **归档目录**: `archives/` - 按时间戳分类存储历史版本
-- **触发时机**: 执行 `npm run release` 前自动归档现有 `.vsix` 文件
-- **清理策略**: 保留最新 10 个归档，自动删除旧版本
-- **手动操作**:
-  - `npm run archive` - 手动归档当前 `.vsix` 文件
-  - `npm run archive:cleanup` - 清理旧归档
-
-### 归档结构
-
-```
-archives/
-├── 2026-04-06T01-20-00/          # 时间戳目录
-│   ├── ai-quote-2.9.1.vsix      # 归档的安装包
-│   ├── manifest.json            # 归档清单
-│   └── ...
-└── .gitkeep                     # 保持目录被 git 跟踪
-```
-
-### 打包命令
-
-- `npm run release` - 补丁版本发布（自动归档）
-- `npm run release:minor` - 次要版本发布（自动归档）
-- `npm run release:major` - 主要版本发布（自动归档）
+- 打包前必须升级 `package.json` 版本号。
+- 产物应保持精简：排除 `archives/`、`experiments/`、`.superpowers/`、`data/`、源码 map 等非运行时内容。
+- 交付前至少执行：`npm run test:unit`、`npm run check-types`、`npm run build`、`vsce package --no-dependencies`。
 
 ## Delivery Standard
 

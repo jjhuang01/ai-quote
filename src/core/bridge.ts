@@ -64,6 +64,14 @@ const KEEPALIVE_INTERVAL_MS = 3_000;
 
 export type DialogCallback = (request: McpDialogRequest) => void;
 
+export interface AutopilotBridgeHandlers {
+  getAccounts: () => Promise<unknown>;
+  getQuota: () => Promise<unknown>;
+  switchAccount: (accountId: string) => Promise<unknown>;
+  switchNext: () => Promise<unknown>;
+  refreshQuotas: () => Promise<unknown>;
+}
+
 interface PendingDialogTask {
   request: McpDialogRequest;
   sessionId: string;
@@ -84,6 +92,7 @@ export class QuoteBridge {
   private dialogCallback?: DialogCallback;
   private dialogResolvedCallback?: () => void;
   private sseClientChangeCallback?: () => void;
+  private autopilotHandlers?: AutopilotBridgeHandlers;
   // Key = dialogReq.id (stable across SSE reconnections), NOT sessionId
   private pendingDialogResolvers = new Map<
     string | number,
@@ -206,6 +215,10 @@ export class QuoteBridge {
   /** Called when SSE client connects or disconnects — use to refresh UI immediately. */
   public registerSseClientChangeCallback(cb: () => void): void {
     this.sseClientChangeCallback = cb;
+  }
+
+  public registerAutopilotHandlers(handlers: AutopilotBridgeHandlers): void {
+    this.autopilotHandlers = handlers;
   }
 
   public resolvePendingDialog(
@@ -622,6 +635,56 @@ export class QuoteBridge {
       const payload = await readJsonBody<FirebaseLoginRequest>(request);
       const loginResult = await loginWithFirebase(payload);
       writeJson(response, loginResult.success ? 200 : 501, loginResult);
+      return;
+    }
+
+    if (pathname === "/api/ap/accounts" && request.method === "GET") {
+      if (!this.autopilotHandlers) {
+        writeJson(response, 501, { success: false, message: "Autopilot handlers unavailable" });
+        return;
+      }
+      writeJson(response, 200, await this.autopilotHandlers.getAccounts());
+      return;
+    }
+
+    if (pathname === "/api/ap/quota" && request.method === "GET") {
+      if (!this.autopilotHandlers) {
+        writeJson(response, 501, { success: false, message: "Autopilot handlers unavailable" });
+        return;
+      }
+      writeJson(response, 200, await this.autopilotHandlers.getQuota());
+      return;
+    }
+
+    if (pathname === "/api/ap/switch" && request.method === "POST") {
+      if (!this.autopilotHandlers) {
+        writeJson(response, 501, { success: false, message: "Autopilot handlers unavailable" });
+        return;
+      }
+      const payload = await readJsonBody<{ accountId?: string }>(request);
+      if (!payload.accountId) {
+        writeJson(response, 400, { success: false, message: "Missing accountId" });
+        return;
+      }
+      writeJson(response, 200, await this.autopilotHandlers.switchAccount(payload.accountId));
+      return;
+    }
+
+    if (pathname === "/api/ap/switch-next" && request.method === "POST") {
+      if (!this.autopilotHandlers) {
+        writeJson(response, 501, { success: false, message: "Autopilot handlers unavailable" });
+        return;
+      }
+      writeJson(response, 200, await this.autopilotHandlers.switchNext());
+      return;
+    }
+
+    if (pathname === "/api/ap/refresh" && request.method === "POST") {
+      if (!this.autopilotHandlers) {
+        writeJson(response, 501, { success: false, message: "Autopilot handlers unavailable" });
+        return;
+      }
+      writeJson(response, 200, await this.autopilotHandlers.refreshQuotas());
       return;
     }
 

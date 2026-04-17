@@ -1,4 +1,14 @@
 import "./main.css";
+import {
+  compareAccountsByUiState,
+  deriveAccountUiState,
+  getAvailableAccountCount,
+} from "./account-ui-state";
+import {
+  clampAccountScrollTop,
+  filterAccountsForQuery,
+  normalizeAccountSelection,
+} from "./account-webview-state";
 
 declare function acquireVsCodeApi(): {
   postMessage(message: unknown): void;
@@ -280,7 +290,8 @@ let state = {
   maintenanceLoadingAction: undefined as string | undefined,
   // Switch loading
   switchLoadingId: undefined as string | undefined,
-  accountPageSize: 50,
+  accountScrollTop: 0,
+  accountViewportHeight: 0,
   // MCP pending dialog
   pendingDialog: undefined as McpDialogRequest | undefined,
   dialogInput: "",
@@ -587,65 +598,125 @@ function renderStatusTab(bs: Bootstrap): string {
 
 // ---- Account helpers ----
 
-/** Shared exhausted/expired detection (used by count, sort, and card rendering) */
-function isAccountDisabled(rq: RealQuotaInfo | undefined): { expired: boolean; exhausted: boolean } {
-  if (!rq) return { expired: false, exhausted: false };
-  const expired = !!rq.planEndTimestamp && rq.planEndTimestamp > 0 && rq.planEndTimestamp < Date.now();
-  const exhausted = !expired && (
-    (rq.weeklyRemainingPercent >= 0 && rq.weeklyRemainingPercent <= 10) ||
-    (rq.dailyRemainingPercent >= 0 && rq.dailyRemainingPercent <= 0 && rq.weeklyRemainingPercent < 0) ||
-    (rq.weeklyRemainingPercent < 0 && rq.weeklyResetAtUnix > 0)
-  );
-  return { expired, exhausted };
+const ACCOUNT_ROW_HEIGHT = 96;
+const ACCOUNT_OVERSCAN = 4;
+
+function buildSnapshotMap(quotaSnapshots: QuotaSnapshot[]): Map<string, QuotaSnapshot> {
+  return new Map(quotaSnapshots.map((snapshot) => [snapshot.accountId, snapshot]));
 }
 
-/** Sort score: lower = higher priority. Current first, then by remaining quota desc, disabled last. */
-function accountSortScore(a: WindsurfAccount, currentId: string | undefined, snapshotMap: Map<string, QuotaSnapshot>): number {
-  if (a.id === currentId) return -10000;
-  const rq = snapshotMap.get(a.id)?.real;
-  const { expired, exhausted } = isAccountDisabled(rq);
-  if (expired) return 9000;
-  if (exhausted) return 8000;
-  if (!rq) return 5000; // no data yet
-  const weeklyRemain = rq.weeklyRemainingPercent >= 0 ? rq.weeklyRemainingPercent : 0;
-  const dailyRemain = rq.dailyRemainingPercent >= 0 ? rq.dailyRemainingPercent : 0;
-  return 1000 - (weeklyRemain * 10 + dailyRemain);
+function sortAccountsByUiState(
+  accounts: WindsurfAccount[],
+  currentAccountId: string | undefined,
+  snapshotMap: Map<string, QuotaSnapshot>,
+): WindsurfAccount[] {
+  return [...accounts].sort((a, b) => compareAccountsByUiState(a, b, currentAccountId, snapshotMap));
 }
 
 // ---- Account Tab ----
 
 function filterAccounts(accounts: WindsurfAccount[], query: string): WindsurfAccount[] {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return accounts;
-  return accounts.filter((account) => {
-    const emailMatch = account.email.toLowerCase().includes(normalized);
-    const planMatch = account.plan.toLowerCase().includes(normalized);
-    return emailMatch || planMatch;
+  return filterAccountsForQuery(accounts, query);
+}
+
+function renderAccountSearchRow(): string {
+  return `
+    <div class="account-search-row">
+      <div class="search-input-wrap">
+        ${icon("search")}
+        <input class="text-input" id="accountSearch" type="text" placeholder="搜索邮箱或套餐" value="${escapeHtml(state.accountSearchQuery)}">
+      </div>
+      <button class="btn-xs btn-icon${state.accountSearchQuery ? "" : " is-hidden"}" data-action="accountSearchClear" type="button">清空</button>
+    </div>`;
+}
+
+function getAccountTabData(bs: Bootstrap) {
+  const snapshotMap = buildSnapshotMap(bs.quotaSnapshots);
+  const availableCount = getAvailableAccountCount(bs.accounts, bs.currentAccountId, snapshotMap);
+  const sorted = sortAccountsByUiState(bs.accounts, bs.currentAccountId, snapshotMap);
+  const filtered = filterAccounts(sorted, state.accountSearchQuery);
+  const viewportHeight = state.accountViewportHeight || ACCOUNT_ROW_HEIGHT * 6;
+  const totalHeight = filtered.length * ACCOUNT_ROW_HEIGHT;
+  const clampedScrollTop = clampAccountScrollTop({
+    scrollTop: state.accountScrollTop,
+    itemCount: filtered.length,
+    itemHeight: ACCOUNT_ROW_HEIGHT,
+    viewportHeight,
   });
+  const firstVisibleIndex = Math.max(0, Math.floor(clampedScrollTop / ACCOUNT_ROW_HEIGHT) - ACCOUNT_OVERSCAN);
+  const visibleCount = Math.max(1, Math.ceil(viewportHeight / ACCOUNT_ROW_HEIGHT) + ACCOUNT_OVERSCAN * 2);
+  const visibleAccounts = filtered.slice(firstVisibleIndex, firstVisibleIndex + visibleCount);
+
+  return {
+    snapshotMap,
+    availableCount,
+    filtered,
+    totalHeight,
+    firstVisibleIndex,
+    visibleAccounts,
+    clampedScrollTop,
+  };
+}
+
+function renderAccountListContent(bs: Bootstrap): string {
+  const { snapshotMap, filtered, totalHeight, firstVisibleIndex, visibleAccounts, clampedScrollTop } = getAccountTabData(bs);
+  state.accountScrollTop = clampedScrollTop;
+  return filtered.length > 0
+    ? `
+        <div class="account-list-spacer" style="height:${totalHeight}px">
+          ${visibleAccounts
+            .map((account, visibleIndex) =>
+              renderAccountItem(
+                account,
+                bs.currentAccountId,
+                snapshotMap.get(account.id),
+                firstVisibleIndex + visibleIndex,
+              ),
+            )
+            .join("")}
+        </div>`
+    : `<div class="empty-state">${icon("inbox", "empty-icon")} <p>${state.accountSearchQuery ? "未找到匹配账号" : "暂无账号，点击“添加”或“批量导入”"}</p></div>`;
+}
+
+function patchAccountTab(): void {
+  if (state.activeTab !== "account") return;
+  const bs = window.__QUOTE_BOOTSTRAP__;
+  if (!bs) return;
+
+  const { availableCount } = getAccountTabData(bs);
+  const title = document.getElementById("accountTabTitle");
+  if (title) {
+    title.textContent = `账号 (${availableCount}/${bs.accounts.length})`;
+  }
+
+  const listViewport = document.getElementById("accountListViewport") as HTMLDivElement | null;
+  if (listViewport) {
+    listViewport.innerHTML = renderAccountListContent(bs);
+    listViewport.scrollTop = state.accountScrollTop;
+    state.accountViewportHeight = listViewport.clientHeight;
+  }
+
+  const searchInput = document.getElementById("accountSearch") as HTMLInputElement | null;
+  if (searchInput && searchInput.value !== state.accountSearchQuery) {
+    searchInput.value = state.accountSearchQuery;
+  }
+
+  const clearButton = document.querySelector<HTMLButtonElement>('[data-action="accountSearchClear"]');
+  if (clearButton) {
+    clearButton.classList.toggle("is-hidden", !state.accountSearchQuery);
+  }
 }
 
 function renderAccountTab(bs: Bootstrap): string {
-  const { accounts, autoSwitch, quotaSnapshots } = bs;
-  const snapshotMap = new Map(quotaSnapshots.map((s) => [s.accountId, s]));
+  const { accounts, autoSwitch } = bs;
   const isFetching = bs.quotaFetching || state.quotaFetching;
-
-  // Count available accounts (not expired & not exhausted, threshold: weekly used >= 90%)
-  const availableCount = accounts.filter((a) => {
-    const { expired, exhausted } = isAccountDisabled(snapshotMap.get(a.id)?.real);
-    return !expired && !exhausted;
-  }).length;
-
-  // Sort: current first → high remaining → low remaining → disabled last
-  const sorted = [...accounts].sort((a, b) =>
-    accountSortScore(a, bs.currentAccountId, snapshotMap) - accountSortScore(b, bs.currentAccountId, snapshotMap)
-  );
-  const filtered = filterAccounts(sorted, state.accountSearchQuery);
+  const { availableCount } = getAccountTabData(bs);
 
   return `
     <div class="tab-content">
       <section class="card">
         <div class="section-header">
-          <h2>账号 (${availableCount}/${accounts.length})</h2>
+          <h2 id="accountTabTitle">账号 (${availableCount}/${accounts.length})</h2>
           <div class="btn-group">
             <button class="btn-xs btn-icon ${isFetching ? "disabled" : ""}" data-action="fetchAllQuotas" ${isFetching ? "disabled" : ""} title="刷新全部配额">${isFetching ? `${icon("refresh")} …` : `${icon("refresh")} 配额`}</button>
             <button class="btn-xs btn-icon" data-action="toggleAddAccount">${icon("plus")} 添加</button>
@@ -667,13 +738,7 @@ function renderAccountTab(bs: Bootstrap): string {
           }
         </div>
 
-        <div class="account-search-row">
-          <div class="search-input-wrap">
-            ${icon("search")}
-            <input class="text-input" id="accountSearch" type="text" placeholder="搜索邮箱或套餐" value="${escapeHtml(state.accountSearchQuery)}">
-          </div>
-          ${state.accountSearchQuery ? `<button class="btn-xs btn-icon" data-action="accountSearchClear">清空</button>` : ""}
-        </div>
+        ${renderAccountSearchRow()}
 
         ${
           state.showAddAccount
@@ -703,24 +768,10 @@ function renderAccountTab(bs: Bootstrap): string {
             : ""
         }
 
-        <div class="account-list">
-          ${
-            filtered.length > 0
-              ? filtered
-                  .slice(0, state.accountPageSize)
-                  .map((a) =>
-                    renderAccountItem(
-                      a,
-                      bs.currentAccountId,
-                      snapshotMap.get(a.id),
-                    ),
-                  )
-                  .join("") +
-                (filtered.length > state.accountPageSize
-                  ? `<div style="text-align:center;padding:8px"><button class="btn-xs btn-icon" data-action="accountLoadMore">显示更多 (${state.accountPageSize}/${filtered.length})</button></div>`
-                  : "")
-              : `<div class="empty-state">${icon("inbox", "empty-icon")} <p>${state.accountSearchQuery ? "未找到匹配账号" : "暂无账号，点击“添加”或“批量导入”"}</p></div>`
-          }
+        <div class="account-list-shell">
+          <div class="account-list-viewport" id="accountListViewport">
+            ${renderAccountListContent(bs)}
+          </div>
         </div>
       </section>
 
@@ -778,8 +829,9 @@ function renderAccountItem(
   a: WindsurfAccount,
   currentId?: string,
   snapshot?: QuotaSnapshot,
+  index = 0,
 ): string {
-  const isCurrent = a.id === currentId;
+  const ui = deriveAccountUiState(a, currentId, snapshot);
   const planColors: Record<string, string> = {
     Pro: "var(--accent)",
     Max: "#8b5cf6",
@@ -790,7 +842,7 @@ function renderAccountItem(
   const q = snapshot;
   const rq = q?.real;
 
-  let dailyFillPct: number | null = null; // 已用% (0=未用, 100=耗尽), null = 无数据
+  let dailyFillPct: number | null = null;
   let weeklyFillPct: number | null = null;
   let dailyText = "";
   let weeklyText = "";
@@ -798,19 +850,25 @@ function renderAccountItem(
   let weeklyResetText = "";
   let planEndText = "";
 
+  let dailyExhaustedNoData = false;
+  let weeklyExhaustedNoData = false;
+
   if (rq) {
-    // -1 = API 未返回此字段（无数据）；bar fill = 已用%（bar越长=用得越多=越危险，与 Windsurf 一致）
-    dailyFillPct =
-      rq.dailyRemainingPercent >= 0
+    // -1 = API didn't return %; if resetAtUnix exists the quota IS tracked → treat as exhausted
+    dailyExhaustedNoData = rq.dailyRemainingPercent < 0 && rq.dailyResetAtUnix > 0;
+    weeklyExhaustedNoData = rq.weeklyRemainingPercent < 0 && rq.weeklyResetAtUnix > 0;
+    dailyFillPct = dailyExhaustedNoData
+      ? 100
+      : rq.dailyRemainingPercent >= 0
         ? Math.max(0, Math.min(100, 100 - rq.dailyRemainingPercent))
         : null;
-    weeklyFillPct =
-      rq.weeklyRemainingPercent >= 0
+    weeklyFillPct = weeklyExhaustedNoData
+      ? 100
+      : rq.weeklyRemainingPercent >= 0
         ? Math.max(0, Math.min(100, 100 - rq.weeklyRemainingPercent))
         : null;
-    // 文本也显示已用%（与 bar 一致，与 Windsurf 原生 UI 对齐）
-    dailyText = dailyFillPct !== null ? `${Math.round(dailyFillPct)}%` : "";
-    weeklyText = weeklyFillPct !== null ? `${Math.round(weeklyFillPct)}%` : "";
+    dailyText = dailyExhaustedNoData ? "—" : (dailyFillPct !== null ? `${Math.round(dailyFillPct)}%` : "");
+    weeklyText = weeklyExhaustedNoData ? "—" : (weeklyFillPct !== null ? `${Math.round(weeklyFillPct)}%` : "");
     if (rq.dailyResetAtUnix)
       dailyResetText = formatResetDateTime(rq.dailyResetAtUnix * 1000);
     if (rq.weeklyResetAtUnix)
@@ -823,7 +881,6 @@ function renderAccountItem(
       });
     }
   } else if (q && q.dailyLimit > 0) {
-    // 旧配额字段: 计算已用%
     dailyFillPct = pct(q.dailyUsed, q.dailyLimit);
     weeklyFillPct = q.weeklyLimit > 0 ? pct(q.weeklyUsed, q.weeklyLimit) : null;
     dailyText = `${Math.round(dailyFillPct)}%`;
@@ -835,12 +892,7 @@ function renderAccountItem(
     dailyText = `${Math.round(dailyFillPct)}%`;
   }
 
-  // 判断账号状态 (shared helper: expired / exhausted with >=90% weekly threshold)
-  const { expired: isExpired, exhausted: isExhausted } = isAccountDisabled(rq);
-  const isDisabled = isExpired || isExhausted;
-
-  // fillClass based on usage% (low usage = ok, high usage = danger)
-  // exhausted/expired 账号强制 grey — 由 CSS .ac-exhausted/.ac-expired .ac-fill 覆盖颜色
+  const isDisabled = ui.isExpired || ui.isUnavailable;
   const fillClass = (usedPct: number | null): string => {
     if (usedPct === null) return "";
     if (usedPct < 50) return "quota-fill-ok";
@@ -849,34 +901,52 @@ function renderAccountItem(
   };
 
   const switching = state.switchLoadingId === a.id;
+  const quotaRefreshing = state.quotaFetchingId === a.id;
   const isSelected = state.selectedAccountIds.has(a.id);
   return `
-    <div class="ac-card ${isCurrent ? "ac-active" : ""} ${isExpired ? "ac-expired" : isExhausted ? "ac-exhausted" : ""} ${q?.warningLevel === "critical" && !isDisabled ? "ac-crit" : q?.warningLevel === "warn" && !isDisabled ? "ac-warn" : ""} ${isSelected ? "ac-selected" : ""} ${switching ? "ac-switching" : ""}" data-id="${a.id}">
-      <div class="ac-head">
-        ${state.selectMode ? `<input type="checkbox" class="ac-checkbox" data-action="toggleSelect" data-id="${a.id}" ${isSelected ? "checked" : ""}>` : ""}
-        <span class="ac-email" title="${escapeHtml(a.email)}">${escapeHtml(a.email)}</span>
-        <div class="ac-tags">
-          <span class="plan-badge plan-${a.plan.toLowerCase()}">${planIcon(a.plan)} ${a.plan}</span>
-          ${planEndText ? `<span class="ac-end">${planEndText}</span>` : ""}
-          ${isCurrent ? '<span class="badge-active">当前</span>' : ""}
-          ${isExpired ? '<span class="badge-expired">已过期</span>' : isExhausted ? '<span class="badge-exhausted">已耗尽</span>' : ""}
+    <div class="ac-virtual-row" data-index="${index}" data-id="${a.id}" style="top:${index * ACCOUNT_ROW_HEIGHT}px">
+      <div class="ac-card ${ui.isCurrent ? "ac-active" : ""} ${ui.isExpired ? "ac-expired" : ui.isUnavailable ? "ac-unavailable" : ""} ${q?.warningLevel === "critical" && !isDisabled ? "ac-crit" : q?.warningLevel === "warn" && !isDisabled ? "ac-warn" : ""} ${isSelected ? "ac-selected" : ""} ${switching ? "ac-switching" : ""}" data-id="${a.id}">
+        <div class="ac-head">
+          ${state.selectMode ? `<input type="checkbox" class="ac-checkbox" data-action="toggleSelect" data-id="${a.id}" ${isSelected ? "checked" : ""}>` : ""}
+          <span class="ac-email" title="${escapeHtml(a.email)}">${escapeHtml(a.email)}</span>
+          <div class="ac-meta">
+            <div class="ac-tags">
+              <span class="plan-badge plan-${a.plan.toLowerCase()}" style="--plan-color:${planColor}">${planIcon(a.plan)} ${a.plan}</span>
+              ${planEndText ? `<span class="ac-end">${planEndText}</span>` : ""}
+              ${ui.isCurrent ? '<span class="badge-active">当前</span>' : ""}
+              ${ui.availabilityLabel === "已过期" ? '<span class="badge-expired">已过期</span>' : ui.availabilityLabel === "不可用" ? '<span class="badge-unavailable">不可用</span>' : ""}
+            </div>
+            <div class="ac-acts">
+              <button
+                class="ac-btn ac-btn-refresh ${quotaRefreshing ? "ac-loading ac-btn-loading" : ""}"
+                data-action="fetchQuota"
+                data-id="${a.id}"
+                type="button"
+                ${quotaRefreshing ? "disabled" : ""}
+                title="${quotaRefreshing ? "刷新中" : "刷新额度"}"
+                aria-label="${quotaRefreshing ? `正在刷新 ${escapeHtml(a.email)} 的额度` : `刷新 ${escapeHtml(a.email)} 的额度`}"
+              >
+                <span class="ac-refresh-ico">${icon("refresh")}</span>
+              </button>
+            </div>
+          </div>
         </div>
+        <div class="ac-bars">
+          <div class="ac-bar-row${weeklyExhaustedNoData ? " ac-bar-exhausted" : ""}">
+            <span class="ac-lbl">周</span>
+            <div class="ac-track"><div class="ac-fill ${weeklyExhaustedNoData ? "quota-fill-exhausted" : fillClass(weeklyFillPct)}" style="width:${weeklyFillPct ?? 0}%"></div></div>
+            <span class="ac-pct${weeklyFillPct === null ? " ac-nodata" : ""}${weeklyExhaustedNoData ? " ac-nodata" : ""}">${weeklyText || "—"}</span>
+            ${weeklyResetText ? `<span class="ac-rt">${weeklyResetText}</span>` : ""}
+          </div>
+          <div class="ac-bar-row${dailyExhaustedNoData ? " ac-bar-exhausted" : ""}">
+            <span class="ac-lbl">日</span>
+            <div class="ac-track"><div class="ac-fill ${dailyExhaustedNoData ? "quota-fill-exhausted" : fillClass(dailyFillPct)}" style="width:${dailyFillPct ?? 0}%"></div></div>
+            <span class="ac-pct${dailyFillPct === null ? " ac-nodata" : ""}${dailyExhaustedNoData ? " ac-nodata" : ""}">${dailyText || "—"}</span>
+            ${dailyResetText ? `<span class="ac-rt">${dailyResetText}</span>` : ""}
+          </div>
+        </div>
+        ${switching ? '<div class="ac-switching-bar"></div>' : ""}
       </div>
-      <div class="ac-bars">
-        <div class="ac-bar-row">
-          <span class="ac-lbl">周</span>
-          <div class="ac-track"><div class="ac-fill ${fillClass(weeklyFillPct)}" style="width:${weeklyFillPct ?? 0}%"></div></div>
-          <span class="ac-pct${weeklyFillPct === null ? " ac-nodata" : ""}">${weeklyText || "—"}</span>
-          ${weeklyResetText ? `<span class="ac-rt">${weeklyResetText}</span>` : ""}
-        </div>
-        <div class="ac-bar-row">
-          <span class="ac-lbl">日</span>
-          <div class="ac-track"><div class="ac-fill ${fillClass(dailyFillPct)}" style="width:${dailyFillPct ?? 0}%"></div></div>
-          <span class="ac-pct${dailyFillPct === null ? " ac-nodata" : ""}">${dailyText || "—"}</span>
-          ${dailyResetText ? `<span class="ac-rt">${dailyResetText}</span>` : ""}
-        </div>
-      </div>
-      ${switching ? '<div class="ac-switching-bar"></div>' : ""}
     </div>`;
 }
 
@@ -1521,6 +1591,75 @@ function renderDebugTab(_bs: Bootstrap): string {
     </div>`;
 }
 
+function bindAccountTabEvents(): void {
+  const accountSearch = document.getElementById("accountSearch") as HTMLInputElement | null;
+  if (accountSearch && accountSearch.dataset.bound !== "true") {
+    accountSearch.dataset.bound = "true";
+    accountSearch.addEventListener("input", () => {
+      state.accountSearchQuery = accountSearch.value;
+      state.accountScrollTop = 0;
+      patchAccountTab();
+    });
+  }
+
+  const accountViewport = document.getElementById("accountListViewport") as HTMLDivElement | null;
+  if (accountViewport) {
+    accountViewport.scrollTop = state.accountScrollTop;
+    state.accountViewportHeight = accountViewport.clientHeight;
+
+    if (accountViewport.dataset.scrollBound !== "true") {
+      accountViewport.dataset.scrollBound = "true";
+      let rafId = 0;
+      accountViewport.addEventListener("scroll", () => {
+        if (rafId) return;
+        rafId = window.requestAnimationFrame(() => {
+          rafId = 0;
+          state.accountScrollTop = accountViewport.scrollTop;
+          patchAccountTab();
+        });
+      });
+    }
+
+    if (accountViewport.dataset.clickBound !== "true") {
+      accountViewport.dataset.clickBound = "true";
+      accountViewport.addEventListener("click", (e) => {
+        const target = e.target as HTMLElement;
+        const card = target.closest<HTMLElement>(".ac-card[data-id]");
+        if (!card) return;
+        if (target.closest(".ac-checkbox, [data-action]")) return;
+        const id = card.dataset.id;
+        if (!id) return;
+        if (state.selectMode) {
+          if (state.selectedAccountIds.has(id)) {
+            state.selectedAccountIds.delete(id);
+          } else {
+            state.selectedAccountIds.add(id);
+          }
+          patchAccountTab();
+          return;
+        }
+        if (
+          card.classList.contains("ac-unavailable") ||
+          card.classList.contains("ac-expired")
+        ) {
+          return;
+        }
+        const bs = window.__QUOTE_BOOTSTRAP__;
+        if (bs?.currentAccountId === id) return;
+        if (state.switchLoadingId) return;
+        state.switchLoadingId = id;
+        render();
+        vscode.postMessage({ type: "accountSwitch", value: id });
+      });
+      accountViewport.addEventListener("change", (e) => {
+        const target = e.target as HTMLInputElement;
+        if (!target.matches('.ac-checkbox[data-action="toggleSelect"]')) return;
+        handleAction(target);
+      });
+    }
+  }
+}
+
 // ---- Bind Events ----
 
 function bindEvents(): void {
@@ -1691,44 +1830,7 @@ function bindEvents(): void {
     }
   }
 
-  const accountSearch = document.getElementById("accountSearch") as HTMLInputElement | null;
-  accountSearch?.addEventListener("input", () => {
-    state.accountSearchQuery = accountSearch.value;
-    state.accountPageSize = 50;
-    render();
-  });
-
-  // Account card click → switch account (replaces inline 切换 button)
-  document
-    .querySelectorAll<HTMLElement>(".ac-card[data-id]")
-    .forEach((card) => {
-      card.addEventListener("click", (e) => {
-        if ((e.target as HTMLElement).closest(".ac-checkbox, [data-action]"))
-          return;
-        const id = card.dataset.id;
-        if (!id) return;
-        if (state.selectMode) {
-          if (state.selectedAccountIds.has(id)) {
-            state.selectedAccountIds.delete(id);
-          } else {
-            state.selectedAccountIds.add(id);
-          }
-          render();
-          return;
-        }
-        if (
-          card.classList.contains("ac-exhausted") ||
-          card.classList.contains("ac-expired")
-        )
-          return;
-        const bs = window.__QUOTE_BOOTSTRAP__;
-        if (bs?.currentAccountId === id) return;
-        if (state.switchLoadingId) return;
-        state.switchLoadingId = id;
-        render();
-        vscode.postMessage({ type: "accountSwitch", value: id });
-      });
-    });
+  bindAccountTabEvents();
 
   // All data-action buttons
   document.querySelectorAll<HTMLElement>("[data-action]").forEach((el) => {
@@ -2045,15 +2147,14 @@ function handleAction(el: HTMLElement): void {
     case "accountClear":
       vscode.postMessage({ type: "accountClear" });
       break;
-    case "accountLoadMore":
-      state.accountPageSize += 50;
-      render();
-      break;
-    case "accountSearchClear":
+    case "accountSearchClear": {
       state.accountSearchQuery = "";
-      state.accountPageSize = 50;
-      render();
+      state.accountScrollTop = 0;
+      patchAccountTab();
+      const searchInput = document.getElementById("accountSearch") as HTMLInputElement | null;
+      searchInput?.focus();
       break;
+    }
     case "toggleSelectMode":
       state.selectMode = !state.selectMode;
       if (!state.selectMode) state.selectedAccountIds = new Set();
@@ -2065,10 +2166,6 @@ function handleAction(el: HTMLElement): void {
         state.selectedAccountIds = new Set(
           bs.accounts.map((a: WindsurfAccount) => a.id),
         );
-        // 展开全部分页，让用户能看到所有被选中的账号
-        if (bs.accounts.length > state.accountPageSize) {
-          state.accountPageSize = bs.accounts.length;
-        }
         render();
       }
       break;
@@ -2646,6 +2743,8 @@ function renderMd(raw: string): string {
 window.addEventListener("message", (event) => {
   const msg = event.data as { type: string; value: unknown };
 
+  let bootstrap = window.__QUOTE_BOOTSTRAP__;
+
   if (msg.type === "selectTab") {
     const nextTab = msg.value as TabId;
     if (nextTab === "status" || nextTab === "account" || nextTab === "history" || nextTab === "tools" || nextTab === "settings" || nextTab === "debug") {
@@ -2657,36 +2756,45 @@ window.addEventListener("message", (event) => {
 
   if (msg.type === "accountsSync") {
     const value = msg.value as Pick<Bootstrap, "accounts" | "currentAccountId" | "autoSwitch" | "quotaSnapshots" | "quotaFetching">;
-    window.__QUOTE_BOOTSTRAP__ = {
-      ...window.__QUOTE_BOOTSTRAP__,
+    bootstrap = {
+      ...bootstrap,
       accounts: value.accounts,
       currentAccountId: value.currentAccountId,
       autoSwitch: value.autoSwitch,
       quotaSnapshots: value.quotaSnapshots,
       quotaFetching: value.quotaFetching,
     };
+    window.__QUOTE_BOOTSTRAP__ = bootstrap;
 
-    const nextIds = new Set(value.accounts.map((account) => account.id));
-    state.selectedAccountIds = new Set(
-      [...state.selectedAccountIds].filter((id) => nextIds.has(id))
+    state.selectedAccountIds = normalizeAccountSelection(
+      state.selectedAccountIds,
+      value.accounts.map((account) => account.id),
     );
 
-    if (state.accountPageSize < 50) {
-      state.accountPageSize = 50;
-    }
+    state.accountScrollTop = clampAccountScrollTop({
+      scrollTop: state.accountScrollTop,
+      itemCount: value.accounts.length,
+      itemHeight: ACCOUNT_ROW_HEIGHT,
+      viewportHeight: state.accountViewportHeight,
+    });
 
-    render();
+    if (state.activeTab === "account") {
+      patchAccountTab();
+    } else {
+      render();
+    }
     return;
   }
 
   if (msg.type === "bootstrap") {
-    window.__QUOTE_BOOTSTRAP__ = msg.value as Bootstrap;
-    const status = (msg.value as Bootstrap).status;
+    bootstrap = msg.value as Bootstrap;
+    window.__QUOTE_BOOTSTRAP__ = bootstrap;
+    const status = bootstrap.status;
     const pending = status?.activeDialog ?? status?.pendingDialog;
     if (pending) state.pendingDialog = pending;
     else if (!state.pendingDialog) state.pendingDialog = undefined;
     // Restore persisted queue (only if local queue is empty — avoid overwriting active edits)
-    const savedQueue = (msg.value as Bootstrap).responseQueue;
+    const savedQueue = bootstrap.responseQueue;
     if (
       savedQueue &&
       savedQueue.length > 0 &&
@@ -2734,7 +2842,8 @@ window.addEventListener("message", (event) => {
   }
 
   if (msg.type === "status") {
-    window.__QUOTE_BOOTSTRAP__.status = msg.value as BridgeStatus;
+    bootstrap.status = msg.value as BridgeStatus;
+    window.__QUOTE_BOOTSTRAP__ = bootstrap;
     const nextDialog = (msg.value as BridgeStatus).activeDialog ?? (msg.value as BridgeStatus).pendingDialog;
     if (nextDialog) {
       state.pendingDialog = nextDialog;

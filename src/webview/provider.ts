@@ -7,11 +7,14 @@ import { buildWebviewHtml } from './view-html';
 import { QuoteDialogPanel } from './dialog-panel';
 import { WindsurfPatchService } from '../adapters/windsurf-patch';
 
+export type RotateMcpNameCallback = () => Promise<{ newName: string } | undefined>;
+
 export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'quoteView';
   private view?: vscode.WebviewView;
   private responseQueue: string[] = [];
   private bootstrapTimer?: ReturnType<typeof setTimeout>;
+  private rotateMcpName?: RotateMcpNameCallback;
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
@@ -25,6 +28,10 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     this.dataManager.windsurfAccounts.onDidChangeAccounts(() => {
       void this.postAccountsSync();
     });
+  }
+
+  public setRotateMcpNameCallback(cb: RotateMcpNameCallback): void {
+    this.rotateMcpName = cb;
   }
 
   public resolveWebviewView(
@@ -127,19 +134,25 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async buildAccountsPayload(): Promise<Pick<WebviewBootstrap, 'accounts' | 'currentAccountId' | 'autoSwitch' | 'quotaSnapshots' | 'quotaFetching'>> {
+  private async buildAccountsPayload(options?: { preferFastCurrentId?: boolean }): Promise<Pick<WebviewBootstrap, 'accounts' | 'currentAccountId' | 'autoSwitch' | 'quotaSnapshots' | 'quotaFetching'>> {
     const accounts = this.dataManager.windsurfAccounts.getAll().map(a => ({
       ...a,
       password: '***'
     }));
 
     const wa = this.dataManager.windsurfAccounts as unknown as {
+      getDisplayCurrentAccountId?: () => Promise<string | undefined>;
+      getImmediateCurrentAccountId?: () => string | undefined;
       getRealCurrentAccountId?: () => Promise<string | undefined>;
       getCurrentAccountId?: () => string | undefined;
     };
-    const realCurrentAccountId = wa.getRealCurrentAccountId
-      ? await wa.getRealCurrentAccountId()
-      : wa.getCurrentAccountId?.();
+    const currentAccountId = options?.preferFastCurrentId
+      ? wa.getImmediateCurrentAccountId?.() ?? wa.getCurrentAccountId?.()
+      : wa.getDisplayCurrentAccountId
+        ? await wa.getDisplayCurrentAccountId()
+        : wa.getRealCurrentAccountId
+        ? await wa.getRealCurrentAccountId()
+        : wa.getCurrentAccountId?.();
 
     const getRemain = (acc: typeof accounts[number]): number => {
       const rq = acc.realQuota;
@@ -155,8 +168,8 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     };
 
     accounts.sort((a, b) => {
-      if (a.id === realCurrentAccountId) return -1;
-      if (b.id === realCurrentAccountId) return 1;
+      if (a.id === currentAccountId) return -1;
+      if (b.id === currentAccountId) return 1;
       const diff = getRemain(b) - getRemain(a);
       if (diff !== 0) return diff;
       return (a.addedAt ?? '').localeCompare(b.addedAt ?? '');
@@ -165,17 +178,17 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     return {
       accounts,
       autoSwitch: this.dataManager.windsurfAccounts.getAutoSwitchConfig(),
-      currentAccountId: realCurrentAccountId,
+      currentAccountId,
       quotaSnapshots: this.dataManager.windsurfAccounts.getQuotaSnapshots(),
       quotaFetching: this.dataManager.windsurfAccounts.isQuotaFetching,
     };
   }
 
-  private async postAccountsSync(): Promise<void> {
+  private async postAccountsSync(options?: { preferFastCurrentId?: boolean }): Promise<void> {
     if (!this.view) return;
     void this.view.webview.postMessage({
       type: 'accountsSync',
-      value: await this.buildAccountsPayload(),
+      value: await this.buildAccountsPayload(options),
     });
   }
 
@@ -297,39 +310,17 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         return true;
       }
       case 'rotateName': {
-        const { rotateToolName } = await import('../utils/tool-name');
-        const { detectCurrentIde, writeMcpConfig } = await import('../adapters/mcp-config');
-        const storagePath = this.dataManager.globalStoragePath;
-        const newName = await rotateToolName(storagePath);
-        this.bridge.updateToolName(newName);
-
-        // Re-write MCP config and rules so the AI finds the new tool name
-        const currentIde = detectCurrentIde();
-        const sseUrl = this.bridge.getSseUrl();
-        try {
-          await writeMcpConfig(currentIde, newName, sseUrl);
-          this.logger.info('MCP config re-written after rotation.', { newName });
-        } catch (err) {
-          this.logger.warn('Failed to re-write MCP config after rotation.', { error: String(err) });
+        if (!this.rotateMcpName) {
+          void this.view?.webview.postMessage({ type: 'opResult', value: { message: '旋转功能未就绪，请使用命令面板 quote.rotateName' } });
+          return true;
         }
-        try {
-          await this.rewriteRules();
-        } catch (err) {
-          this.logger.warn('Failed to re-write rules after rotation.', { error: String(err) });
+        const result = await this.rotateMcpName();
+        if (!result) {
+          void this.view?.webview.postMessage({ type: 'opResult', value: { message: '当前窗口不是持久项目窗口，无法旋转工具名' } });
+          return true;
         }
-        // 清理旧 .mdc 规则文件（与 extension.ts quote.rotateName 对齐）
-        try {
-          const { cleanupStaleRules } = await import('../adapters/rules');
-          const removed = await cleanupStaleRules(newName);
-          if (removed.length > 0) {
-            this.logger.info('Stale rule files cleaned up after webview rotation.', { removed });
-          }
-        } catch (err) {
-          this.logger.warn('cleanupStaleRules after webview rotation failed (non-fatal).', { error: String(err) });
-        }
-
         this.postBootstrap();
-        void this.view?.webview.postMessage({ type: 'opResult', value: { message: `工具名已旋转为: ${newName}` } });
+        void this.view?.webview.postMessage({ type: 'opResult', value: { message: `工具名已旋转为: ${result.newName}` } });
         return true;
       }
       case 'clearHistory': {
@@ -373,7 +364,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           const password = Reflect.get(payload, 'password') as string;
           if (email && password) {
             await this.dataManager.windsurfAccounts.add(email, password);
-            await this.postAccountsSync();
+            await this.postAccountsSync({ preferFastCurrentId: true });
           }
         }
         return true;
@@ -381,7 +372,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         if (typeof value === 'string') {
           const result = await this.dataManager.windsurfAccounts.importBatch(value);
           void this.view?.webview.postMessage({ type: 'importResult', value: result });
-          await this.postAccountsSync();
+          await this.postAccountsSync({ preferFastCurrentId: true });
         }
         return true;
       case 'accountDelete':
@@ -392,7 +383,6 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           );
           if (delChoice === '删除') {
             await this.dataManager.windsurfAccounts.delete(value);
-            await this.postAccountsSync();
             void this.view?.webview.postMessage({ type: 'opResult', value: { message: account ? `已删除 ${account.email}` : '账号已删除' } });
           }
         }
@@ -406,13 +396,13 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
 
           if (switchResult.success && account) {
             // 立即刷新 UI（显示新 currentAccountId + 已有数据）
-            await this.postAccountsSync();
+            await this.postAccountsSync({ preferFastCurrentId: true });
             const msg = `已切换到 ${account.email}`;
             void this.view?.webview.postMessage({ type: 'switchResult', value: { success: true, message: msg } });
             vscode.window.setStatusBarMessage(`$(check) ${msg}`, 4000);
             // 后台异步获取新账号配额，完成后再次刷新 UI
             void this.dataManager.windsurfAccounts.fetchRealQuota(value).then(() => {
-              void this.postAccountsSync();
+              void this.postAccountsSync({ preferFastCurrentId: true });
             });
           } else {
             const errMsg = switchResult.error ?? '切换失败：未知错误';
@@ -429,7 +419,6 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           );
           if (choice === '删除') {
             const removed = await this.dataManager.windsurfAccounts.deleteBatch(ids);
-            await this.postAccountsSync();
             void this.view?.webview.postMessage({ type: 'opResult', value: { message: `已删除 ${removed} 个账号` } });
           }
         }
@@ -441,7 +430,6 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         );
         if (clearAccChoice === '清空') {
           await this.dataManager.windsurfAccounts.clear();
-          await this.postAccountsSync();
           void this.view?.webview.postMessage({ type: 'opResult', value: { message: '所有账号已清空' } });
         }
         return true;
@@ -476,17 +464,13 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         return true;
       case 'fetchQuota': {
         const id = typeof value === 'string' ? value : undefined;
-        await this.postAccountsSync();
         const result = await this.dataManager.windsurfAccounts.fetchRealQuota(id);
         void this.view?.webview.postMessage({ type: 'quotaFetchResult', value: result });
-        await this.postAccountsSync();
         return true;
       }
       case 'fetchAllQuotas': {
-        await this.postAccountsSync();
         const result = await this.dataManager.windsurfAccounts.fetchAllRealQuotas();
         void this.view?.webview.postMessage({ type: 'quotaFetchAllResult', value: result });
-        await this.postAccountsSync();
         return true;
       }
       default:

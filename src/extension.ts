@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import type { WindsurfAccount } from "./core/contracts";
 import { QuoteBridge } from "./core/bridge";
 import type { DialogCallback } from "./core/bridge";
 import { getExtensionConfig } from "./core/config";
@@ -17,6 +18,13 @@ let bridge: QuoteBridge | undefined;
 let dataManager: DataManager | undefined;
 let activeToolName: string | undefined;
 let secondaryInstance = false;
+
+function sanitizeAccount(account: WindsurfAccount): Omit<WindsurfAccount, "password"> & { password: string } {
+  return {
+    ...account,
+    password: account.password ? "***" : "",
+  };
+}
 
 async function updateStatusBar(): Promise<void> {
   if (!statusBarItem || !bridge) {
@@ -61,6 +69,70 @@ export async function activate(
     config.dialogTimeoutSeconds > 0 ? config.dialogTimeoutSeconds * 1000 : 0,
   );
   const runningPort = await bridge.start();
+  bridge.registerAutopilotHandlers({
+    getAccounts: async () => {
+      const accounts = dataManager?.windsurfAccounts.getAll().map(sanitizeAccount) ?? [];
+      return { success: true, accounts };
+    },
+    getQuota: async () => {
+      const currentId = await dataManager?.windsurfAccounts.getDisplayCurrentAccountId();
+      const accounts = dataManager?.windsurfAccounts.getAll() ?? [];
+      const current = currentId ? accounts.find((account) => account.id === currentId) : undefined;
+      return {
+        success: true,
+        current: current ? sanitizeAccount(current) : undefined,
+        all: accounts.map(sanitizeAccount),
+        snapshots: dataManager?.windsurfAccounts.getQuotaSnapshots() ?? [],
+      };
+    },
+    switchAccount: async (accountId: string) => {
+      if (!dataManager) {
+        return { success: false, message: "DataManager unavailable" };
+      }
+      const result = await dataManager.windsurfAccounts.switchTo(accountId);
+      if (result.success) {
+        void dataManager.windsurfAccounts.fetchRealQuota(accountId).finally(() => {
+          sidebarProvider.postBootstrap();
+        });
+        sidebarProvider.postBootstrap();
+      }
+      const account = dataManager.windsurfAccounts.getById(accountId);
+      return {
+        success: result.success,
+        switchedTo: account ? sanitizeAccount(account) : undefined,
+        message: result.success ? `Switched to ${account?.email ?? accountId}` : result.error ?? "Switch failed",
+      };
+    },
+    switchNext: async () => {
+      if (!dataManager) {
+        return { success: false, message: "DataManager unavailable" };
+      }
+      const beforeId = await dataManager.windsurfAccounts.getDisplayCurrentAccountId();
+      const switched = await dataManager.windsurfAccounts.autoSwitchIfNeeded();
+      const afterId = await dataManager.windsurfAccounts.getDisplayCurrentAccountId();
+      if (switched && afterId) {
+        void dataManager.windsurfAccounts.fetchRealQuota(afterId).finally(() => {
+          sidebarProvider.postBootstrap();
+        });
+      }
+      sidebarProvider.postBootstrap();
+      return {
+        success: switched,
+        switchedTo: afterId && afterId !== beforeId ? sanitizeAccount(dataManager.windsurfAccounts.getById(afterId)!) : undefined,
+        previousAccountId: beforeId,
+        currentAccountId: afterId,
+        message: switched ? "Auto switch completed" : "No switch performed",
+      };
+    },
+    refreshQuotas: async () => {
+      if (!dataManager) {
+        return { success: 0, failed: 1, errors: ["DataManager unavailable"] };
+      }
+      const result = await dataManager.windsurfAccounts.fetchAllRealQuotas();
+      sidebarProvider.postBootstrap();
+      return result;
+    },
+  });
 
   // Multi-window isolation: if port fell back, another instance owns the primary toolName.
   // Generate a session-scoped toolName so each window keeps an independent MCP entry.

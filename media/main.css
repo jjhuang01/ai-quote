@@ -1241,8 +1241,78 @@ button:focus-visible {
 }
 
 /* === Account List === */
-.account-list {
+.account-search-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--sp-2);
+  flex-wrap: nowrap;
+  min-width: 0;
   margin-top: var(--sp-3);
+}
+
+.account-search-row .search-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.account-search-row .search-input-wrap .svg-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+}
+
+.account-search-row #accountSearch {
+  height: 32px;
+  margin-top: 0;
+  padding-left: 32px;
+  padding-right: 10px;
+}
+
+.account-search-row .btn-xs {
+  flex: 0 0 auto;
+  height: 32px;
+  min-width: 52px;
+  padding: 0 12px;
+  white-space: nowrap;
+  border-radius: var(--radius-md);
+  align-self: center;
+}
+
+.account-search-row .btn-xs.is-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.account-list-shell {
+  margin-top: var(--sp-3);
+  min-height: 320px;
+}
+
+.account-list-viewport {
+  position: relative;
+  height: min(62vh, 640px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: var(--radius-lg);
+}
+
+.account-list-spacer {
+  position: relative;
+  width: 100%;
+}
+
+.ac-virtual-row {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 96px;
+  padding-bottom: 8px;
+  box-sizing: border-box;
 }
 
 /* === Redesigned compact account card (.ac-*) === */
@@ -1253,7 +1323,8 @@ button:focus-visible {
   padding: 10px 12px;
   background: var(--surface);
   border-radius: var(--radius-lg);
-  margin-bottom: 7px;
+  margin-bottom: 0;
+  min-height: 88px;
   border: 1px solid var(--border-glass);
   cursor: pointer;
   position: relative;
@@ -1290,8 +1361,8 @@ button:focus-visible {
 .ac-card.ac-crit {
   border-color: color-mix(in srgb, var(--danger) 55%, var(--border-subtle));
 }
-/* Exhausted / quota depleted — 幽灵化：几乎融入背景，健康卡片自然突出 */
-.ac-card.ac-exhausted {
+/* Unavailable / quota low — 幽灵化：几乎融入背景，健康卡片自然突出 */
+.ac-card.ac-unavailable {
   background: color-mix(in srgb, var(--surface) 22%, var(--bg));
   border-color: color-mix(in srgb, var(--border-glass) 12%, transparent);
   opacity: 0.36;
@@ -1303,7 +1374,7 @@ button:focus-visible {
     opacity var(--t-normal),
     filter var(--t-normal);
 }
-.ac-card.ac-exhausted:hover {
+.ac-card.ac-unavailable:hover {
   opacity: 0.52;
   filter: saturate(0.3) brightness(0.92);
   border-color: color-mix(in srgb, var(--border-glass) 25%, transparent);
@@ -1311,15 +1382,15 @@ button:focus-visible {
   transform: none;
   box-shadow: none;
 }
-/* Current account that is also exhausted: keep identity hint, still ghostly */
-.ac-card.ac-exhausted.ac-active {
-  opacity: 0.50;
+/* Current account that is also unavailable: keep identity hint, still ghostly */
+.ac-card.ac-unavailable.ac-active {
+  opacity: 0.5;
   filter: saturate(0.25) brightness(0.88);
   border-color: color-mix(in srgb, var(--accent) 20%, var(--border-glass));
   box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 30%, transparent);
 }
-/* Badge: 已耗尽 */
-.badge-exhausted {
+/* Badge: 不可用 */
+.badge-unavailable {
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1396,7 +1467,7 @@ button:focus-visible {
   border-color: var(--accent) !important;
   color: var(--accent) !important;
 }
-/* Head row: email + badges */
+/* Head row: email + badges + actions */
 .ac-head {
   display: flex;
   align-items: center;
@@ -1405,6 +1476,7 @@ button:focus-visible {
 }
 .ac-email {
   flex: 1;
+  min-width: 0;
   font-size: var(--fs-base);
   font-weight: 500;
   color: var(--text);
@@ -1413,11 +1485,21 @@ button:focus-visible {
   white-space: nowrap;
   letter-spacing: -0.02em;
 }
+.ac-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
 .ac-tags {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .ac-end {
   font-size: 10px;
@@ -1492,6 +1574,16 @@ button:focus-visible {
 .ac-pct.ac-nodata {
   color: var(--muted);
   font-weight: 400;
+}
+/* Exhausted bar: API returned no %, but quota IS tracked (has reset time) → treat as used up */
+.quota-fill-exhausted {
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+}
+.ac-bar-row.ac-bar-exhausted {
+  opacity: 0.5;
+}
+.ac-bar-row.ac-bar-exhausted .ac-lbl {
+  color: color-mix(in srgb, var(--muted) 55%, transparent);
 }
 .ac-rt {
   font-size: 9px;

@@ -13,6 +13,13 @@ describe('QuoteBridge', () => {
   const bridge = new QuoteBridge(logger, 0, 'kpzm_a1b2c3d4', 'Visual Studio Code');
 
   beforeAll(async () => {
+    bridge.registerAutopilotHandlers({
+      getAccounts: async () => ({ success: true, accounts: [{ id: 'ws_1', email: 'a@test.com', password: '***' }] }),
+      getQuota: async () => ({ success: true, current: { id: 'ws_1' }, all: [{ id: 'ws_1' }] }),
+      switchAccount: async (accountId: string) => ({ success: true, switchedTo: { id: accountId } }),
+      switchNext: async () => ({ success: true, currentAccountId: 'ws_2' }),
+      refreshQuotas: async () => ({ success: 1, failed: 0, errors: [] }),
+    });
     await bridge.start();
   });
 
@@ -63,6 +70,22 @@ describe('QuoteBridge', () => {
     const response = await fetch(`http://127.0.0.1:${bridge.getPort()}/mcp`);
     const json = await response.json() as { success: boolean };
     expect(json.success).toBe(true);
+  });
+
+  it('autopilot API routes return registered handler payloads', async () => {
+    const quotaRes = await fetch(`http://127.0.0.1:${bridge.getPort()}/api/ap/quota`);
+    const quotaJson = await quotaRes.json() as { success: boolean; current: { id: string } };
+    expect(quotaJson.success).toBe(true);
+    expect(quotaJson.current.id).toBe('ws_1');
+
+    const switchRes = await fetch(`http://127.0.0.1:${bridge.getPort()}/api/ap/switch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accountId: 'ws_9' })
+    });
+    const switchJson = await switchRes.json() as { success: boolean; switchedTo: { id: string } };
+    expect(switchJson.success).toBe(true);
+    expect(switchJson.switchedTo.id).toBe('ws_9');
   });
 
   it('MCP JSON-RPC initialize 通过 SSE 返回 serverInfo', async () => {

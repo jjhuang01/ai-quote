@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -5,6 +6,14 @@ import * as path from 'node:path';
 // Mock vscode
 vi.mock('vscode', () => ({
   default: {},
+  workspace: {
+    createFileSystemWatcher: vi.fn(() => ({
+      onDidChange: vi.fn(),
+      onDidCreate: vi.fn(),
+      onDidDelete: vi.fn(),
+      dispose: vi.fn(),
+    })),
+  },
   window: {
     createFileSystemWatcher: vi.fn(() => ({
       onDidChange: vi.fn(),
@@ -237,6 +246,98 @@ describe('WindsurfAccountManager', () => {
       disposable.dispose();
     });
 
+    it('starts a file watcher that reloads accounts on external changes', async () => {
+      const watcher = {
+        onDidChange: vi.fn((fn: () => void) => {
+          (watcher as any).changeHandler = fn;
+          return { dispose: vi.fn() };
+        }),
+        onDidCreate: vi.fn((fn: () => void) => {
+          (watcher as any).createHandler = fn;
+          return { dispose: vi.fn() };
+        }),
+        onDidDelete: vi.fn(() => ({ dispose: vi.fn() })),
+        dispose: vi.fn(),
+      };
+
+      (vscode.workspace.createFileSystemWatcher as any).mockReturnValueOnce(watcher);
+
+      await manager.initialize();
+      manager.startWatching();
+
+      const diskPayload = {
+        revision: 2,
+        updatedAt: '2026-04-14T00:00:00.000Z',
+        currentId: 'ws_ext',
+        autoSwitch: { enabled: false, threshold: 5, checkInterval: 60, creditWarning: 3, switchOnDaily: true, switchOnWeekly: true },
+        accounts: [{
+          id: 'ws_ext',
+          email: 'external@test.com',
+          password: 'p',
+          plan: 'Free',
+          creditsUsed: 0,
+          creditsTotal: 0,
+          quota: { dailyUsed: 0, dailyLimit: 0, dailyResetAt: '', weeklyUsed: 0, weeklyLimit: 0, weeklyResetAt: '' },
+          expiresAt: '',
+          isActive: true,
+          addedAt: '2026-04-14T00:00:00.000Z'
+        }]
+      };
+
+      (fs.readFile as any).mockResolvedValueOnce(JSON.stringify(diskPayload));
+      await (watcher as any).changeHandler?.();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(manager.getAll().map((a) => a.email)).toEqual(['external@test.com']);
+    });
+
+    it('loads legacy persisted data without revision as revision 0', async () => {
+      const legacyPayload = {
+        updatedAt: '2026-04-14T00:00:00.000Z',
+        currentId: 'ws_legacy',
+        accounts: [{
+          id: 'ws_legacy',
+          email: 'legacy@test.com',
+          password: 'p',
+          plan: 'Free',
+          creditsUsed: 0,
+          creditsTotal: 0,
+          quota: { dailyUsed: 0, dailyLimit: 0, dailyResetAt: '', weeklyUsed: 0, weeklyLimit: 0, weeklyResetAt: '' },
+          expiresAt: '',
+          isActive: true,
+          addedAt: '2026-04-14T00:00:00.000Z'
+        }]
+      };
+
+      (fs.readFile as any).mockResolvedValueOnce(JSON.stringify(legacyPayload));
+      await manager.initialize();
+
+      expect(manager.getAll().map((a) => a.email)).toEqual(['legacy@test.com']);
+      expect(manager.getCurrentAccountId()).toBe('ws_legacy');
+    });
+
+    it('uses current disk revision when saving after initialize', async () => {
+      const diskPayload = {
+        revision: 7,
+        updatedAt: '2026-04-14T00:00:00.000Z',
+        currentId: undefined,
+        autoSwitch: { enabled: false, threshold: 5, checkInterval: 60, creditWarning: 3, switchOnDaily: true, switchOnWeekly: true },
+        accounts: []
+      };
+
+      (fs.readFile as any).mockResolvedValueOnce(JSON.stringify(diskPayload));
+
+      await manager.initialize();
+      await manager.add('next@test.com', 'p');
+
+      const writeCall = (fs.writeFile as any).mock.calls.find(
+        ([filePath]: [string]) => filePath.endsWith('windsurf-accounts.json.tmp')
+      );
+      const [, rawJson] = writeCall;
+      expect(JSON.parse(rawJson).revision).toBe(8);
+    });
+
     it('删除当前账号 — 自动切换到下一个', async () => {
       await manager.initialize();
       const a1 = await manager.add('a1@test.com', 'p1');
@@ -434,6 +535,7 @@ describe('WindsurfAccountManager', () => {
       const result = await manager.switchTo(a2.id);
       expect(result.success).toBe(true);
       expect(manager.getCurrentAccountId()).toBe(a2.id);
+      expect(manager.getImmediateCurrentAccountId()).toBe(a2.id);
     });
 
     it('切换到不存在的账号返回 false', async () => {
@@ -441,6 +543,25 @@ describe('WindsurfAccountManager', () => {
       await manager.add('a@test.com', 'p');
       const result = await manager.switchTo('nonexistent');
       expect(result.success).toBe(false);
+    });
+
+    it('pending switch 未与真实登录态对齐前，displayCurrent 仍保持新账号', async () => {
+      await manager.initialize();
+      await manager.add('a@test.com', 'p');
+      const a2 = await manager.add('b@test.com', 'p');
+
+      const fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      (manager as any).quotaFetcher.fetchFromLocalProto = fetchFromLocalProto;
+
+      const result = await manager.switchTo(a2.id);
+      expect(result.success).toBe(true);
+      expect(await manager.getDisplayCurrentAccountId()).toBe(a2.id);
+      expect(manager.getImmediateCurrentAccountId()).toBe(a2.id);
     });
   });
 
@@ -589,6 +710,38 @@ describe('WindsurfAccountManager', () => {
       };
       const switched = await manager.autoSwitchIfNeeded();
       expect(switched).toBe(true);
+      expect(manager.getCurrentAccountId()).toBe(a2.id);
+    });
+
+    it('pending switch 存在时，autoSwitch 不会被旧 realId 打回原账号', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a1@test.com', 'p');
+      const a2 = await manager.add('a2@test.com', 'p');
+      await manager.updateAutoSwitch({ enabled: true, switchOnDaily: true, threshold: 5 });
+
+      const fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a1@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      (manager as any).quotaFetcher.fetchFromLocalProto = fetchFromLocalProto;
+
+      const switchResult = await manager.switchTo(a2.id);
+      expect(switchResult.success).toBe(true);
+
+      (a2 as any).realQuota = {
+        planName: 'Pro', billingStrategy: 'quota',
+        dailyRemainingPercent: 80, weeklyRemainingPercent: 90,
+        dailyResetAtUnix: 0, weeklyResetAtUnix: 0,
+        messages: 500, usedMessages: 100, remainingMessages: 400,
+        flowActions: 0, usedFlowActions: 0, remainingFlowActions: 0,
+        overageBalanceMicros: 0, fetchedAt: new Date().toISOString(), source: 'api'
+      };
+
+      const switched = await manager.autoSwitchIfNeeded();
+      expect(switched).toBe(false);
+      expect(manager.getImmediateCurrentAccountId()).toBe(a2.id);
       expect(manager.getCurrentAccountId()).toBe(a2.id);
     });
   });
