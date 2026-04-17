@@ -447,7 +447,7 @@ export class WindsurfAccountManager {
     const account = this.accounts.find((a) => a.id === id);
     if (!account) return { success: false, error: "账号不存在" };
 
-    // ── 步骤1: Firebase 登录获取 idToken ──────────────────────────────────
+    // ── 步骤1: 获取 Windsurf 可消费 auth token ────────────────────────────
     let idToken: string;
     try {
       const auth = await this.auth.signIn(
@@ -456,11 +456,12 @@ export class WindsurfAccountManager {
         account.id,
       );
       idToken = auth.idToken;
-      this.logger.info("Firebase signIn OK for switch.", {
+      this.logger.info("Windsurf auth token ready for switch.", {
         email: account.email,
+        provider: auth.provider ?? "firebase",
       });
     } catch (err) {
-      return { success: false, error: `Firebase 登录失败: ${String(err)}` };
+      return { success: false, error: `登录失败: ${String(err)}` };
     }
 
     // ── 步骤2: 发现 Windsurf 原生 auth 命令 ──────────────────────────────
@@ -475,7 +476,7 @@ export class WindsurfAccountManager {
 
     // ── 步骤3: 注入新 session（不先 logout，避免中断当前会话） ──────────
     try {
-      // 传入 idToken，Windsurf 内部 handleAuthToken → registerUser(idToken) 完成注册
+      // 传入 token，Windsurf 内部 handleAuthToken → registerUser(token) 完成注册
       const result = await vscode.commands.executeCommand<{
         session?: unknown;
         error?: unknown;
