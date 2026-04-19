@@ -118,6 +118,7 @@ body {
     BlinkMacSystemFont,
     sans-serif
   );
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
@@ -403,6 +404,144 @@ button:focus-visible {
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid var(--border-glass);
   border-radius: var(--radius-xl);
+}
+
+@media (max-width: 560px) {
+  .infinite-shell {
+    gap: 10px;
+    padding: 10px 8px 18px;
+  }
+
+  .card,
+  .infinite-header {
+    border-radius: 12px;
+  }
+
+  .card {
+    padding: 12px 10px;
+  }
+
+  .section-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .section-header .btn-group {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .btn-group {
+    gap: 5px;
+  }
+
+  .btn-xs {
+    padding: 3px 7px;
+  }
+
+  .btn-sm {
+    min-height: 28px;
+    padding: 0 10px;
+  }
+
+  .tab-nav {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .tab-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab-btn {
+    flex: 1 0 auto;
+    padding-inline: 5px;
+  }
+
+  .account-search-row .btn-xs {
+    min-width: 44px;
+    padding: 0 8px;
+  }
+
+  .account-list-shell {
+    min-height: 280px;
+  }
+
+  .ac-card {
+    padding: 8px 10px;
+    min-height: 84px;
+  }
+
+  .ac-head {
+    gap: 4px;
+  }
+
+  .ac-meta {
+    gap: 4px;
+  }
+
+  .plan-end,
+  .ac-end {
+    display: none;
+  }
+
+  .badge-active,
+  .badge-expired,
+  .badge-unavailable {
+    font-size: 8px;
+    padding: 1px 5px;
+  }
+
+  .plan-badge {
+    font-size: 8px;
+    gap: 2px;
+    padding: 1px 5px;
+  }
+
+  .ac-bars {
+    gap: 3px;
+  }
+
+  .ac-lbl {
+    width: 12px;
+  }
+
+  .ac-pct {
+    width: 24px;
+  }
+
+  .ac-rt {
+    width: 56px;
+  }
+}
+
+@media (max-width: 440px) {
+  .section-header .btn-group {
+    gap: 4px;
+  }
+
+  .btn-xs {
+    padding: 3px 6px;
+  }
+
+  .tab-btn {
+    font-size: 9px;
+    padding-inline: 4px;
+  }
+
+  .ac-card {
+    padding: 8px 8px;
+  }
+
+  .ac-email {
+    font-size: 11px;
+  }
+
+  .ac-tags {
+    gap: 3px;
+  }
 }
 
 .tab-btn {
