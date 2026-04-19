@@ -408,11 +408,6 @@ export async function activate(
 
   await updateStatusBar();
 
-  // 每次激活时自动显示侧边栏，确保 SSE 状态实时推送
-  void vscode.commands.executeCommand(
-    "workbench.view.extension.quote-sidebar",
-  );
-
   // ── autoSwitch 定时器：按 checkInterval 轮询，动态读取最新配置 ─────────
   // 使用固定10s轮询判断是否到达下次检查时间，避免配置变化后需要重建定时器
   let lastAutoSwitchCheckAt = 0;
