@@ -1475,6 +1475,7 @@ button:focus-visible {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  width: 100%;
 }
 .ac-email {
   min-width: 0;
@@ -1488,22 +1489,31 @@ button:focus-visible {
   line-height: 1.2;
 }
 .ac-meta {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: 100%;
+  width: 100%;
+  justify-self: end;
 }
 .ac-tags {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-shrink: 1;
+  flex: 1 1 auto;
   min-width: 0;
   flex-wrap: nowrap;
   justify-content: flex-end;
   overflow: hidden;
+}
+.ac-acts {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  justify-self: end;
 }
 .ac-end {
   font-size: 10px;
