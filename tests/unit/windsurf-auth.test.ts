@@ -217,4 +217,25 @@ describe('WindsurfAuth', () => {
       /Devin Auth 登录失败: Devin Auth 不支持密码登录; Firebase 登录失败:/,
     );
   });
+
+  it('quota 查询场景优先使用 Firebase', async () => {
+    const auth = new WindsurfAuth(logger);
+    const signInWithDevinAuth = vi.spyOn(auth as any, 'signInWithDevinAuth');
+    const httpsPost = vi.fn().mockResolvedValueOnce({
+      idToken: 'firebase-id-token',
+      refreshToken: 'refresh-token',
+      email: 'a@test.com',
+      localId: 'local-id',
+      expiresIn: '3600',
+    });
+    (auth as any).httpsPost = httpsPost;
+
+    const result = await auth.signIn('a@test.com', 'password', 'acc_1', {
+      providerPreference: 'firebase',
+    });
+
+    expect(result.idToken).toBe('firebase-id-token');
+    expect(signInWithDevinAuth).not.toHaveBeenCalled();
+    expect(httpsPost).toHaveBeenCalledTimes(1);
+  });
 });

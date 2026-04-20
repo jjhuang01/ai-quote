@@ -97,6 +97,17 @@ interface RuntimeSwitchVerification {
   error?: string;
 }
 
+interface QuotaWriteGuardResult {
+  allowed: boolean;
+  reason?: string;
+}
+
+type AuthFailureCategory =
+  | "firebase_device_rate_limited"
+  | "credentials_invalid"
+  | "windsurf_rate_limited"
+  | "generic";
+
 export class WindsurfAccountManager {
   private readonly filePath: string;
   private accounts: WindsurfAccount[] = [];
@@ -297,6 +308,111 @@ export class WindsurfAccountManager {
     }
     await this.finalizePendingSwitch(expectedId, persist);
     return true;
+  }
+
+  private isQuotaResultAssignableToAccount(
+    account: WindsurfAccount,
+    result: {
+      source: "local" | "api" | "apikey" | "cache" | "proto";
+      userEmail?: string;
+    },
+  ): QuotaWriteGuardResult {
+    if (result.source === "api" || result.source === "local") {
+      return { allowed: true };
+    }
+
+    const observedEmail = result.userEmail?.trim().toLowerCase();
+    if (!observedEmail) {
+      return {
+        allowed: false,
+        reason: `来源 ${result.source} 未返回可校验邮箱`,
+      };
+    }
+
+    if (observedEmail !== account.email.trim().toLowerCase()) {
+      return {
+        allowed: false,
+        reason: `来源 ${result.source} 实际属于 ${result.userEmail}，目标账号是 ${account.email}`,
+      };
+    }
+
+    return { allowed: true };
+  }
+
+  private async resolveRuntimeBackedAccountIdForUsage(): Promise<string | undefined> {
+    const realId = await this.getRealCurrentAccountId();
+    if (!realId) {
+      return this.currentAccountId;
+    }
+
+    if (realId === this.pendingSwitchId) {
+      await this.finalizePendingSwitch(realId, false);
+      return realId;
+    }
+
+    if (realId !== this.currentAccountId) {
+      this.accounts.forEach((account) => {
+        account.isActive = account.id === realId;
+      });
+      this.currentAccountId = realId;
+      await this.save();
+    }
+
+    return realId;
+  }
+
+  private classifyAuthFailure(error: string): AuthFailureCategory {
+    const normalized = error.toLowerCase();
+
+    if (
+      normalized.includes("too_many_attempts_try_later") ||
+      normalized.includes("too-many-requests") ||
+      normalized.includes("too many requests") ||
+      normalized.includes("firautherrorcodetoomanyrequests")
+    ) {
+      return "firebase_device_rate_limited";
+    }
+
+    if (
+      normalized.includes("wrong password") ||
+      normalized.includes("invalid password") ||
+      normalized.includes("invalid login credentials") ||
+      normalized.includes("invalid_login_credentials") ||
+      normalized.includes("user not found") ||
+      normalized.includes("email not found") ||
+      normalized.includes("invalid email") ||
+      normalized.includes("密码错误") ||
+      normalized.includes("账号不存在")
+    ) {
+      return "credentials_invalid";
+    }
+
+    if (
+      normalized.includes("rate limit") ||
+      normalized.includes("quota exceeded") ||
+      normalized.includes("quota exhausted") ||
+      normalized.includes("capacity")
+    ) {
+      return "windsurf_rate_limited";
+    }
+
+    return "generic";
+  }
+
+  private formatSwitchAuthFailure(error: unknown): string {
+    const raw = String(error);
+    const category = this.classifyAuthFailure(raw);
+
+    switch (category) {
+      case "firebase_device_rate_limited":
+        return `登录失败: 检测到 Firebase 登录限流，可能与当前设备标识触发风控有关。可尝试重置机器 ID 后重试；若仍失败，请等待一段时间再试。原始错误: ${raw}`;
+      case "credentials_invalid":
+        return `登录失败: 账号或密码可能不正确，请先检查凭据是否有效。原始错误: ${raw}`;
+      case "windsurf_rate_limited":
+        return `登录失败: 当前更像是 Windsurf 服务端限流或额度/容量限制，重置机器 ID 通常无效，建议稍后重试或切换到不消耗额度的模型。原始错误: ${raw}`;
+      default:
+        return `登录失败: ${raw}`;
+    }
   }
 
   public getAutoSwitchConfig(): AutoSwitchConfig {
@@ -581,7 +697,7 @@ export class WindsurfAccountManager {
         provider: auth.provider ?? "firebase",
       });
     } catch (err) {
-      return { success: false, error: `登录失败: ${String(err)}` };
+      return { success: false, error: this.formatSwitchAuthFailure(err) };
     }
 
     // ── 步骤2: 发现 Windsurf session 注入命令 ────────────────────────────
@@ -916,7 +1032,7 @@ export class WindsurfAccountManager {
 
   public async recordPrompt(accountId?: string): Promise<void> {
     await this.revalidateBeforeWrite();
-    const id = accountId ?? this.currentAccountId;
+    const id = accountId ?? await this.resolveRuntimeBackedAccountIdForUsage();
     if (!id) return;
     const account = this.accounts.find((a) => a.id === id);
     if (!account) return;
@@ -1046,6 +1162,17 @@ export class WindsurfAccountManager {
         await this.revalidateBeforeWrite();
         const target = this.accounts.find((a) => a.id === id);
         if (target) {
+          const quotaGuard = this.isQuotaResultAssignableToAccount(target, result);
+          if (!quotaGuard.allowed) {
+            this.logger.warn("Rejected quota write for mismatched account.", {
+              accountId: target.id,
+              email: target.email,
+              source: result.source,
+              observedEmail: result.userEmail,
+              reason: quotaGuard.reason,
+            });
+            return { success: false, error: quotaGuard.reason };
+          }
           target.realQuota = this.planInfoToRealQuota(
             result.planInfo,
             result.source,
@@ -1140,10 +1267,22 @@ export class WindsurfAccountManager {
           account.id,
           account.email,
           account.password,
-          { preferLocal: true },
+          { forceRefresh: true, preferLocal: true },
         );
 
         if (result.success && result.planInfo) {
+          const quotaGuard = this.isQuotaResultAssignableToAccount(account, result);
+          if (!quotaGuard.allowed) {
+            failed++;
+            errors.push(`${account.email}: ${quotaGuard.reason ?? "额度来源与账号不匹配"}`);
+            this.logger.warn("Skipped quota update for mismatched account.", {
+              email: account.email,
+              source: result.source,
+              observedEmail: result.userEmail,
+              reason: quotaGuard.reason,
+            });
+            continue;
+          }
           account.realQuota = this.planInfoToRealQuota(
             result.planInfo,
             result.source,

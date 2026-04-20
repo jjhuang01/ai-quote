@@ -262,7 +262,7 @@ export class WindsurfQuotaFetcher {
     if (!forceRefresh) {
       const cached = this.cache.get(accountId);
       if (cached && (Date.now() - new Date(cached.fetchedAt).getTime()) < this.cacheTtlMs) {
-        return { ...cached, source: 'cache' };
+        return { ...cached };
       }
     }
 
@@ -745,7 +745,9 @@ export class WindsurfQuotaFetcher {
    */
   public async fetchFromGetPlanStatus(accountId: string, email: string, password: string): Promise<QuotaFetchResult> {
     try {
-      const authResult = await this.auth.signIn(email, password, accountId);
+      const authResult = await this.auth.signIn(email, password, accountId, {
+        providerPreference: 'firebase',
+      });
       const planInfo = await this.callGetPlanStatus(authResult.idToken);
 
       if (planInfo) {

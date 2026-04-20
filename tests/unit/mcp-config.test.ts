@@ -8,9 +8,10 @@ vi.mock('vscode', () => vscodeMock);
 
 let mergeMcpConfig: typeof import('../../src/adapters/mcp-config').mergeMcpConfig;
 let detectCurrentIde: typeof import('../../src/adapters/mcp-config').detectCurrentIde;
+let pruneMcpConfig: typeof import('../../src/adapters/mcp-config').pruneMcpConfig;
 
 beforeAll(async () => {
-  ({ mergeMcpConfig, detectCurrentIde } = await import('../../src/adapters/mcp-config'));
+  ({ mergeMcpConfig, detectCurrentIde, pruneMcpConfig } = await import('../../src/adapters/mcp-config'));
 });
 
 describe('mergeMcpConfig', () => {
@@ -44,6 +45,23 @@ describe('mergeMcpConfig', () => {
   it('mcpServers 缺失时自动初始化', () => {
     const merged = mergeMcpConfig({} as any, 'tool-b', 'http://127.0.0.1:5000/sse');
     expect(merged.mcpServers['tool-b']?.url).toBe('http://127.0.0.1:5000/sse');
+  });
+});
+
+describe('pruneMcpConfig', () => {
+  it('只删除指定的 owned tool names，保留其他 MCP', () => {
+    const result = pruneMcpConfig({
+      mcpServers: {
+        ours_a: { url: 'http://127.0.0.1:3456/sse' },
+        ours_b: { url: 'http://127.0.0.1:3457/sse' },
+        other_mcp: { url: 'http://127.0.0.1:9999/sse' },
+      },
+    }, ['ours_a', 'ours_b']);
+
+    expect(result.removed.sort()).toEqual(['ours_a', 'ours_b']);
+    expect(result.config.mcpServers).toEqual({
+      other_mcp: { url: 'http://127.0.0.1:9999/sse' },
+    });
   });
 });
 

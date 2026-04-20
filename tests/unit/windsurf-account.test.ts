@@ -442,6 +442,26 @@ describe('WindsurfAccountManager', () => {
       await manager.initialize();
       await expect(manager.recordPrompt()).resolves.not.toThrow();
     });
+
+    it('recordPrompt 默认记到 runtime 实际账号而不是陈旧 currentAccountId', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a1@test.com', 'p1');
+      const a2 = await manager.add('a2@test.com', 'p2');
+      (manager as any).quotaFetcher.fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a2@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+
+      await manager.recordPrompt();
+
+      const updatedA1 = manager.getById(a1.id)!;
+      const updatedA2 = manager.getById(a2.id)!;
+      expect(updatedA1.quota.dailyUsed).toBe(0);
+      expect(updatedA2.quota.dailyUsed).toBe(1);
+      expect(manager.getCurrentAccountId()).toBe(a2.id);
+    });
   });
 
   describe('配额快照', () => {
@@ -509,7 +529,7 @@ describe('WindsurfAccountManager', () => {
       await manager.updateAutoSwitch({ enabled: true, switchOnDaily: true, threshold: 5 });
 
       // 消耗 a1 的日配额至阈值
-      for (let i = 0; i < 5; i++) await manager.recordPrompt();
+      for (let i = 0; i < 5; i++) await manager.recordPrompt(a1.id);
 
       const switched = await manager.autoSwitchIfNeeded();
       expect(switched).toBe(true);
@@ -522,7 +542,7 @@ describe('WindsurfAccountManager', () => {
       await manager.setQuotaLimits(a1.id, 5, 100);
       await manager.updateAutoSwitch({ enabled: true, switchOnDaily: true, threshold: 5 });
 
-      for (let i = 0; i < 5; i++) await manager.recordPrompt();
+      for (let i = 0; i < 5; i++) await manager.recordPrompt(a1.id);
 
       const switched = await manager.autoSwitchIfNeeded();
       expect(switched).toBe(false);
@@ -658,6 +678,89 @@ describe('WindsurfAccountManager', () => {
       expect(result.error).toContain('切换后校验失败');
       expect(manager.getCurrentAccountId()).toBe(a1.id);
       expect(manager.getImmediateCurrentAccountId()).toBe(a1.id);
+    });
+
+    it('Firebase 设备限流时提示可尝试重置机器 ID', async () => {
+      await manager.initialize();
+      await manager.add('a@test.com', 'p');
+      const a2 = await manager.add('b@test.com', 'p');
+      (manager as any).auth.signIn.mockRejectedValueOnce(
+        new Error('Firebase 登录失败: TOO_MANY_ATTEMPTS_TRY_LATER'),
+      );
+
+      const result = await manager.switchTo(a2.id);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('重置机器 ID');
+      expect(result.error).toContain('Firebase 登录限流');
+    });
+
+    it('账号密码错误时不给出重置机器 ID 建议', async () => {
+      await manager.initialize();
+      await manager.add('a@test.com', 'p');
+      const a2 = await manager.add('b@test.com', 'p');
+      (manager as any).auth.signIn.mockRejectedValueOnce(
+        new Error('Firebase 登录失败: INVALID_LOGIN_CREDENTIALS'),
+      );
+
+      const result = await manager.switchTo(a2.id);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('账号或密码可能不正确');
+      expect(result.error).not.toContain('重置机器 ID');
+    });
+
+    it('fetchRealQuota 拒绝把 proto 额度写到不匹配的目标账号', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a1@test.com', 'p1');
+      const a2 = await manager.add('a2@test.com', 'p2');
+
+      (manager as any).quotaFetcher.fetchFromGetPlanStatus = vi.fn(async () => ({
+        success: false,
+        source: 'api',
+        error: 'api unavailable',
+        fetchedAt: new Date().toISOString(),
+      }));
+      (manager as any).quotaFetcher.fetchQuota = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a1@test.com',
+        fetchedAt: new Date().toISOString(),
+        planInfo: {
+          planName: 'Pro',
+          billingStrategy: 'quota',
+          startTimestamp: 0,
+          endTimestamp: 0,
+          usage: {
+            duration: 0,
+            messages: 100,
+            flowActions: 0,
+            flexCredits: 0,
+            usedMessages: 10,
+            usedFlowActions: 0,
+            usedFlexCredits: 0,
+            remainingMessages: 90,
+            remainingFlowActions: 0,
+            remainingFlexCredits: 0,
+          },
+          hasBillingWritePermissions: false,
+          gracePeriodStatus: 0,
+          quotaUsage: {
+            dailyRemainingPercent: 90,
+            weeklyRemainingPercent: 90,
+            overageBalanceMicros: 0,
+            dailyResetAtUnix: 0,
+            weeklyResetAtUnix: 0,
+          },
+        },
+      }));
+
+      const result = await manager.fetchRealQuota(a2.id);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('目标账号是 a2@test.com');
+      expect(manager.getById(a2.id)?.realQuota).toBeUndefined();
+      expect(manager.getById(a1.id)?.realQuota).toBeUndefined();
     });
   });
 

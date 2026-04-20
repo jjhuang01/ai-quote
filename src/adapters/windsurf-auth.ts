@@ -45,6 +45,10 @@ interface DevinPostAuthResult {
   primaryOrgId?: string;
 }
 
+export interface SignInOptions {
+  providerPreference?: "devin-auth" | "firebase";
+}
+
 /**
  * Windsurf/Codeium Firebase Auth 适配器
  *
@@ -94,6 +98,7 @@ export class WindsurfAuth {
     email: string,
     password: string,
     accountId?: string,
+    options?: SignInOptions,
   ): Promise<FirebaseAuthResult> {
     // 检查缓存
     if (accountId) {
@@ -107,6 +112,10 @@ export class WindsurfAuth {
           expiresIn: String(Math.floor((cached.expiresAt - Date.now()) / 1000)),
         };
       }
+    }
+
+    if (options?.providerPreference === "firebase") {
+      return this.signInWithFirebaseFallback(email, password, accountId);
     }
 
     let devinErr: Error | undefined;
@@ -126,6 +135,18 @@ export class WindsurfAuth {
       );
     }
 
+    return this.signInWithFirebaseFallback(email, password, accountId, devinErr);
+  }
+
+  private async signInWithFirebaseFallback(
+    email: string,
+    password: string,
+    accountId?: string,
+    devinErr?: Error,
+  ): Promise<FirebaseAuthResult> {
+    const devinPrefix = devinErr
+      ? `Devin Auth 登录失败: ${devinErr.message}; `
+      : "";
     const url = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${this.firebaseApiKey}`;
     const body = JSON.stringify({
       email,
@@ -174,12 +195,12 @@ export class WindsurfAuth {
           error: String(err),
         });
         throw new Error(
-          `Devin Auth 登录失败: ${devinErr.message}; Firebase 登录失败: ${lastErr.message}`,
+          `${devinPrefix}Firebase 登录失败: ${lastErr.message}`,
         );
       }
     }
     throw new Error(
-      `Devin Auth 登录失败: ${devinErr.message}; Firebase 登录失败: ${lastErr?.message ?? "unknown"}`,
+      `${devinPrefix}Firebase 登录失败: ${lastErr?.message ?? "unknown"}`,
     );
   }
 

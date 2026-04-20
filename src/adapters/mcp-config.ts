@@ -57,6 +57,24 @@ export function mergeMcpConfig(existing: McpConfigFile | undefined, toolName: st
   return next;
 }
 
+export function pruneMcpConfig(
+  existing: McpConfigFile | undefined,
+  toolNames: string[],
+): { config: McpConfigFile; removed: string[] } {
+  const config: McpConfigFile = existing ?? { mcpServers: {} };
+  config.mcpServers ??= {};
+  const removed: string[] = [];
+
+  for (const toolName of new Set(toolNames)) {
+    if (config.mcpServers[toolName]) {
+      delete config.mcpServers[toolName];
+      removed.push(toolName);
+    }
+  }
+
+  return { config, removed };
+}
+
 /** Remove a tool entry from MCP config (used for cleanup of session-scoped secondary instances). */
 export async function removeMcpConfigEntry(target: IdeTarget, toolName: string): Promise<void> {
   try {
@@ -69,6 +87,26 @@ export async function removeMcpConfigEntry(target: IdeTarget, toolName: string):
   } catch {
     // Config file doesn't exist or is unreadable — nothing to clean up
   }
+}
+
+export async function removeMcpConfigEntries(target: IdeTarget, toolNames: string[]): Promise<string[]> {
+  const removed: string[] = [];
+  if (toolNames.length === 0) return removed;
+
+  try {
+    const raw = await fs.readFile(target.configPath, 'utf8');
+    const parsed = JSON.parse(raw) as McpConfigFile;
+    const { config, removed: pruned } = pruneMcpConfig(parsed, toolNames);
+    removed.push(...pruned);
+
+    if (pruned.length > 0) {
+      await fs.writeFile(target.configPath, JSON.stringify(config, null, 2), 'utf8');
+    }
+  } catch {
+    // Config file doesn't exist or is unreadable — nothing to clean up
+  }
+
+  return removed;
 }
 
 export async function writeMcpConfig(target: IdeTarget, toolName: string, url: string): Promise<string> {

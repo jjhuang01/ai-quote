@@ -5,11 +5,12 @@ import type { DialogCallback } from "./core/bridge";
 import { getExtensionConfig } from "./core/config";
 import { QuoteLogger } from "./core/logger";
 import { DataManager } from "./core/data-manager";
-import { detectCurrentIde, writeMcpConfig, removeMcpConfigEntry, ensureMcpConfigEntry } from "./adapters/mcp-config";
+import { detectCurrentIde, writeMcpConfig, ensureMcpConfigEntry } from "./adapters/mcp-config";
 import { QuoteSidebarProvider } from "./webview/provider";
 import { QuoteDialogPanel } from "./webview/dialog-panel";
 import { loadOrCreateToolName, rotateToolName } from "./utils/tool-name";
 import { configureGlobalRules } from "./adapters/rules";
+import { removeMcpConfigEntries } from "./adapters/mcp-config";
 // windsurf-patch 仅供 provider.ts 调试面板查询状态，此文件不再需要
 
 let statusBarItem: vscode.StatusBarItem | undefined;
@@ -18,12 +19,25 @@ let bridge: QuoteBridge | undefined;
 let dataManager: DataManager | undefined;
 let activeToolName: string | undefined;
 let secondaryInstance = false;
+let extensionContext: vscode.ExtensionContext | undefined;
+const OWNED_MCP_NAMES_KEY = 'ownedMcpNames';
 
 function sanitizeAccount(account: WindsurfAccount): Omit<WindsurfAccount, "password"> & { password: string } {
   return {
     ...account,
     password: account.password ? "***" : "",
   };
+}
+
+function getOwnedMcpNames(context: vscode.ExtensionContext): string[] {
+  const value = context.globalState.get<string[]>(OWNED_MCP_NAMES_KEY, []);
+  return Array.isArray(value) ? value.filter((name) => typeof name === 'string' && name.length > 0) : [];
+}
+
+async function rememberOwnedMcpName(context: vscode.ExtensionContext, name: string): Promise<void> {
+  const owned = new Set(getOwnedMcpNames(context));
+  owned.add(name);
+  await context.globalState.update(OWNED_MCP_NAMES_KEY, [...owned]);
 }
 
 async function refreshQuotaAfterSwitch(accountId: string, reason: string): Promise<void> {
@@ -72,10 +86,12 @@ async function updateStatusBar(): Promise<void> {
 export async function activate(
   context: vscode.ExtensionContext,
 ): Promise<void> {
+  extensionContext = context;
   logger = new QuoteLogger(context);
   const config = getExtensionConfig();
   const currentIde = detectCurrentIde();
   let toolName = await loadOrCreateToolName(context.globalStorageUri.fsPath);
+  await rememberOwnedMcpName(context, toolName);
 
   dataManager = DataManager.getInstance(context, logger);
   await dataManager.initialize();
@@ -159,6 +175,7 @@ export async function activate(
     const { generateToolName } = await import('./utils/tool-name');
     toolName = generateToolName();
     bridge.updateToolName(toolName);
+    await rememberOwnedMcpName(context, toolName);
     logger.info('Secondary instance detected — using session-scoped toolName.', {
       primaryPort: config.serverPort,
       runningPort,
@@ -183,6 +200,7 @@ export async function activate(
     toolName = newName;
     bridge.updateToolName(newName);
     activeToolName = newName;
+    await rememberOwnedMcpName(context, newName);
     const sseUrl = `http://127.0.0.1:${bridge.getPort()}/sse`;
     try {
       await writeMcpConfig(detectCurrentIde(), newName, sseUrl);
@@ -225,6 +243,7 @@ export async function activate(
     const configuredPaths: string[] = [];
     try {
       const mcpPath = await writeMcpConfig(currentIde, toolName, sseUrl);
+      await rememberOwnedMcpName(context, toolName);
       configuredPaths.push(mcpPath);
       logger.info('MCP config written.', { mcpPath });
     } catch (err) {
@@ -495,28 +514,39 @@ async function completePendingSwitch(
 
 export async function deactivate(): Promise<void> {
   // Clean up this window's MCP config entry and workspace rules.
-  if (activeToolName) {
-    try {
-      const ide = detectCurrentIde();
-      await removeMcpConfigEntry(ide, activeToolName);
-      // Remove workspace rules only if they reference OUR toolName (not another window's)
-      const fs = await import('node:fs/promises');
-      const path = await import('node:path');
-      const wsFolder = vscode.workspace.workspaceFolders?.[0];
-      if (wsFolder) {
-        for (const rulesFile of ['.windsurfrules', 'AI_FEEDBACK_RULES.md']) {
-          const rulesPath = path.join(wsFolder.uri.fsPath, rulesFile);
-          const content = await fs.readFile(rulesPath, 'utf8').catch(() => '');
-          if (content.includes(activeToolName)) {
-            await fs.unlink(rulesPath).catch(() => {});
-          }
+  try {
+    const context = extensionContext;
+    const ide = detectCurrentIde();
+    const ownedNames = context ? getOwnedMcpNames(context) : [];
+    const namesToClean = new Set<string>(ownedNames);
+    if (activeToolName) {
+      namesToClean.add(activeToolName);
+    }
+    if (namesToClean.size > 0) {
+      await removeMcpConfigEntries(ide, [...namesToClean]);
+    }
+    // Remove workspace rules only if they reference OUR toolName (not another window's)
+    const fs = await import('node:fs/promises');
+    const path = await import('node:path');
+    const wsFolder = vscode.workspace.workspaceFolders?.[0];
+    if (wsFolder && activeToolName) {
+      for (const rulesFile of ['.windsurfrules', 'AI_FEEDBACK_RULES.md']) {
+        const rulesPath = path.join(wsFolder.uri.fsPath, rulesFile);
+        const content = await fs.readFile(rulesPath, 'utf8').catch(() => '');
+        if (content.includes(activeToolName)) {
+          await fs.unlink(rulesPath).catch(() => {});
         }
       }
-      logger?.info('Deactivate cleanup done.', { activeToolName, secondaryInstance });
-    } catch (err) {
-      logger?.warn('Deactivate cleanup failed (non-fatal).', { error: String(err) });
     }
+    logger?.info('Deactivate cleanup done.', {
+      activeToolName,
+      secondaryInstance,
+      ownedMcpNames: [...namesToClean],
+    });
+  } catch (err) {
+    logger?.warn('Deactivate cleanup failed (non-fatal).', { error: String(err) });
   }
+  extensionContext = undefined;
   dataManager?.endSession();
   dataManager?.dispose();
   DataManager.resetInstance();
