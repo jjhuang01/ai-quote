@@ -1,9 +1,36 @@
 import * as vscode from 'vscode';
 
+export type SwitchWarmupMode = 'off' | 'quota-only';
+
 export interface QuoteConfig {
   serverPort: number;
   autoConfigureRules: boolean;
   dialogTimeoutSeconds: number;
+  switchWarmupMode: SwitchWarmupMode;
+}
+
+function normalizeSwitchWarmupMode(value: string | undefined): SwitchWarmupMode {
+  return value === 'off' ? 'off' : 'quota-only';
+}
+
+export function getSwitchWarmupMode(): SwitchWarmupMode {
+  const config = vscode.workspace.getConfiguration('quote');
+  return normalizeSwitchWarmupMode(
+    config.get<string>('switchWarmupMode', 'quota-only')
+  );
+}
+
+export function isSwitchWarmupEnabled(mode = getSwitchWarmupMode()): boolean {
+  return mode === 'quota-only';
+}
+
+export function getSwitchWarmupSuccessMessage(
+  email: string,
+  mode = getSwitchWarmupMode()
+): string {
+  return isSwitchWarmupEnabled(mode)
+    ? `已切换到 ${email}，正在预热新账号并刷新配额`
+    : `已切换到 ${email}`;
 }
 
 export function getExtensionConfig(): QuoteConfig {
@@ -11,6 +38,7 @@ export function getExtensionConfig(): QuoteConfig {
   return {
     serverPort: config.get<number>('serverPort', 3456),
     autoConfigureRules: config.get<boolean>('autoConfigureRules', true),
-    dialogTimeoutSeconds: config.get<number>('dialogTimeoutSeconds', 0)
+    dialogTimeoutSeconds: config.get<number>('dialogTimeoutSeconds', 0),
+    switchWarmupMode: getSwitchWarmupMode()
   };
 }

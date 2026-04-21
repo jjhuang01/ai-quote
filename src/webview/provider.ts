@@ -1,6 +1,11 @@
 import * as vscode from 'vscode';
 import type { QuoteBridge } from '../core/bridge';
 import type { QuoteLogger } from '../core/logger';
+import {
+  getSwitchWarmupMode,
+  getSwitchWarmupSuccessMessage,
+  isSwitchWarmupEnabled,
+} from '../core/config';
 import type { DataManager } from '../core/data-manager';
 import type { WebviewBootstrap } from '../core/contracts';
 import { buildWebviewHtml } from './view-html';
@@ -468,13 +473,16 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
             void this.view?.webview.postMessage({ type: 'switchLoading', value: false });
             // 切号成功后立刻同步 currentAccountId；真实配额后台完成后再二次同步。
             await this.postAccountsSync({ preferFastCurrentId: true });
-            const msg = `已切换到 ${account.email}，正在预热新账号并刷新配额`;
+            const warmupMode = getSwitchWarmupMode();
+            const msg = getSwitchWarmupSuccessMessage(account.email, warmupMode);
             void this.view?.webview.postMessage({ type: 'switchResult', value: { success: true, message: msg } });
             vscode.window.setStatusBarMessage(`$(check) ${msg}`, 4000);
-            this.runQuotaFetchInBackground({
-              accountId: value,
-              reason: 'switch-warmup',
-            });
+            if (isSwitchWarmupEnabled(warmupMode)) {
+              this.runQuotaFetchInBackground({
+                accountId: value,
+                reason: 'switch-warmup',
+              });
+            }
           } else {
             void this.view?.webview.postMessage({ type: 'switchLoading', value: false });
             const errMsg = switchResult.error ?? '切换失败：未知错误';

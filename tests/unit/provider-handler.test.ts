@@ -13,7 +13,15 @@ vi.mock('vscode', () => ({
   },
   workspace: {
     workspaceFolders: [{ uri: { fsPath: '/tmp/test-workspace' } }],
-    isTrusted: true
+    isTrusted: true,
+    getConfiguration: vi.fn(() => ({
+      get: vi.fn((key: string, defaultValue: unknown) => {
+        if (key === 'switchWarmupMode') {
+          return 'quota-only';
+        }
+        return defaultValue;
+      })
+    }))
   }
 }));
 
@@ -195,6 +203,14 @@ describe('QuoteSidebarProvider - handleMessage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(vscode.workspace.getConfiguration as any).mockReturnValue({
+      get: vi.fn((key: string, defaultValue: unknown) => {
+        if (key === 'switchWarmupMode') {
+          return 'quota-only';
+        }
+        return defaultValue;
+      })
+    });
     ctx = setupProvider();
   });
 
@@ -526,6 +542,27 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       const quotaResult = calls.find((m: any) => m.type === 'quotaFetchResult');
       expect(quotaResult?.value?.success).toBe(false);
       expect(quotaResult?.value?.error).toContain('quota boom');
+    });
+
+    it('预热模式关闭时仅切号，不触发后台配额刷新', async () => {
+      vi.mocked(vscode.workspace.getConfiguration as any).mockReturnValue({
+        get: vi.fn((key: string, defaultValue: unknown) => {
+          if (key === 'switchWarmupMode') {
+            return 'off';
+          }
+          return defaultValue;
+        })
+      });
+      ctx.postMessage.mockClear();
+
+      await ctx.send({ type: 'accountSwitch', value: 'ws_1' });
+      await Promise.resolve();
+
+      expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).not.toHaveBeenCalled();
+      const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      const switchResult = calls.find((m: any) => m.type === 'switchResult');
+      expect(switchResult?.value?.message).toBe('已切换到 test@example.com');
+      expect(calls.some((m: any) => m.type === 'quotaFetchStarted')).toBe(false);
     });
 
     it('切换失败时返回失败消息', async () => {

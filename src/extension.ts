@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import type { WindsurfAccount } from "./core/contracts";
 import { QuoteBridge } from "./core/bridge";
 import type { DialogCallback } from "./core/bridge";
-import { getExtensionConfig } from "./core/config";
+import { getExtensionConfig, isSwitchWarmupEnabled } from "./core/config";
 import { QuoteLogger } from "./core/logger";
 import { DataManager } from "./core/data-manager";
 import { detectCurrentIde, writeMcpConfig, ensureMcpConfigEntry } from "./adapters/mcp-config";
@@ -42,6 +42,9 @@ async function rememberOwnedMcpName(context: vscode.ExtensionContext, name: stri
 
 async function refreshQuotaAfterSwitch(accountId: string, reason: string): Promise<void> {
   if (!dataManager) {
+    return;
+  }
+  if (!isSwitchWarmupEnabled()) {
     return;
   }
   try {

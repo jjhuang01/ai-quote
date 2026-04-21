@@ -3,7 +3,7 @@
   "displayName": "Quote",
   "icon": "resources/icon.png",
   "description": "VS Code extension: Windsurf account switcher with quota stats, MCP Bridge, and LLM dialog panel",
-  "version": "2.9.69",
+  "version": "2.9.70",
   "publisher": "opensource",
   "license": "MIT",
   "author": "EVILZIXIE",
@@ -110,6 +110,15 @@
           "default": 0,
           "minimum": 0,
           "description": "MCP 对话框超时秒数（0 = 不超时，无限等待用户回复）"
+        },
+        "quote.switchWarmupMode": {
+          "type": "string",
+          "enum": [
+            "quota-only",
+            "off"
+          ],
+          "default": "quota-only",
+          "markdownDescription": "切号成功后的预热策略。`quota-only` 会后台刷新目标账号配额，`off` 则只切号不做预热。"
         }
       }
     }
