@@ -79,8 +79,8 @@ export function deriveAccountUiState(
   const isUnavailable = !isExpired && (
     dailyExhaustedNoData ||
     weeklyExhaustedNoData ||
-    (typeof weeklyRemainingPercent === 'number' && weeklyRemainingPercent < 10) ||
-    (typeof dailyRemainingPercent === 'number' && dailyRemainingPercent < 10)
+    (typeof weeklyRemainingPercent === 'number' && weeklyRemainingPercent <= 0) ||
+    (typeof dailyRemainingPercent === 'number' && dailyRemainingPercent <= 0)
   );
 
   let sortBucket: AccountSortBucket = 'unknown';

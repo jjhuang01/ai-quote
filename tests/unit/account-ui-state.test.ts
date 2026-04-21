@@ -75,11 +75,11 @@ function makeSnapshot(accountId: string, real?: Partial<RealQuotaInfo>): QuotaSn
 }
 
 describe('deriveAccountUiState', () => {
-  it('marks account unavailable when weekly remaining is below 10', () => {
+  it('marks account unavailable when weekly remaining is exhausted', () => {
     const ui = deriveAccountUiState(
       makeAccount('a', 'a@test.com'),
       undefined,
-      makeSnapshot('a', { weeklyRemainingPercent: 9.9, dailyRemainingPercent: 60 })
+      makeSnapshot('a', { weeklyRemainingPercent: 0, dailyRemainingPercent: 60 })
     );
 
     expect(ui.isUnavailable).toBe(true);
@@ -87,22 +87,22 @@ describe('deriveAccountUiState', () => {
     expect(ui.sortBucket).toBe('unavailable');
   });
 
-  it('marks account unavailable when daily remaining is below 10', () => {
+  it('marks account unavailable when daily remaining is exhausted', () => {
     const ui = deriveAccountUiState(
       makeAccount('a', 'a@test.com'),
       undefined,
-      makeSnapshot('a', { dailyRemainingPercent: 9.9, weeklyRemainingPercent: 80 })
+      makeSnapshot('a', { dailyRemainingPercent: 0, weeklyRemainingPercent: 80 })
     );
 
     expect(ui.isUnavailable).toBe(true);
     expect(ui.availabilityLabel).toBe('不可用');
   });
 
-  it('does not mark account unavailable at exactly 10 percent', () => {
+  it('keeps low but remaining quota as available', () => {
     const ui = deriveAccountUiState(
       makeAccount('a', 'a@test.com'),
       undefined,
-      makeSnapshot('a', { dailyRemainingPercent: 10, weeklyRemainingPercent: 10 })
+      makeSnapshot('a', { dailyRemainingPercent: 5, weeklyRemainingPercent: 5 })
     );
 
     expect(ui.isUnavailable).toBe(false);
@@ -168,7 +168,7 @@ describe('deriveAccountUiState', () => {
     const ui = deriveAccountUiState(
       makeAccount('a', 'a@test.com'),
       'a',
-      makeSnapshot('a', { dailyRemainingPercent: 1, weeklyRemainingPercent: 50 })
+      makeSnapshot('a', { dailyRemainingPercent: 0, weeklyRemainingPercent: 50 })
     );
 
     expect(ui.isCurrent).toBe(true);
@@ -188,7 +188,7 @@ describe('compareAccountsByUiState', () => {
     const snapshotMap = new Map<string, QuotaSnapshot>([
       ['healthy', makeSnapshot('healthy', { dailyRemainingPercent: 80, weeklyRemainingPercent: 90 })],
       ['unknown', makeSnapshot('unknown')],
-      ['unavailable', makeSnapshot('unavailable', { dailyRemainingPercent: 8, weeklyRemainingPercent: 50 })],
+      ['unavailable', makeSnapshot('unavailable', { dailyRemainingPercent: 0, weeklyRemainingPercent: 50 })],
       ['expired', makeSnapshot('expired', { dailyRemainingPercent: 5, weeklyRemainingPercent: 5, planEndTimestamp: Date.now() - 1000 })],
     ]);
 
@@ -218,7 +218,7 @@ describe('getAvailableAccountCount', () => {
     const snapshotMap = new Map<string, QuotaSnapshot>([
       ['healthy', makeSnapshot('healthy', { dailyRemainingPercent: 70, weeklyRemainingPercent: 80 })],
       ['unknown', makeSnapshot('unknown')],
-      ['unavailable', makeSnapshot('unavailable', { weeklyRemainingPercent: 5, dailyRemainingPercent: 50 })],
+      ['unavailable', makeSnapshot('unavailable', { weeklyRemainingPercent: 0, dailyRemainingPercent: 50 })],
       ['expired', makeSnapshot('expired', { planEndTimestamp: Date.now() - 1000, dailyRemainingPercent: 50, weeklyRemainingPercent: 50 })],
     ]);
 
@@ -238,10 +238,10 @@ describe('ui-state integration helpers', () => {
       ['healthy', makeSnapshot('healthy', { dailyRemainingPercent: 90, weeklyRemainingPercent: 90 })],
     ]);
 
-    expect(getAvailableAccountCount(accounts, 'current', snapshotMap)).toBe(1);
+    expect(getAvailableAccountCount(accounts, 'current', snapshotMap)).toBe(2);
   });
 
-  it('derives unavailable label for current unavailable account without changing current bucket', () => {
+  it('keeps current low-quota account switchable without unavailable label', () => {
     const ui = deriveAccountUiState(
       makeAccount('current', 'current@test.com'),
       'current',
@@ -249,7 +249,8 @@ describe('ui-state integration helpers', () => {
     );
 
     expect(ui.sortBucket).toBe('current');
-    expect(ui.availabilityLabel).toBe('不可用');
+    expect(ui.isUnavailable).toBe(false);
+    expect(ui.availabilityLabel).toBeUndefined();
   });
 });
 
@@ -290,11 +291,11 @@ describe('getVirtualWindow', () => {
 });
 
 describe('semantic and virtual window coverage', () => {
-  it('never emits legacy exhausted label from unified ui state', () => {
+  it('marks exhausted quota as unavailable in unified ui state', () => {
     const ui = deriveAccountUiState(
       makeAccount('a', 'a@test.com'),
       undefined,
-      makeSnapshot('a', { dailyRemainingPercent: 5, weeklyRemainingPercent: 50 })
+      makeSnapshot('a', { dailyRemainingPercent: 0, weeklyRemainingPercent: 50 })
     );
 
     expect(ui.availabilityLabel).toBe('不可用');
