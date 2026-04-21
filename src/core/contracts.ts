@@ -203,6 +203,7 @@ export interface PluginSettings {
   soundAlert: 'none' | 'tada' | 'ding' | 'pop' | 'chime';
   // 配额获取
   firebaseApiKey: string;          // Codeium Firebase Web API Key (用于通道B)
+  debugRawResponses: boolean;      // 调试模式下记录脱敏原始响应
   // MCP 清理白名单：这些名称的 MCP 服务不会被清理工具移除
   mcpWhitelist: string[];
 }
@@ -220,8 +221,22 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   historyLimit: 30,
   soundAlert: 'tada',
   firebaseApiKey: '',
+  debugRawResponses: false,
   mcpWhitelist: ['qdrant', 'pencil', 'fetch', 'context7', 'playwright', 'repomix', 'toon']
 };
+
+export interface ImportSkipReasons {
+  invalidFormat: number;
+  invalidEmail: number;
+  missingPassword: number;
+  duplicate: number;
+}
+
+export interface ImportBatchResult {
+  added: number;
+  skipped: number;
+  skippedReasons: ImportSkipReasons;
+}
 
 // Shortcut (快捷短语)
 export interface ShortcutItem {

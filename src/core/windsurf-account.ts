@@ -11,6 +11,8 @@ import type {
   QuotaSnapshot,
   AccountQuota,
   RealQuotaInfo,
+  ImportBatchResult,
+  ImportSkipReasons,
 } from "./contracts";
 import { DEFAULT_AUTO_SWITCH, DEFAULT_QUOTA } from "./contracts";
 import type { LoggerLike } from "./logger";
@@ -24,6 +26,7 @@ const WINDSURF_COMMAND_DISCOVERY_TIMEOUT_MS = 3000;
 const WINDSURF_COMMAND_EXECUTION_TIMEOUT_MS = 15000;
 const WINDSURF_SWITCH_VERIFY_TIMEOUT_MS = 10000;
 const WINDSURF_SWITCH_VERIFY_INTERVAL_MS = 500;
+const RELAXED_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 
 async function withTimeout<T>(
   promise: PromiseLike<T>,
@@ -147,6 +150,10 @@ export class WindsurfAccountManager {
 
   public setFirebaseApiKey(key: string): void {
     this.auth.setApiKey(key);
+  }
+
+  public setDebugRawResponses(enabled: boolean): void {
+    this.quotaFetcher.setDebugRawResponses(enabled);
   }
 
   public async initialize(): Promise<void> {
@@ -298,6 +305,34 @@ export class WindsurfAccountManager {
     };
   }
 
+  private async probeRuntimeSwitch(
+    expectedEmail: string,
+  ): Promise<RuntimeSwitchVerification> {
+    const result = await this.quotaFetcher.fetchFromLocalProto();
+    if (!result.success) {
+      return {
+        verified: false,
+        error: result.error,
+      };
+    }
+
+    const runtimeEmail = result.userEmail?.trim().toLowerCase();
+    if (runtimeEmail === expectedEmail.toLowerCase()) {
+      return {
+        verified: true,
+        observedEmail: result.userEmail,
+      };
+    }
+
+    return {
+      verified: false,
+      observedEmail: result.userEmail,
+      error: runtimeEmail
+        ? `当前运行时账号仍是 ${result.userEmail}`
+        : "本地 proto 未返回当前账号邮箱",
+    };
+  }
+
   private async finalizePendingSwitchIfRuntimeMatches(
     expectedId: string,
     persist: boolean,
@@ -308,6 +343,49 @@ export class WindsurfAccountManager {
     }
     await this.finalizePendingSwitch(expectedId, persist);
     return true;
+  }
+
+  private async commitVerifiedSwitch(
+    id: string,
+    injectedApiKey?: string,
+  ): Promise<void> {
+    await this.revalidateBeforeWrite();
+    const target = this.accounts.find((account) => account.id === id);
+    if (!target) {
+      throw new Error("账号不存在");
+    }
+    this.accounts.forEach((account) => {
+      account.isActive = account.id === id;
+    });
+    this.currentAccountId = id;
+    this.pendingSwitchId = undefined;
+    if (injectedApiKey !== undefined) {
+      target.apiKey = injectedApiKey;
+    }
+    await this.save();
+  }
+
+  private async reconcileSwitchResultWithRuntime(options: {
+    id: string;
+    email: string;
+    fallbackError: string;
+    phase: string;
+    injectedApiKey?: string;
+  }): Promise<SwitchResult> {
+    const verification = await this.probeRuntimeSwitch(options.email);
+    if (!verification.verified) {
+      return { success: false, error: options.fallbackError };
+    }
+
+    await this.commitVerifiedSwitch(options.id, options.injectedApiKey);
+    this.logger.warn("Recovered switch result from runtime truth.", {
+      id: options.id,
+      email: options.email,
+      phase: options.phase,
+      observedEmail: verification.observedEmail,
+      fallbackError: options.fallbackError,
+    });
+    return { success: true };
   }
 
   private isQuotaResultAssignableToAccount(
@@ -510,10 +588,17 @@ export class WindsurfAccountManager {
 
   // --- CRUD ---
 
+  private isLikelyEmail(value: string): boolean {
+    return RELAXED_EMAIL_PATTERN.test(value);
+  }
+
   public async add(email: string, password: string): Promise<WindsurfAccount> {
     const reloaded = await this.revalidateBeforeWrite();
     if (reloaded) {
       throw new Error("账号状态已在其他窗口更新，请重试操作");
+    }
+    if (!this.isLikelyEmail(email)) {
+      throw new Error("账号格式无效，请输入合法邮箱");
     }
     const account: WindsurfAccount = {
       id: `ws_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
@@ -538,11 +623,14 @@ export class WindsurfAccountManager {
 
   public async importBatch(
     lines: string,
-  ): Promise<{ added: number; skipped: number }> {
+  ): Promise<ImportBatchResult> {
     const reloaded = await this.revalidateBeforeWrite();
     if (reloaded) {
       throw new Error("账号状态已在其他窗口更新，请重试操作");
     }
+    this.logger.info("Batch import started.", {
+      lineCount: lines.split("\n").length,
+    });
     const entries = lines
       .split("\n")
       .map((l) => l.trim())
@@ -554,6 +642,12 @@ export class WindsurfAccountManager {
 
     let added = 0;
     let skipped = 0;
+    const skippedReasons: ImportSkipReasons = {
+      invalidFormat: 0,
+      invalidEmail: 0,
+      missingPassword: 0,
+      duplicate: 0,
+    };
 
     for (const entry of entries) {
       // 分隔符优先级: 连续4+个连字符 > 冒号 > 空格
@@ -574,17 +668,30 @@ export class WindsurfAccountManager {
         const spaceIdx = entry.indexOf(" ");
         if (spaceIdx <= 0) {
           skipped++;
+          skippedReasons.invalidFormat += 1;
           continue;
         }
         email = entry.slice(0, spaceIdx).trim();
         password = entry.slice(spaceIdx + 1).trim();
       }
-      if (!email || !password) {
+      if (!email) {
         skipped++;
+        skippedReasons.invalidFormat += 1;
+        continue;
+      }
+      if (!this.isLikelyEmail(email)) {
+        skipped++;
+        skippedReasons.invalidEmail += 1;
+        continue;
+      }
+      if (!password) {
+        skipped++;
+        skippedReasons.missingPassword += 1;
         continue;
       }
       if (existingEmails.has(email)) {
         skipped++;
+        skippedReasons.duplicate += 1;
         continue;
       }
       existingEmails.add(email);
@@ -611,8 +718,8 @@ export class WindsurfAccountManager {
       await this.save();
     }
 
-    this.logger.info("Batch import done.", { added, skipped });
-    return { added, skipped };
+    this.logger.info("Batch import done.", { added, skipped, skippedReasons });
+    return { added, skipped, skippedReasons };
   }
 
   public async update(
@@ -683,6 +790,16 @@ export class WindsurfAccountManager {
     const account = this.accounts.find((a) => a.id === id);
     if (!account) return { success: false, error: "账号不存在" };
 
+    const runtimeAlreadyTarget = await this.probeRuntimeSwitch(account.email);
+    if (runtimeAlreadyTarget.verified) {
+      await this.commitVerifiedSwitch(id);
+      this.logger.info("Switch skipped because runtime already matches target account.", {
+        id,
+        email: account.email,
+      });
+      return { success: true };
+    }
+
     // ── 步骤1: 获取 Windsurf 可消费 auth token ────────────────────────────
     let idToken: string;
     try {
@@ -697,7 +814,12 @@ export class WindsurfAccountManager {
         provider: auth.provider ?? "firebase",
       });
     } catch (err) {
-      return { success: false, error: this.formatSwitchAuthFailure(err) };
+      return this.reconcileSwitchResultWithRuntime({
+        id,
+        email: account.email,
+        phase: "auth",
+        fallbackError: this.formatSwitchAuthFailure(err),
+      });
     }
 
     // ── 步骤2: 发现 Windsurf session 注入命令 ────────────────────────────
@@ -770,7 +892,12 @@ export class WindsurfAccountManager {
           this.logger.warn("Windsurf patched auth command returned error.", { error: result.error });
           injectedApiKey = undefined;
           if (!nativeAuthCmd) {
-            return { success: false, error: `Windsurf 认证失败: ${JSON.stringify(result.error)}` };
+            return this.reconcileSwitchResultWithRuntime({
+              id,
+              email: account.email,
+              phase: "patched-command",
+              fallbackError: `Windsurf 认证失败: ${JSON.stringify(result.error)}`,
+            });
           }
         } else {
           this.logger.info("Injected Windsurf session through patched command.", {
@@ -798,12 +925,23 @@ export class WindsurfAccountManager {
         );
         if (result?.error) {
           this.logger.warn("Windsurf auth command returned error.", { error: result.error });
-          return { success: false, error: `Windsurf 认证失败: ${JSON.stringify(result.error)}` };
+          return this.reconcileSwitchResultWithRuntime({
+            id,
+            email: account.email,
+            phase: "native-command",
+            fallbackError: `Windsurf 认证失败: ${JSON.stringify(result.error)}`,
+          });
         }
       }
     } catch (err) {
       if (!patchedAuthCmd || !nativeAuthCmd) {
-        return { success: false, error: `Session 注入失败: ${String(err)}` };
+        return this.reconcileSwitchResultWithRuntime({
+          id,
+          email: account.email,
+          phase: "session-injection",
+          fallbackError: `Session 注入失败: ${String(err)}`,
+          injectedApiKey,
+        });
       }
       this.logger.warn("Patched session injection failed, falling back to native auth command.", {
         error: String(err),
@@ -819,11 +957,22 @@ export class WindsurfAccountManager {
         );
         if (result?.error) {
           this.logger.warn("Windsurf auth command returned error.", { error: result.error });
-          return { success: false, error: `Windsurf 认证失败: ${JSON.stringify(result.error)}` };
+          return this.reconcileSwitchResultWithRuntime({
+            id,
+            email: account.email,
+            phase: "native-command-fallback",
+            fallbackError: `Windsurf 认证失败: ${JSON.stringify(result.error)}`,
+          });
         }
         injectedApiKey = undefined;
       } catch (fallbackErr) {
-        return { success: false, error: `Session 注入失败: ${String(err)}; fallback: ${String(fallbackErr)}` };
+        return this.reconcileSwitchResultWithRuntime({
+          id,
+          email: account.email,
+          phase: "native-command-fallback",
+          fallbackError: `Session 注入失败: ${String(err)}; fallback: ${String(fallbackErr)}`,
+          injectedApiKey,
+        });
       }
     }
 
@@ -845,13 +994,7 @@ export class WindsurfAccountManager {
     }
 
     // ── 步骤5: 更新内部状态 ──────────────────────────────────────────────
-    this.accounts.forEach((a) => {
-      a.isActive = a.id === id;
-    });
-    this.currentAccountId = id;
-    this.pendingSwitchId = undefined;
-    account.apiKey = injectedApiKey;
-    await this.save();
+    await this.commitVerifiedSwitch(id, injectedApiKey);
     this.logger.info("Switched to account.", {
       id,
       email: account.email,

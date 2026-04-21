@@ -99,7 +99,8 @@ function createMockDataManager() {
       recordPrompt: vi.fn(async () => {}),
       fetchRealQuota: vi.fn(async () => ({ success: true })),
       fetchAllRealQuotas: vi.fn(async () => ({ success: 2, failed: 0, errors: [] })),
-      setFirebaseApiKey: vi.fn()
+      setFirebaseApiKey: vi.fn(),
+      setDebugRawResponses: vi.fn(),
     },
     shortcuts: {
       getAll: vi.fn(() => []),
@@ -118,7 +119,10 @@ function createMockDataManager() {
     settings: {
       get: vi.fn(() => ({})),
       update: vi.fn(async (p: any) => p),
-      reset: vi.fn(async () => {})
+      reset: vi.fn(async () => ({
+        firebaseApiKey: '',
+        debugRawResponses: false,
+      }))
     },
     usageStats: {
       get: vi.fn(() => ({})),
@@ -738,6 +742,27 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       const importResult = calls.find((m: any) => m.type === 'importResult');
       expect(importResult?.value?.added).toBe(2);
       expect(importResult?.value?.skipped).toBe(1);
+    });
+  });
+
+  describe('settings', () => {
+    it('保存设置时同步 raw response debug 开关到额度模块', async () => {
+      ctx.dataManager.settings.update.mockResolvedValue({
+        firebaseApiKey: '',
+        debugRawResponses: true,
+      });
+
+      await ctx.send({
+        type: 'settingsUpdate',
+        payload: {
+          debugRawResponses: true,
+        },
+      });
+
+      expect(ctx.dataManager.settings.update).toHaveBeenCalledWith({
+        debugRawResponses: true,
+      });
+      expect(ctx.dataManager.windsurfAccounts.setDebugRawResponses).toHaveBeenCalledWith(true);
     });
   });
 

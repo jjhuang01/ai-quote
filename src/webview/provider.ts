@@ -567,14 +567,25 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
       case 'settingsUpdate':
         if (payload && typeof payload === 'object') {
           const updated = await this.dataManager.settings.update(payload as Record<string, unknown>);
-          if (updated.firebaseApiKey) {
+          if (updated.firebaseApiKey !== undefined) {
             this.dataManager.windsurfAccounts.setFirebaseApiKey(updated.firebaseApiKey);
           }
+          this.dataManager.windsurfAccounts.setDebugRawResponses?.(
+            Boolean(updated.debugRawResponses),
+          );
           this.postBootstrap();
         }
         return true;
       case 'settingsReset':
-        await this.dataManager.settings.reset();
+        {
+          const reset = await this.dataManager.settings.reset();
+          this.dataManager.windsurfAccounts.setFirebaseApiKey(
+            reset.firebaseApiKey,
+          );
+          this.dataManager.windsurfAccounts.setDebugRawResponses?.(
+            Boolean(reset.debugRawResponses),
+          );
+        }
         this.postBootstrap();
         void this.view?.webview.postMessage({ type: 'opResult', value: { message: '设置已恢复默认' } });
         return true;

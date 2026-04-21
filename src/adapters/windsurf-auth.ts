@@ -1,6 +1,7 @@
 import * as https from "node:https";
 import { spawn } from "node:child_process";
 import type { LoggerLike } from "../core/logger";
+import { redactSensitivePayload } from "../utils/redact-sensitive-payload";
 
 // Firebase Auth REST API
 // https://firebase.google.com/docs/reference/rest/auth
@@ -61,6 +62,7 @@ export class WindsurfAuth {
   // 可通过 settings 覆盖
   private firebaseApiKey: string;
   private readonly logger: LoggerLike;
+  private debugRawResponses = false;
 
   // Token 缓存: accountId → { idToken, refreshToken, expiresAt }
   private tokenCache = new Map<
@@ -89,6 +91,19 @@ export class WindsurfAuth {
 
   public getApiKey(): string {
     return this.firebaseApiKey;
+  }
+
+  public setDebugRawResponses(enabled: boolean): void {
+    this.debugRawResponses = enabled;
+  }
+
+  private logRawResponse(label: string, payload: unknown): void {
+    if (!this.debugRawResponses) {
+      return;
+    }
+    this.logger.debug(label, {
+      payload: redactSensitivePayload(payload),
+    });
   }
 
   /**
@@ -166,6 +181,11 @@ export class WindsurfAuth {
         if (!result.idToken) {
           throw new Error("Firebase returned empty idToken");
         }
+
+        this.logRawResponse("Firebase signIn raw response.", {
+          url,
+          response: result,
+        });
 
         // Cache token
         if (accountId) {
@@ -424,8 +444,18 @@ export class WindsurfAuth {
               if (res.statusCode && res.statusCode >= 400) {
                 const errMsg =
                   parsed?.error?.message ?? `HTTP ${res.statusCode}`;
+                this.logRawResponse("Remote form response failed.", {
+                  url: urlString,
+                  statusCode: res.statusCode,
+                  response: parsed,
+                });
                 reject(new Error(`请求失败: ${errMsg}`));
               } else {
+                this.logRawResponse("Remote form response received.", {
+                  url: urlString,
+                  statusCode: res.statusCode,
+                  response: parsed,
+                });
                 resolve(parsed as T);
               }
             } catch {
@@ -473,8 +503,18 @@ export class WindsurfAuth {
               if (res.statusCode && res.statusCode >= 400) {
                 const errMsg =
                   parsed?.error?.message ?? `HTTP ${res.statusCode}`;
+                this.logRawResponse("Remote JSON response failed.", {
+                  url: urlString,
+                  statusCode: res.statusCode,
+                  response: parsed,
+                });
                 reject(new Error(`请求失败: ${errMsg}`));
               } else {
+                this.logRawResponse("Remote JSON response received.", {
+                  url: urlString,
+                  statusCode: res.statusCode,
+                  response: parsed,
+                });
                 resolve(parsed as T);
               }
             } catch {
@@ -595,7 +635,12 @@ export class WindsurfAuth {
       "User-Agent: Mozilla/5.0",
     ]);
     try {
-      return JSON.parse(raw.toString("utf8")) as T;
+      const parsed = JSON.parse(raw.toString("utf8")) as T;
+      this.logRawResponse("Remote curl JSON response received.", {
+        url,
+        response: parsed,
+      });
+      return parsed;
     } catch {
       throw new Error(`curl 返回非 JSON: ${raw.toString("utf8").slice(0, 200)}`);
     }
@@ -708,12 +753,17 @@ export class WindsurfAuth {
               return;
             }
             const fields = this.decodeProtoStrings(raw);
-            resolve({
+            const response = {
               sessionToken: fields.get(1) ?? "",
               auth1Token: fields.get(3),
               accountId: fields.get(4),
               primaryOrgId: fields.get(5),
+            };
+            this.logRawResponse("WindsurfPostAuth raw response.", {
+              statusCode: res.statusCode,
+              response,
             });
+            resolve(response);
           });
         },
       );

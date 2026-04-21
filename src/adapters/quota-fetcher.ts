@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { WindsurfAuth } from './windsurf-auth';
 import type { LoggerLike } from '../core/logger';
+import { redactSensitivePayload } from '../utils/redact-sensitive-payload';
 
 // --- Windsurf Plan & Quota 真实数据结构 (从 cachedPlanInfo 逆向) ---
 
@@ -226,6 +227,7 @@ function _protoSub(fields: ProtoFields, n: number): ProtoFields | undefined {
 export class WindsurfQuotaFetcher {
   private readonly auth: WindsurfAuth;
   private readonly logger: LoggerLike;
+  private debugRawResponses = false;
 
   // 结果缓存: accountId → QuotaFetchResult (最多 100 条)
   private cache = new Map<string, QuotaFetchResult>();
@@ -238,12 +240,40 @@ export class WindsurfQuotaFetcher {
     this.logger = logger;
   }
 
+  public setDebugRawResponses(enabled: boolean): void {
+    this.debugRawResponses = enabled;
+    this.auth.setDebugRawResponses(enabled);
+  }
+
+  private logRawResponse(message: string, payload: unknown): void {
+    if (!this.debugRawResponses) {
+      return;
+    }
+    this.logger.debug(message, {
+      payload: redactSensitivePayload(payload),
+    });
+  }
+
   private cacheSet(accountId: string, result: QuotaFetchResult): void {
     if (this.cache.size >= this.cacheMaxSize && !this.cache.has(accountId)) {
       const oldest = this.cache.keys().next().value;
       if (oldest !== undefined) this.cache.delete(oldest);
     }
     this.cache.set(accountId, result);
+  }
+
+  private canUseTargetedLocalResult(
+    result: QuotaFetchResult,
+    expectedEmail?: string,
+  ): boolean {
+    if (!expectedEmail) {
+      return true;
+    }
+    if (result.source !== 'proto' && result.source !== 'apikey') {
+      return true;
+    }
+    const observedEmail = result.userEmail?.trim().toLowerCase();
+    return observedEmail === expectedEmail.toLowerCase();
   }
 
   /**
@@ -270,16 +300,30 @@ export class WindsurfQuotaFetcher {
     if (preferLocal !== false) {
       const protoResult = await this.fetchFromLocalProto(email);
       if (protoResult.success && protoResult.planInfo) {
-        this.cacheSet(accountId, protoResult);
-        return protoResult;
+        if (this.canUseTargetedLocalResult(protoResult, email)) {
+          this.cacheSet(accountId, protoResult);
+          return protoResult;
+        }
+        this.logger.warn('Skipping proto quota result without verifiable target email.', {
+          accountId,
+          expectedEmail: email,
+          observedEmail: protoResult.userEmail,
+        });
       }
     }
 
     // 通道 D: windsurfAuthStatus.apiKey → GetUserStatus (实时，无需 Firebase)
     const apikeyResult = await this.fetchFromLocalApiKey(email);
     if (apikeyResult.success && apikeyResult.planInfo) {
-      this.cacheSet(accountId, apikeyResult);
-      return apikeyResult;
+      if (this.canUseTargetedLocalResult(apikeyResult, email)) {
+        this.cacheSet(accountId, apikeyResult);
+        return apikeyResult;
+      }
+      this.logger.warn('Skipping apikey quota result without verifiable target email.', {
+        accountId,
+        expectedEmail: email,
+        observedEmail: apikeyResult.userEmail,
+      });
     }
 
     // 通道 A: 本地 cachedPlanInfo (快速，离线，但可能过期)
@@ -424,6 +468,11 @@ export class WindsurfQuotaFetcher {
       this.logger.info('Quota fetched via local proto (Channel E).', {
         email: userEmail, plan: planName, dailyRemaining: dailyRemainingPercent
       });
+      this.logRawResponse('Quota raw response via local proto.', {
+        source: 'proto',
+        userEmail,
+        planInfo,
+      });
 
       return {
         success: true,
@@ -488,6 +537,11 @@ export class WindsurfQuotaFetcher {
         email: userEmail,
         plan: planInfo.planName,
         dailyRemaining: planInfo.quotaUsage?.dailyRemainingPercent
+      });
+      this.logRawResponse('Quota raw response via GetUserStatus.', {
+        source: 'apikey',
+        userEmail,
+        planInfo,
       });
 
       return {
@@ -585,6 +639,10 @@ export class WindsurfQuotaFetcher {
           res.on('end', () => {
             try {
               const parsed = JSON.parse(chunks) as GetUserStatusResponse;
+              this.logRawResponse('GetUserStatus parsed payload.', {
+                statusCode: res.statusCode,
+                response: parsed,
+              });
               const us = parsed.userStatus;
               if (!us) { resolve(null); return; }
 
@@ -634,6 +692,10 @@ export class WindsurfQuotaFetcher {
               resolve({ planInfo, userEmail });
             } catch {
               this.logger.warn('GetUserStatus response not JSON.', { status: res.statusCode, body: chunks.slice(0, 200) });
+              this.logRawResponse('GetUserStatus non-JSON payload.', {
+                statusCode: res.statusCode,
+                body: chunks,
+              });
               resolve(null);
             }
           });
@@ -722,6 +784,10 @@ export class WindsurfQuotaFetcher {
         plan: planInfo.planName,
         dailyRemaining: planInfo.quotaUsage?.dailyRemainingPercent
       });
+      this.logRawResponse('Quota raw response via local cache.', {
+        source: 'local',
+        planInfo,
+      });
 
       return {
         success: true,
@@ -745,14 +811,17 @@ export class WindsurfQuotaFetcher {
    */
   public async fetchFromGetPlanStatus(accountId: string, email: string, password: string): Promise<QuotaFetchResult> {
     try {
-      const authResult = await this.auth.signIn(email, password, accountId, {
-        providerPreference: 'firebase',
-      });
+      const authResult = await this.auth.signIn(email, password, accountId);
       const planInfo = await this.callGetPlanStatus(authResult.idToken);
 
       if (planInfo) {
         this.logger.info('Quota fetched via GetPlanStatus (Channel B).', {
           email, plan: planInfo.planName, dailyRemaining: planInfo.quotaUsage?.dailyRemainingPercent
+        });
+        this.logRawResponse('Quota raw response via GetPlanStatus.', {
+          source: 'api',
+          email,
+          planInfo,
         });
         return { success: true, source: 'api', planInfo, userEmail: email, fetchedAt: new Date().toISOString() };
       }
@@ -794,10 +863,18 @@ export class WindsurfQuotaFetcher {
             try {
               if (res.statusCode && res.statusCode >= 400) {
                 this.logger.warn('GetPlanStatus HTTP error.', { status: res.statusCode, body: chunks.slice(0, 200) });
+                this.logRawResponse('GetPlanStatus HTTP error payload.', {
+                  statusCode: res.statusCode,
+                  body: chunks,
+                });
                 resolve(null);
                 return;
               }
               const parsed = JSON.parse(chunks) as GetPlanStatusResponse;
+              this.logRawResponse('GetPlanStatus parsed payload.', {
+                statusCode: res.statusCode,
+                response: parsed,
+              });
               const ps = parsed.planStatus;
               if (!ps) { resolve(null); return; }
 
@@ -853,6 +930,10 @@ export class WindsurfQuotaFetcher {
               } as WindsurfPlanInfo);
             } catch {
               this.logger.warn('GetPlanStatus response not JSON.', { status: res.statusCode, body: chunks.slice(0, 200) });
+              this.logRawResponse('GetPlanStatus non-JSON payload.', {
+                statusCode: res.statusCode,
+                body: chunks,
+              });
               resolve(null);
             }
           });

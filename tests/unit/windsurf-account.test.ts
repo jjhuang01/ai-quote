@@ -601,12 +601,20 @@ describe('WindsurfAccountManager', () => {
       await manager.initialize();
       await manager.add('a@test.com', 'p');
       const a2 = await manager.add('b@test.com', 'p');
-      (manager as any).quotaFetcher.fetchFromLocalProto = vi.fn(async () => ({
-        success: true,
-        source: 'proto',
-        userEmail: 'b@test.com',
-        fetchedAt: new Date().toISOString(),
-      }));
+      (manager as any).quotaFetcher.fetchFromLocalProto = vi
+        .fn()
+        .mockResolvedValueOnce({
+          success: true,
+          source: 'proto',
+          userEmail: 'a@test.com',
+          fetchedAt: new Date().toISOString(),
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          source: 'proto',
+          userEmail: 'b@test.com',
+          fetchedAt: new Date().toISOString(),
+        });
 
       const result = await manager.switchTo(a2.id);
 
@@ -708,6 +716,63 @@ describe('WindsurfAccountManager', () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain('账号或密码可能不正确');
       expect(result.error).not.toContain('重置机器 ID');
+    });
+
+    it('上游登录报错但运行时已是目标账号时，按真实运行时判定为切换成功', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a@test.com', 'p');
+      const a2 = await manager.add('b@test.com', 'p');
+      (manager as any).auth.signIn.mockRejectedValueOnce(
+        new Error('Firebase 登录失败: INVALID_LOGIN_CREDENTIALS'),
+      );
+      (manager as any).quotaFetcher.fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'b@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+
+      const result = await manager.switchTo(a2.id);
+
+      expect(result.success).toBe(true);
+      expect(manager.getCurrentAccountId()).toBe(a2.id);
+      expect(manager.getImmediateCurrentAccountId()).toBe(a2.id);
+      expect(manager.getById(a1.id)?.isActive).toBe(false);
+      expect(manager.getById(a2.id)?.isActive).toBe(true);
+    });
+
+    it('注入命令返回错误但运行时已切到目标账号时，按真实运行时判定为成功', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a@test.com', 'p');
+      const a2 = await manager.add('b@test.com', 'p');
+      (vscode.commands.getCommands as any).mockResolvedValue([
+        'windsurf.provideAuthTokenToAuthProvider',
+      ]);
+      (vscode.commands.executeCommand as any).mockResolvedValueOnce({
+        error: { message: 'native failed' },
+      });
+      (manager as any).quotaFetcher.fetchFromLocalProto = vi
+        .fn()
+        .mockResolvedValueOnce({
+          success: true,
+          source: 'proto',
+          userEmail: 'a@test.com',
+          fetchedAt: new Date().toISOString(),
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          source: 'proto',
+          userEmail: 'b@test.com',
+          fetchedAt: new Date().toISOString(),
+        });
+
+      const result = await manager.switchTo(a2.id);
+
+      expect(result.success).toBe(true);
+      expect(manager.getCurrentAccountId()).toBe(a2.id);
+      expect(manager.getImmediateCurrentAccountId()).toBe(a2.id);
+      expect(manager.getById(a1.id)?.isActive).toBe(false);
+      expect(manager.getById(a2.id)?.isActive).toBe(true);
     });
 
     it('fetchRealQuota 拒绝把 proto 额度写到不匹配的目标账号', async () => {
@@ -813,6 +878,7 @@ describe('WindsurfAccountManager', () => {
       const result = await manager.importBatch('a@test.com----p1\na@test.com----p2');
       expect(result.added).toBe(1);
       expect(result.skipped).toBe(1);
+      expect(result.skippedReasons.duplicate).toBe(1);
     });
 
     it('导入0条有效数据不触发 save', async () => {
@@ -824,6 +890,32 @@ describe('WindsurfAccountManager', () => {
       const writeCalls = (fs.writeFile as any).mock.calls;
       // 初始化后无额外 writeFile 调用（importBatch 跳过 save）
       expect(writeCalls.length).toBe(0);
+    });
+
+    it('导入会跳过说明文字和无效邮箱，并记录原因', async () => {
+      await manager.initialize();
+      const result = await manager.importBatch([
+        '以下是可导入账号',
+        'not-an-email----pass',
+        'valid@test.com----pass',
+      ].join('\n'));
+
+      expect(result.added).toBe(1);
+      expect(result.skipped).toBe(2);
+      expect(result.skippedReasons.invalidFormat).toBe(1);
+      expect(result.skippedReasons.invalidEmail).toBe(1);
+      expect(manager.getAll()[0].email).toBe('valid@test.com');
+    });
+
+    it('导入支持较宽松但合法的邮箱格式', async () => {
+      await manager.initialize();
+      const result = await manager.importBatch(
+        "very.unusual+tag/box.o'hara@example.travel----pass",
+      );
+
+      expect(result.added).toBe(1);
+      expect(result.skipped).toBe(0);
+      expect(manager.getAll()[0].email).toBe("very.unusual+tag/box.o'hara@example.travel");
     });
   });
 

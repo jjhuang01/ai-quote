@@ -81,6 +81,9 @@ export class DataManager {
     if (savedSettings.firebaseApiKey) {
       this.windsurfAccounts.setFirebaseApiKey(savedSettings.firebaseApiKey);
     }
+    this.windsurfAccounts.setDebugRawResponses(
+      Boolean(savedSettings.debugRawResponses),
+    );
     this.startSession();
     this.logger.info('DataManager initialized.');
   }
