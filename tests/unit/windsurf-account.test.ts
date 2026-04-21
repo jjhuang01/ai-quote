@@ -117,6 +117,18 @@ describe('WindsurfAccountManager', () => {
     (fs.writeFile as any).mockResolvedValue(undefined);
     (fs.mkdir as any).mockResolvedValue(undefined);
     manager = new WindsurfAccountManager(mockContext, mockLogger);
+    (manager as any).quotaFetcher.fetchCurrentRuntimeUserFromAuthStatus = vi.fn(async () => ({
+      success: false,
+      source: 'authstatus',
+      error: 'windsurfAuthStatus 未返回当前登录邮箱',
+      fetchedAt: new Date().toISOString(),
+    }));
+    (manager as any).quotaFetcher.fetchFromLocalApiKey = vi.fn(async () => ({
+      success: false,
+      source: 'apikey',
+      error: 'GetUserStatus 返回空数据',
+      fetchedAt: new Date().toISOString(),
+    }));
   });
 
   describe('initialize + CRUD', () => {
@@ -686,6 +698,106 @@ describe('WindsurfAccountManager', () => {
       expect(result.error).toContain('切换后校验失败');
       expect(manager.getCurrentAccountId()).toBe(a1.id);
       expect(manager.getImmediateCurrentAccountId()).toBe(a1.id);
+    });
+
+    it('切换后若 proto 仍是旧账号但 apikey 已切到目标账号，则按真实运行时判定为成功', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a@test.com', 'p');
+      const a2 = await manager.add('b@test.com', 'p');
+
+      (manager as any).quotaFetcher.fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      (manager as any).quotaFetcher.fetchFromLocalApiKey = vi
+        .fn()
+        .mockResolvedValueOnce({
+          success: true,
+          source: 'apikey',
+          userEmail: 'a@test.com',
+          fetchedAt: new Date().toISOString(),
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          source: 'apikey',
+          userEmail: 'b@test.com',
+          fetchedAt: new Date().toISOString(),
+        });
+
+      const result = await manager.switchTo(a2.id);
+
+      expect(result.success).toBe(true);
+      expect(manager.getCurrentAccountId()).toBe(a2.id);
+      expect(manager.getImmediateCurrentAccountId()).toBe(a2.id);
+      expect(manager.getById(a1.id)?.isActive).toBe(false);
+      expect(manager.getById(a2.id)?.isActive).toBe(true);
+    });
+
+    it('切换后若 proto 仍是旧账号但 authstatus 已切到目标账号，则按当前认证态判定为成功', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a@test.com', 'p');
+      const a2 = await manager.add('b@test.com', 'p');
+
+      (manager as any).quotaFetcher.fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      (manager as any).quotaFetcher.fetchCurrentRuntimeUserFromAuthStatus = vi
+        .fn()
+        .mockResolvedValueOnce({
+          success: false,
+          source: 'authstatus',
+          userEmail: 'a@test.com',
+          error: '当前 Windsurf 登录用户 (a@test.com) 与目标账号 (b@test.com) 不匹配',
+          fetchedAt: new Date().toISOString(),
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          source: 'authstatus',
+          userEmail: 'b@test.com',
+          fetchedAt: new Date().toISOString(),
+        });
+
+      const result = await manager.switchTo(a2.id);
+
+      expect(result.success).toBe(true);
+      expect(manager.getCurrentAccountId()).toBe(a2.id);
+      expect(manager.getImmediateCurrentAccountId()).toBe(a2.id);
+      expect(manager.getById(a1.id)?.isActive).toBe(false);
+      expect(manager.getById(a2.id)?.isActive).toBe(true);
+    });
+
+    it('切换失败时优先报告 authstatus 观察到的旧账号，避免被旧 proto 误导', async () => {
+      vi.useFakeTimers();
+      await manager.initialize();
+      await manager.add('a@test.com', 'p');
+      const a2 = await manager.add('b@test.com', 'p');
+
+      (manager as any).quotaFetcher.fetchCurrentRuntimeUserFromAuthStatus = vi.fn(async () => ({
+        success: false,
+        source: 'authstatus',
+        userEmail: 'a@test.com',
+        error: '当前 Windsurf 登录用户 (a@test.com) 与目标账号 (b@test.com) 不匹配',
+        fetchedAt: new Date().toISOString(),
+      }));
+      (manager as any).quotaFetcher.fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'legacy@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+
+      const resultPromise = manager.switchTo(a2.id);
+      await vi.advanceTimersByTimeAsync(11_000);
+      const result = await resultPromise;
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('来源 authstatus 当前运行时账号仍是 a@test.com');
+      expect(result.error).not.toContain('legacy@test.com');
     });
 
     it('Firebase 设备限流时提示可尝试重置机器 ID', async () => {

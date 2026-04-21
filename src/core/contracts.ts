@@ -353,7 +353,7 @@ export interface RealQuotaInfo {
   overageBalanceMicros: number;
   planEndTimestamp?: number;       // unix ms (from planEnd ISO), 0 = unknown
   fetchedAt: string;               // ISO
-  source: 'local' | 'api' | 'apikey' | 'cache' | 'proto';
+  source: 'local' | 'api' | 'apikey' | 'cache' | 'proto' | 'authstatus';
 }
 
 // Webview state (前端状态)

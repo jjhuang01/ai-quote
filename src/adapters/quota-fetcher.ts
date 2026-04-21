@@ -6,6 +6,18 @@ import { WindsurfAuth } from './windsurf-auth';
 import type { LoggerLike } from '../core/logger';
 import { redactSensitivePayload } from '../utils/redact-sensitive-payload';
 
+const RELAXED_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+
+function pickLikelyEmail(...candidates: Array<string | undefined>): string | undefined {
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim();
+    if (trimmed && RELAXED_EMAIL_PATTERN.test(trimmed)) {
+      return trimmed;
+    }
+  }
+  return undefined;
+}
+
 // --- Windsurf Plan & Quota 真实数据结构 (从 cachedPlanInfo 逆向) ---
 
 export interface WindsurfPlanInfo {
@@ -38,7 +50,7 @@ export interface WindsurfPlanInfo {
 
 export interface QuotaFetchResult {
   success: boolean;
-  source: 'local' | 'api' | 'apikey' | 'cache' | 'proto';
+  source: 'local' | 'api' | 'apikey' | 'cache' | 'proto' | 'authstatus';
   planInfo?: WindsurfPlanInfo;
   userEmail?: string;     // 来自 GetUserStatus 响应（当前登录用户邮箱）
   error?: string;
@@ -371,28 +383,8 @@ export class WindsurfQuotaFetcher {
    */
   public async fetchFromLocalProto(expectedEmail?: string): Promise<QuotaFetchResult> {
     try {
-      const dbPath = this.getWindsurfStatePath();
-      if (!dbPath) return { success: false, source: 'proto', error: 'Windsurf DB 未找到', fetchedAt: new Date().toISOString() };
-
-      try { await fs.access(dbPath); } catch {
-        return { success: false, source: 'proto', error: `DB 文件不存在: ${dbPath}`, fetchedAt: new Date().toISOString() };
-      }
-
-      const tmpDb = path.join(os.tmpdir(), `ws_proto_${Date.now()}.db`);
-      try { await fs.copyFile(dbPath, tmpDb); } catch {
-        return { success: false, source: 'proto', error: 'DB 文件复制失败', fetchedAt: new Date().toISOString() };
-      }
-
-      let raw: string;
-      try {
-        raw = await querySqlite(tmpDb, "SELECT value FROM ItemTable WHERE key='windsurfAuthStatus';");
-      } finally {
-        await fs.unlink(tmpDb).catch(() => undefined);
-      }
-
-      if (!raw) return { success: false, source: 'proto', error: 'windsurfAuthStatus 为空', fetchedAt: new Date().toISOString() };
-
-      const status = JSON.parse(raw) as WindsurfAuthStatus;
+      const status = await this.readWindsurfAuthStatus();
+      if (!status) return { success: false, source: 'proto', error: 'windsurfAuthStatus 为空', fetchedAt: new Date().toISOString() };
       const b64 = status.userStatusProtoBinaryBase64;
       if (!b64) return { success: false, source: 'proto', error: 'userStatusProtoBinaryBase64 字段不存在', fetchedAt: new Date().toISOString() };
 
@@ -400,7 +392,7 @@ export class WindsurfQuotaFetcher {
       const outer = _decodeProto(buf);
 
       // outer[7] = userEmail, outer[3] = displayName
-      const userEmail = _protoStr(outer, 7) ?? _protoStr(outer, 3);
+      const userEmail = pickLikelyEmail(_protoStr(outer, 7), _protoStr(outer, 3));
 
       if (expectedEmail && userEmail && userEmail.toLowerCase() !== expectedEmail.toLowerCase()) {
         return {
@@ -487,6 +479,58 @@ export class WindsurfQuotaFetcher {
   }
 
   /**
+   * 直接读取 windsurfAuthStatus.userEmail。
+   * 该值比 proto 更接近当前认证态，适合用于切换后的最终归属校验。
+   */
+  public async fetchCurrentRuntimeUserFromAuthStatus(expectedEmail?: string): Promise<QuotaFetchResult> {
+    try {
+      const status = await this.readWindsurfAuthStatus();
+      if (!status) {
+        return {
+          success: false,
+          source: 'authstatus',
+          error: 'windsurfAuthStatus 为空',
+          fetchedAt: new Date().toISOString(),
+        };
+      }
+
+      const userEmail = pickLikelyEmail(status.userEmail, status.userName);
+      if (!userEmail) {
+        return {
+          success: false,
+          source: 'authstatus',
+          error: 'windsurfAuthStatus 未返回当前登录邮箱',
+          fetchedAt: new Date().toISOString(),
+        };
+      }
+
+      if (expectedEmail && userEmail.toLowerCase() !== expectedEmail.toLowerCase()) {
+        return {
+          success: false,
+          source: 'authstatus',
+          userEmail,
+          error: `当前 Windsurf 登录用户 (${userEmail}) 与目标账号 (${expectedEmail}) 不匹配`,
+          fetchedAt: new Date().toISOString(),
+        };
+      }
+
+      return {
+        success: true,
+        source: 'authstatus',
+        userEmail,
+        fetchedAt: new Date().toISOString(),
+      };
+    } catch (err) {
+      return {
+        success: false,
+        source: 'authstatus',
+        error: String(err),
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+  }
+
+  /**
    * 通道 D: 读取 windsurfAuthStatus.apiKey，调用 GetUserStatus 获取实时配额
    * @param expectedEmail 可选，用于验证返回的用户邮箱是否匹配
    */
@@ -565,29 +609,9 @@ export class WindsurfQuotaFetcher {
    * 读取 Windsurf 本地 state.vscdb 中 windsurfAuthStatus 的 apiKey
    */
   private async readWindsurfApiKey(): Promise<string | null> {
-    const dbPath = this.getWindsurfStatePath();
-    if (!dbPath) return null;
-
     try {
-      await fs.access(dbPath);
-    } catch {
-      this.logger.debug('readWindsurfApiKey: DB file not accessible.', { dbPath });
-      return null;
-    }
-
-    const tmpDb = path.join(os.tmpdir(), `ws_state_${Date.now()}.db`);
-    try {
-      await fs.copyFile(dbPath, tmpDb);
-    } catch {
-      this.logger.debug('readWindsurfApiKey: DB file copy failed.', { dbPath });
-      return null;
-    }
-
-    try {
-      const raw = await querySqlite(tmpDb, "SELECT value FROM ItemTable WHERE key='windsurfAuthStatus';");
-
-      if (!raw) return null;
-      const status = JSON.parse(raw) as WindsurfAuthStatus;
+      const status = await this.readWindsurfAuthStatus();
+      if (!status) return null;
       const key = status.apiKey ?? null;
       // sk-ws-01- 是会话 token，无法直接调用 gRPC API（返回 200 空响应）
       // 只有旧格式 key 才可用于 GetUserStatus
@@ -599,6 +623,32 @@ export class WindsurfQuotaFetcher {
     } catch (err) {
       this.logger.debug('readWindsurfApiKey: SQLite query failed.', { error: String(err) });
       return null;
+    }
+  }
+
+  private async readWindsurfAuthStatus(): Promise<WindsurfAuthStatus | null> {
+    const dbPath = this.getWindsurfStatePath();
+    if (!dbPath) return null;
+
+    try {
+      await fs.access(dbPath);
+    } catch {
+      this.logger.debug('readWindsurfAuthStatus: DB file not accessible.', { dbPath });
+      return null;
+    }
+
+    const tmpDb = path.join(os.tmpdir(), `ws_state_${Date.now()}.db`);
+    try {
+      await fs.copyFile(dbPath, tmpDb);
+    } catch {
+      this.logger.debug('readWindsurfAuthStatus: DB file copy failed.', { dbPath });
+      return null;
+    }
+
+    try {
+      const raw = await querySqlite(tmpDb, "SELECT value FROM ItemTable WHERE key='windsurfAuthStatus';");
+      if (!raw) return null;
+      return JSON.parse(raw) as WindsurfAuthStatus;
     } finally {
       await fs.unlink(tmpDb).catch(() => undefined);
     }
