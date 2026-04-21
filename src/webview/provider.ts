@@ -134,7 +134,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async buildAccountsPayload(options?: { preferFastCurrentId?: boolean }): Promise<Pick<WebviewBootstrap, 'accounts' | 'currentAccountId' | 'autoSwitch' | 'quotaSnapshots' | 'quotaFetching' | 'lastAutoSwitchResult'>> {
+  private async buildAccountsPayload(options?: { preferFastCurrentId?: boolean }): Promise<Pick<WebviewBootstrap, 'accounts' | 'currentAccountId' | 'autoSwitch' | 'quotaSnapshots' | 'quotaFetching' | 'quotaFetchingAll' | 'quotaFetchingIds' | 'lastAutoSwitchResult'>> {
     const accounts = this.dataManager.windsurfAccounts.getAll().map(a => ({
       ...a,
       password: '***'
@@ -181,8 +181,77 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
       currentAccountId,
       quotaSnapshots: this.dataManager.windsurfAccounts.getQuotaSnapshots(),
       quotaFetching: this.dataManager.windsurfAccounts.isQuotaFetching,
+      quotaFetchingAll: this.dataManager.windsurfAccounts.isQuotaFetchingAll,
+      quotaFetchingIds: this.dataManager.windsurfAccounts.getQuotaFetchingAccountIds?.() ?? [],
       lastAutoSwitchResult: this.dataManager.windsurfAccounts.getLastAutoSwitchResult?.(),
     };
+  }
+
+  private runQuotaFetchInBackground(options: {
+    accountId?: string;
+    reason: 'manual-refresh' | 'switch-warmup';
+  }): void {
+    const { accountId, reason } = options;
+    if (accountId) {
+      void this.view?.webview.postMessage({
+        type: 'quotaFetchStarted',
+        value: { accountId, reason },
+      });
+    } else {
+      const accountIds = this.dataManager.windsurfAccounts
+        .getAll()
+        .map((account) => account.id);
+      void this.view?.webview.postMessage({
+        type: 'quotaFetchAllStarted',
+        value: { accountIds, reason },
+      });
+    }
+
+    void this.postAccountsSync({ preferFastCurrentId: true });
+
+    const task = accountId
+      ? this.dataManager.windsurfAccounts.fetchRealQuota(accountId)
+      : this.dataManager.windsurfAccounts.fetchAllRealQuotas();
+
+    void Promise.resolve(task)
+      .then(async (result) => {
+        await this.postAccountsSync({ preferFastCurrentId: true });
+        if (accountId) {
+          void this.view?.webview.postMessage({
+            type: 'quotaFetchResult',
+            value: { ...result, accountId, reason },
+          });
+          return;
+        }
+        void this.view?.webview.postMessage({
+          type: 'quotaFetchAllResult',
+          value: { ...result, reason },
+        });
+      })
+      .catch(async (err) => {
+        await this.postAccountsSync({ preferFastCurrentId: true });
+        if (accountId) {
+          void this.view?.webview.postMessage({
+            type: 'quotaFetchResult',
+            value: {
+              success: false,
+              error: String(err),
+              accountId,
+              reason,
+            },
+          });
+          return;
+        }
+        void this.view?.webview.postMessage({
+          type: 'quotaFetchAllResult',
+          value: {
+            success: 0,
+            failed: this.dataManager.windsurfAccounts.getAll().length,
+            errors: [String(err)],
+            reason,
+          },
+        });
+      });
   }
 
   private async postAccountsSync(options?: { preferFastCurrentId?: boolean }): Promise<void> {
@@ -397,30 +466,15 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
 
           if (switchResult.success && account) {
             void this.view?.webview.postMessage({ type: 'switchLoading', value: false });
-            const quotaRefresh = this.dataManager.windsurfAccounts.fetchRealQuota(value);
             // 切号成功后立刻同步 currentAccountId；真实配额后台完成后再二次同步。
             await this.postAccountsSync({ preferFastCurrentId: true });
-            const msg = `已切换到 ${account.email}，正在刷新配额`;
+            const msg = `已切换到 ${account.email}，正在预热新账号并刷新配额`;
             void this.view?.webview.postMessage({ type: 'switchResult', value: { success: true, message: msg } });
             vscode.window.setStatusBarMessage(`$(check) ${msg}`, 4000);
-            void quotaRefresh
-              .then(async (quotaResult) => {
-                await this.postAccountsSync({ preferFastCurrentId: true });
-                void this.view?.webview.postMessage({ type: 'quotaFetchResult', value: quotaResult });
-                if (!quotaResult.success) {
-                  this.logger.warn('Fetch quota after account switch failed.', {
-                    error: quotaResult.error,
-                  });
-                }
-              })
-              .catch(async (err) => {
-                this.logger.warn('Fetch quota after account switch threw.', { error: String(err) });
-                await this.postAccountsSync({ preferFastCurrentId: true });
-                void this.view?.webview.postMessage({
-                  type: 'quotaFetchResult',
-                  value: { success: false, error: String(err) },
-                });
-              });
+            this.runQuotaFetchInBackground({
+              accountId: value,
+              reason: 'switch-warmup',
+            });
           } else {
             void this.view?.webview.postMessage({ type: 'switchLoading', value: false });
             const errMsg = switchResult.error ?? '切换失败：未知错误';
@@ -484,17 +538,16 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         return true;
       case 'fetchQuota': {
         const id = typeof value === 'string' ? value : undefined;
-        await this.postAccountsSync({ preferFastCurrentId: true });
-        const result = await this.dataManager.windsurfAccounts.fetchRealQuota(id);
-        await this.postAccountsSync({ preferFastCurrentId: true });
-        void this.view?.webview.postMessage({ type: 'quotaFetchResult', value: { ...result, accountId: id } });
+        if (id) {
+          this.runQuotaFetchInBackground({
+            accountId: id,
+            reason: 'manual-refresh',
+          });
+        }
         return true;
       }
       case 'fetchAllQuotas': {
-        await this.postAccountsSync({ preferFastCurrentId: true });
-        const result = await this.dataManager.windsurfAccounts.fetchAllRealQuotas();
-        await this.postAccountsSync({ preferFastCurrentId: true });
-        void this.view?.webview.postMessage({ type: 'quotaFetchAllResult', value: result });
+        this.runQuotaFetchInBackground({ reason: 'manual-refresh' });
         return true;
       }
       default:

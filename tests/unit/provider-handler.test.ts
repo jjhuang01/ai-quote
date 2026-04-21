@@ -87,6 +87,8 @@ function createMockDataManager() {
       reloadFromDisk: vi.fn(async () => false),
       onDidChangeAccounts: vi.fn((listener: () => void) => ({ dispose: vi.fn() })),
       isQuotaFetching: false,
+      isQuotaFetchingAll: false,
+      getQuotaFetchingAccountIds: vi.fn(() => []),
       add: vi.fn(async () => ({ id: 'ws_new', email: 'new@test.com' })),
       importBatch: vi.fn(async () => ({ added: 2, skipped: 1 })),
       delete: vi.fn(async () => true),
@@ -479,18 +481,18 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       await ctx.send({ type: 'accountSwitch', value: 'ws_1' });
 
       expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).toHaveBeenCalledWith('ws_1');
-      expect(order).toEqual(['quota-start', 'sync', 'result']);
+      expect(order).toEqual(['sync', 'result', 'quota-start', 'sync']);
       const switchResult = ctx.postMessage.mock.calls
         .map((c: any) => c[0])
         .find((m: any) => m.type === 'switchResult');
-      expect(switchResult?.value?.message).toContain('正在刷新配额');
+      expect(switchResult?.value?.message).toContain('正在预热新账号并刷新配额');
 
       resolveQuota({ success: true });
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(order).toEqual(['quota-start', 'sync', 'result', 'sync', 'quota-result']);
+      expect(order).toEqual(['sync', 'result', 'quota-start', 'sync', 'sync', 'quota-result']);
     });
 
     it('配额刷新卡住时仍立即结束 loading 并返回切号成功提示', async () => {
@@ -506,7 +508,7 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       expect(switchLoading.at(-1)?.value).toBe(false);
       const switchResult = calls.find((m: any) => m.type === 'switchResult');
       expect(switchResult?.value?.success).toBe(true);
-      expect(switchResult?.value?.message).toContain('正在刷新配额');
+      expect(switchResult?.value?.message).toContain('正在预热新账号并刷新配额');
     });
 
     it('后台配额刷新抛错时再次同步账号状态并返回失败结果', async () => {
@@ -775,6 +777,7 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).toHaveBeenCalledWith('ws_1');
 
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      expect(calls.some((m: any) => m.type === 'quotaFetchStarted' && m.value?.accountId === 'ws_1')).toBe(true);
       const result = calls.find((m: any) => m.type === 'quotaFetchResult');
       expect(result?.value?.success).toBe(true);
     });
@@ -800,8 +803,22 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       expect(ctx.dataManager.windsurfAccounts.fetchAllRealQuotas).toHaveBeenCalled();
 
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      expect(calls.some((m: any) => m.type === 'quotaFetchAllStarted')).toBe(true);
       const result = calls.find((m: any) => m.type === 'quotaFetchAllResult');
       expect(result?.value?.success).toBe(2);
+    });
+
+    it('单账号刷新卡住时仍先发 started 状态，不阻塞后续交互', async () => {
+      ctx.postMessage.mockClear();
+      ctx.dataManager.windsurfAccounts.fetchRealQuota.mockImplementation(
+        () => new Promise(() => {}),
+      );
+
+      await ctx.send({ type: 'fetchQuota', value: 'ws_1' });
+
+      const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      expect(calls.some((m: any) => m.type === 'quotaFetchStarted' && m.value?.accountId === 'ws_1')).toBe(true);
+      expect(calls.some((m: any) => m.type === 'quotaFetchResult')).toBe(false);
     });
 
     it('批量刷新前后都同步 accountsSync', async () => {

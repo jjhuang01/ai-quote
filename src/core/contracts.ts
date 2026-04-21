@@ -325,6 +325,8 @@ export interface WebviewBootstrap {
   licenseInfo?: LicenseInfo;
   quotaSnapshots: QuotaSnapshot[];
   quotaFetching?: boolean;
+  quotaFetchingAll?: boolean;
+  quotaFetchingIds?: string[];
   lastAutoSwitchResult?: AutoSwitchResult;
   responseQueue?: string[];
 }

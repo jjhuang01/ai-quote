@@ -74,7 +74,7 @@ interface RealQuotaInfo {
   overageBalanceMicros: number;
   planEndTimestamp?: number;
   fetchedAt: string;
-  source: "local" | "api" | "apikey" | "cache" | "proto";
+  source: "local" | "api" | "apikey" | "cache" | "proto" | "authstatus";
 }
 
 interface QuotaSnapshot {
@@ -163,6 +163,8 @@ interface Bootstrap {
   currentAccountId?: string;
   quotaSnapshots: QuotaSnapshot[];
   quotaFetching?: boolean;
+  quotaFetchingAll?: boolean;
+  quotaFetchingIds?: string[];
   lastAutoSwitchResult?: {
     triggeredAt: string;
     triggered: boolean;
@@ -293,9 +295,8 @@ let state = {
   notification: undefined as string | undefined,
   notificationType: "info" as "info" | "success" | "error",
   // Quota fetching
-  quotaFetching: false,
-  // Per-account quota fetching id (single-account refresh)
-  quotaFetchingId: undefined as string | undefined,
+  quotaFetchingAll: false,
+  quotaFetchingIds: new Set<string>(),
   // Maintenance loading
   maintenanceLoadingAction: undefined as string | undefined,
   // Switch loading
@@ -677,6 +678,7 @@ function renderAccountListContent(bs: Bootstrap): string {
           ${visibleAccounts
             .map((account, visibleIndex) =>
               renderAccountItem(
+                bs,
                 account,
                 bs.currentAccountId,
                 snapshotMap.get(account.id),
@@ -719,7 +721,7 @@ function patchAccountTab(): void {
 
 function renderAccountTab(bs: Bootstrap): string {
   const { accounts, autoSwitch, lastAutoSwitchResult } = bs;
-  const isFetching = bs.quotaFetching || state.quotaFetching;
+  const isFetching = Boolean(bs.quotaFetchingAll || state.quotaFetchingAll);
   const { availableCount } = getAccountTabData(bs);
 
   return `
@@ -848,6 +850,7 @@ function renderAccountTab(bs: Bootstrap): string {
 }
 
 function renderAccountItem(
+  bs: Bootstrap,
   a: WindsurfAccount,
   currentId?: string,
   snapshot?: QuotaSnapshot,
@@ -923,7 +926,11 @@ function renderAccountItem(
   };
 
   const switching = state.switchLoadingId === a.id;
-  const quotaRefreshing = state.quotaFetchingId === a.id;
+  const activeQuotaFetchIds = new Set([
+    ...(bs.quotaFetchingIds ?? []),
+    ...state.quotaFetchingIds,
+  ]);
+  const quotaRefreshing = activeQuotaFetchIds.has(a.id);
   const isSelected = state.selectedAccountIds.has(a.id);
   return `
     <div class="ac-virtual-row" data-index="${index}" data-id="${a.id}" style="top:${index * ACCOUNT_ROW_HEIGHT}px">
@@ -2509,13 +2516,25 @@ function handleAction(el: HTMLElement): void {
 
     // Quota fetch
     case "fetchAllQuotas":
-      state.quotaFetching = true;
+      if (state.quotaFetchingAll || window.__QUOTE_BOOTSTRAP__.quotaFetchingAll) {
+        break;
+      }
+      state.quotaFetchingAll = true;
+      for (const account of window.__QUOTE_BOOTSTRAP__.accounts) {
+        state.quotaFetchingIds.add(account.id);
+      }
       render();
       vscode.postMessage({ type: "fetchAllQuotas" });
       break;
     case "fetchQuota":
       if (id) {
-        state.quotaFetchingId = id;
+        if (
+          state.quotaFetchingIds.has(id) ||
+          (window.__QUOTE_BOOTSTRAP__.quotaFetchingIds ?? []).includes(id)
+        ) {
+          break;
+        }
+        state.quotaFetchingIds.add(id);
         render();
         vscode.postMessage({ type: "fetchQuota", value: id });
       }
@@ -2787,7 +2806,7 @@ window.addEventListener("message", (event) => {
   }
 
   if (msg.type === "accountsSync") {
-    const value = msg.value as Pick<Bootstrap, "accounts" | "currentAccountId" | "autoSwitch" | "quotaSnapshots" | "quotaFetching" | "lastAutoSwitchResult">;
+    const value = msg.value as Pick<Bootstrap, "accounts" | "currentAccountId" | "autoSwitch" | "quotaSnapshots" | "quotaFetching" | "quotaFetchingAll" | "quotaFetchingIds" | "lastAutoSwitchResult">;
     bootstrap = {
       ...bootstrap,
       accounts: value.accounts,
@@ -2795,6 +2814,8 @@ window.addEventListener("message", (event) => {
       autoSwitch: value.autoSwitch,
       quotaSnapshots: value.quotaSnapshots,
       quotaFetching: value.quotaFetching,
+      quotaFetchingAll: value.quotaFetchingAll,
+      quotaFetchingIds: value.quotaFetchingIds,
       lastAutoSwitchResult: value.lastAutoSwitchResult,
     };
     window.__QUOTE_BOOTSTRAP__ = bootstrap;
@@ -2943,25 +2964,56 @@ window.addEventListener("message", (event) => {
     return;
   }
 
+  if (msg.type === "quotaFetchStarted") {
+    const r = msg.value as { accountId?: string };
+    if (r.accountId) {
+      state.quotaFetchingIds.add(r.accountId);
+      render();
+    }
+    return;
+  }
+
+  if (msg.type === "quotaFetchAllStarted") {
+    const r = msg.value as { accountIds?: string[] };
+    state.quotaFetchingAll = true;
+    for (const accountId of r.accountIds ?? []) {
+      state.quotaFetchingIds.add(accountId);
+    }
+    render();
+    return;
+  }
+
   if (msg.type === "quotaFetchResult") {
-    const r = msg.value as { success: boolean; error?: string; accountId?: string };
-    state.quotaFetching = false;
-    if (!r.accountId || state.quotaFetchingId === r.accountId) {
-      state.quotaFetchingId = undefined;
+    const r = msg.value as {
+      success: boolean;
+      error?: string;
+      accountId?: string;
+      reason?: "manual-refresh" | "switch-warmup";
+    };
+    if (r.accountId) {
+      state.quotaFetchingIds.delete(r.accountId);
     }
     showToast(
-      r.success ? "配额已更新" : `配额获取失败: ${r.error ?? "未知错误"}`,
+      r.success
+        ? r.reason === "switch-warmup"
+          ? "新账号预热完成，配额已更新"
+          : "配额已更新"
+        : r.reason === "switch-warmup"
+          ? `新账号预热失败: ${r.error ?? "未知错误"}`
+          : `配额获取失败: ${r.error ?? "未知错误"}`,
       r.success ? "success" : "error",
     );
     return;
   }
 
   if (msg.type === "quotaFetchAllResult") {
-    state.quotaFetching = false;
+    state.quotaFetchingAll = false;
+    state.quotaFetchingIds.clear();
     const r = msg.value as {
       success: number;
       failed: number;
       errors: string[];
+      reason?: "manual-refresh" | "switch-warmup";
     };
     showToast(
       `配额刷新完成: ${r.success} 成功, ${r.failed} 失败`,

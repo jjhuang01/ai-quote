@@ -127,6 +127,8 @@ export class WindsurfAccountManager {
   private readonly auth: WindsurfAuth;
   private readonly quotaFetcher: WindsurfQuotaFetcher;
   private _quotaFetching = false;
+  private _quotaFetchingAll = false;
+  private readonly quotaFetchingCounts = new Map<string, number>();
   private lastAutoSwitchResult?: AutoSwitchResult;
 
   public readonly onDidChangeAccounts = this.onDidChangeAccountsEmitter.event;
@@ -145,8 +147,61 @@ export class WindsurfAccountManager {
     return this._quotaFetching;
   }
 
+  public get isQuotaFetchingAll(): boolean {
+    return this._quotaFetchingAll;
+  }
+
+  public getQuotaFetchingAccountIds(): string[] {
+    return [...this.quotaFetchingCounts.entries()]
+      .filter(([, count]) => count > 0)
+      .map(([accountId]) => accountId);
+  }
+
   public getLastAutoSwitchResult(): AutoSwitchResult | undefined {
     return this.lastAutoSwitchResult;
+  }
+
+  private markQuotaFetchStateChanged(): void {
+    const nextFetching =
+      this._quotaFetchingAll || this.quotaFetchingCounts.size > 0;
+    const changed = this._quotaFetching !== nextFetching;
+    this._quotaFetching = nextFetching;
+    if (changed || this.quotaFetchingCounts.size > 0 || this._quotaFetchingAll) {
+      this.onDidChangeAccountsEmitter.fire();
+    }
+  }
+
+  private beginQuotaFetch(accountIds: string[], all = false): () => void {
+    if (all) {
+      this._quotaFetchingAll = true;
+    }
+    for (const accountId of accountIds) {
+      this.quotaFetchingCounts.set(
+        accountId,
+        (this.quotaFetchingCounts.get(accountId) ?? 0) + 1,
+      );
+    }
+    this.markQuotaFetchStateChanged();
+
+    let finished = false;
+    return () => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      if (all) {
+        this._quotaFetchingAll = false;
+      }
+      for (const accountId of accountIds) {
+        const count = this.quotaFetchingCounts.get(accountId) ?? 0;
+        if (count <= 1) {
+          this.quotaFetchingCounts.delete(accountId);
+        } else {
+          this.quotaFetchingCounts.set(accountId, count - 1);
+        }
+      }
+      this.markQuotaFetchStateChanged();
+    };
   }
 
   public setFirebaseApiKey(key: string): void {
@@ -1374,7 +1429,7 @@ export class WindsurfAccountManager {
       return { success: false, error: "账号不存在" };
     }
 
-    this._quotaFetching = true;
+    const endQuotaFetch = this.beginQuotaFetch([account.id]);
     try {
       let result;
 
@@ -1437,7 +1492,7 @@ export class WindsurfAccountManager {
 
       return { success: false, error: result.error };
     } finally {
-      this._quotaFetching = false;
+      endQuotaFetch();
     }
   }
 
@@ -1454,7 +1509,8 @@ export class WindsurfAccountManager {
     failed: number;
     errors: string[];
   }> {
-    this._quotaFetching = true;
+    const accountIds = this.accounts.map((account) => account.id);
+    const endQuotaFetch = this.beginQuotaFetch(accountIds, true);
     let success = 0;
     let failed = 0;
     const errors: string[] = [];
@@ -1565,7 +1621,7 @@ export class WindsurfAccountManager {
 
       return { success, failed, errors };
     } finally {
-      this._quotaFetching = false;
+      endQuotaFetch();
     }
   }
 
