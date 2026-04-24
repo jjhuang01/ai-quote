@@ -892,12 +892,6 @@ describe('WindsurfAccountManager', () => {
       const a1 = await manager.add('a1@test.com', 'p1');
       const a2 = await manager.add('a2@test.com', 'p2');
 
-      (manager as any).quotaFetcher.fetchFromGetPlanStatus = vi.fn(async () => ({
-        success: false,
-        source: 'api',
-        error: 'api unavailable',
-        fetchedAt: new Date().toISOString(),
-      }));
       (manager as any).quotaFetcher.fetchQuota = vi.fn(async () => ({
         success: true,
         source: 'proto',
@@ -938,6 +932,32 @@ describe('WindsurfAccountManager', () => {
       expect(result.error).toContain('目标账号是 a2@test.com');
       expect(manager.getById(a2.id)?.realQuota).toBeUndefined();
       expect(manager.getById(a1.id)?.realQuota).toBeUndefined();
+    });
+
+    it('批量刷新遇到登录限流时停止后续账号请求', async () => {
+      await manager.initialize();
+      await manager.add('a1@test.com', 'p1');
+      await manager.add('a2@test.com', 'p2');
+
+      const fetchFromGetPlanStatus = vi.fn(async () => ({
+        success: false,
+        source: 'api',
+        error: 'Firebase 登录失败: 请求失败: TOO_MANY_ATTEMPTS_TRY_LATER',
+        fetchedAt: new Date().toISOString(),
+      }));
+      (manager as any).quotaFetcher.fetchFromGetPlanStatus = fetchFromGetPlanStatus;
+      (manager as any).quotaFetcher.fetchQuota = vi.fn(async () => ({
+        success: false,
+        source: 'proto',
+        error: 'skipped',
+        fetchedAt: new Date().toISOString(),
+      }));
+
+      const result = await manager.fetchAllRealQuotas();
+
+      expect(fetchFromGetPlanStatus).toHaveBeenCalledTimes(1);
+      expect(result.failed).toBeGreaterThan(0);
+      expect(result.errors.join('\n')).toContain('已停止后续账号');
     });
   });
 

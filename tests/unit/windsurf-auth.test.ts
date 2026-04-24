@@ -218,6 +218,17 @@ describe('WindsurfAuth', () => {
     );
   });
 
+  it('Devin Auth 429 时不再回退 Firebase，避免扩大限流', async () => {
+    const auth = new WindsurfAuth(logger);
+    (auth as any).httpsPost = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('请求失败: HTTP 429'));
+
+    await expect(auth.signIn('a@test.com', 'password', 'acc_1')).rejects.toThrow(
+      /Devin Auth 登录失败: 请求失败: HTTP 429/,
+    );
+  });
+
   it('quota 查询场景优先使用 Firebase', async () => {
     const auth = new WindsurfAuth(logger);
     const signInWithDevinAuth = vi.spyOn(auth as any, 'signInWithDevinAuth');

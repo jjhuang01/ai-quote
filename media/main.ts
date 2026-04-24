@@ -721,7 +721,6 @@ function patchAccountTab(): void {
 
 function renderAccountTab(bs: Bootstrap): string {
   const { accounts, autoSwitch, lastAutoSwitchResult } = bs;
-  const isFetching = Boolean(bs.quotaFetchingAll || state.quotaFetchingAll);
   const { availableCount } = getAccountTabData(bs);
 
   return `
@@ -730,7 +729,6 @@ function renderAccountTab(bs: Bootstrap): string {
         <div class="section-header">
           <h2 id="accountTabTitle">账号 (${availableCount}/${accounts.length})</h2>
           <div class="btn-group">
-            <button class="btn-xs btn-icon ${isFetching ? "disabled" : ""}" data-action="fetchAllQuotas" ${isFetching ? "disabled" : ""} title="刷新全部配额">${isFetching ? `${icon("refresh")} …` : `${icon("refresh")} 配额`}</button>
             <button class="btn-xs btn-icon" data-action="toggleAddAccount">${icon("plus")} 添加</button>
             <button class="btn-xs btn-icon" data-action="toggleImportAccount">${icon("upload")} 批量</button>
             ${accounts.length > 0 ? `<button class="btn-xs btn-icon ${state.selectMode ? "btn-active" : ""}" data-action="toggleSelectMode" title="多选删除">☑ 选择</button>` : ""}
@@ -2515,17 +2513,6 @@ function handleAction(el: HTMLElement): void {
     }
 
     // Quota fetch
-    case "fetchAllQuotas":
-      if (state.quotaFetchingAll || window.__QUOTE_BOOTSTRAP__.quotaFetchingAll) {
-        break;
-      }
-      state.quotaFetchingAll = true;
-      for (const account of window.__QUOTE_BOOTSTRAP__.accounts) {
-        state.quotaFetchingIds.add(account.id);
-      }
-      render();
-      vscode.postMessage({ type: "fetchAllQuotas" });
-      break;
     case "fetchQuota":
       if (id) {
         if (

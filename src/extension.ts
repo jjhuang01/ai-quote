@@ -165,9 +165,16 @@ export async function activate(
       if (!dataManager) {
         return { success: 0, failed: 1, errors: ["DataManager unavailable"] };
       }
-      const result = await dataManager.windsurfAccounts.fetchAllRealQuotas();
+      const currentId = dataManager.windsurfAccounts.getImmediateCurrentAccountId()
+        ?? dataManager.windsurfAccounts.getCurrentAccountId();
+      if (!currentId) {
+        return { success: 0, failed: 1, errors: ["No current account"] };
+      }
+      const single = await dataManager.windsurfAccounts.fetchRealQuota(currentId);
       sidebarProvider.postBootstrap();
-      return result;
+      return single.success
+        ? { success: 1, failed: 0, errors: [] }
+        : { success: 0, failed: 1, errors: [single.error ?? "Unknown quota refresh error"] };
     },
   });
 
@@ -448,13 +455,14 @@ export async function activate(
   }, 10_000);
   context.subscriptions.push({ dispose: () => clearInterval(autoSwitchPollInterval) });
 
-  // ── 配额自动刷新（每5分钟）：确保 realQuota 数据新鲜，供 autoSwitch 使用 ──
+  // ── 配额自动刷新（每5分钟）：只刷新当前账号，避免批量登录触发上游风控 ──
   const QUOTA_AUTO_REFRESH_MS = 5 * 60_000;
   const quotaRefreshInterval = setInterval(async () => {
     if (!dataManager) return;
-    const accounts = dataManager.windsurfAccounts.getAll();
-    if (accounts.filter(a => a.password).length === 0) return;
-    await dataManager.windsurfAccounts.fetchAllRealQuotas();
+    const currentId = dataManager.windsurfAccounts.getImmediateCurrentAccountId()
+      ?? dataManager.windsurfAccounts.getCurrentAccountId();
+    if (!currentId) return;
+    await dataManager.windsurfAccounts.fetchRealQuota(currentId);
     sidebarProvider.postBootstrap();
     const cfg = dataManager.windsurfAccounts.getAutoSwitchConfig();
     if (cfg.enabled) {

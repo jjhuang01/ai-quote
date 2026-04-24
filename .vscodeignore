@@ -1,5 +1,8 @@
 .vscode/**
 .vscode-test/**
+.vscode-test.mjs
+.gitignore
+CLAUDE.md
 docs/**
 tests/**
 dist-test/**

@@ -108,7 +108,6 @@ function createMockDataManager() {
       setQuotaLimits: vi.fn(async () => true),
       recordPrompt: vi.fn(async () => {}),
       fetchRealQuota: vi.fn(async () => ({ success: true })),
-      fetchAllRealQuotas: vi.fn(async () => ({ success: 2, failed: 0, errors: [] })),
       setFirebaseApiKey: vi.fn(),
       setDebugRawResponses: vi.fn(),
     },
@@ -831,20 +830,7 @@ describe('QuoteSidebarProvider - handleMessage', () => {
     });
   });
 
-  // --- Fetch All Quotas ---
-
-  describe('fetchAllQuotas', () => {
-    it('批量获取配额后返回 quotaFetchAllResult', async () => {
-      await ctx.send({ type: 'fetchAllQuotas' });
-
-      expect(ctx.dataManager.windsurfAccounts.fetchAllRealQuotas).toHaveBeenCalled();
-
-      const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
-      expect(calls.some((m: any) => m.type === 'quotaFetchAllStarted')).toBe(true);
-      const result = calls.find((m: any) => m.type === 'quotaFetchAllResult');
-      expect(result?.value?.success).toBe(2);
-    });
-
+  describe('quota refresh safety', () => {
     it('单账号刷新卡住时仍先发 started 状态，不阻塞后续交互', async () => {
       ctx.postMessage.mockClear();
       ctx.dataManager.windsurfAccounts.fetchRealQuota.mockImplementation(
@@ -858,15 +844,15 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       expect(calls.some((m: any) => m.type === 'quotaFetchResult')).toBe(false);
     });
 
-    it('批量刷新前后都同步 accountsSync', async () => {
+    it('忽略旧版批量刷新消息，避免批量登录触发风控', async () => {
       ctx.postMessage.mockClear();
 
       await ctx.send({ type: 'fetchAllQuotas' });
 
-      const syncCalls = ctx.postMessage.mock.calls
-        .map((c: any) => c[0])
-        .filter((m: any) => m.type === 'accountsSync');
-      expect(syncCalls.length).toBeGreaterThanOrEqual(2);
+      expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).not.toHaveBeenCalled();
+      const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      expect(calls.some((m: any) => m.type === 'quotaFetchAllStarted')).toBe(false);
+      expect(calls.some((m: any) => m.type === 'quotaFetchAllResult')).toBe(false);
     });
   });
 

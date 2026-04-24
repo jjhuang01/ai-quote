@@ -138,6 +138,9 @@ export class WindsurfAuth {
       return await this.signInWithDevinAuth(email, password, accountId);
     } catch (err) {
       devinErr = err instanceof Error ? err : new Error(String(err));
+      if (this.isRateLimitError(devinErr)) {
+        throw new Error(`Devin Auth 登录失败: ${devinErr.message}`);
+      }
       this.logger.warn("Devin Auth signIn failed, trying Firebase fallback.", {
         email,
         error: devinErr.message,
@@ -200,6 +203,16 @@ export class WindsurfAuth {
         return result;
       } catch (err) {
         lastErr = err instanceof Error ? err : new Error(String(err));
+        if (this.isRateLimitError(lastErr)) {
+          this.logger.error("Firebase signIn rate limited.", {
+            email,
+            attempt,
+            error: lastErr.message,
+          });
+          throw new Error(
+            `${devinPrefix}Firebase 登录失败: ${lastErr.message}`,
+          );
+        }
         if (attempt < maxRetries && this.isTransientNetworkError(lastErr)) {
           this.logger.warn("Firebase signIn network error, retrying...", {
             email,
@@ -569,6 +582,18 @@ export class WindsurfAuth {
       message.includes("etimedout") ||
       message.includes("timeout") ||
       message.includes("disconnected before secure")
+    );
+  }
+
+  public isRateLimitError(err: Error | string): boolean {
+    const message = String(err instanceof Error ? err.message : err).toLowerCase();
+    return (
+      message.includes("http 429") ||
+      message.includes("too_many_attempts_try_later") ||
+      message.includes("too-many-requests") ||
+      message.includes("too many requests") ||
+      message.includes("firautherrorcodetoomanyrequests") ||
+      message.includes("rate limit")
     );
   }
 

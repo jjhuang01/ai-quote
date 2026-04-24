@@ -47,6 +47,7 @@
 ## 打包约定
 
 - 打包前必须升级 `package.json` 版本号。
+- 每次生成 VSIX 都必须使用新版本号；不得在同一版本号上重复打包覆盖产物。
 - 产物应保持精简：排除 `archives/`、`experiments/`、`.superpowers/`、`data/`、源码 map 等非运行时内容。
 - 交付前至少执行：`npm run test:unit`、`npm run check-types`、`npm run build`、`vsce package --no-dependencies`。
 

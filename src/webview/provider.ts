@@ -555,7 +555,11 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         return true;
       }
       case 'fetchAllQuotas': {
-        this.runQuotaFetchInBackground({ reason: 'manual-refresh' });
+        this.logger.warn('Ignored deprecated fetchAllQuotas request to avoid batch login risk.');
+        void this.view?.webview.postMessage({
+          type: 'opResult',
+          value: { message: '已停止批量刷新配额；请使用单个账号的刷新按钮' },
+        });
         return true;
       }
       default:

@@ -580,6 +580,14 @@ export class WindsurfAccountManager {
     return "generic";
   }
 
+  private isAuthRateLimitError(error: unknown): boolean {
+    const raw = String(error);
+    return (
+      this.classifyAuthFailure(raw) === "firebase_device_rate_limited" ||
+      raw.toLowerCase().includes("http 429")
+    );
+  }
+
   private formatSwitchAuthFailure(error: unknown): string {
     const raw = String(error);
     const category = this.classifyAuthFailure(raw);
@@ -1433,24 +1441,13 @@ export class WindsurfAccountManager {
     try {
       let result;
 
-      // 有密码 → 优先 Channel B (GetPlanStatus API, 实时数据)
-      if (account.password) {
-        result = await this.quotaFetcher.fetchFromGetPlanStatus(
-          account.id,
-          account.email,
-          account.password,
-        );
-      }
-
-      // Channel B 失败或无密码 → 降级到 fetchQuota (E → D → A → B)
-      if (!result?.success) {
-        result = await this.quotaFetcher.fetchQuota(
-          account.id,
-          account.email,
-          account.password,
-          { forceRefresh: true },
-        );
-      }
+      // 单账号刷新优先使用本地可验证通道，只有本地不可用时才触发登录态网络请求。
+      result = await this.quotaFetcher.fetchQuota(
+        account.id,
+        account.email,
+        account.password,
+        { forceRefresh: true, preferLocal: true },
+      );
 
       if (result.success && result.planInfo) {
         // Revalidate may rebuild this.accounts, so re-find the target after
@@ -1517,7 +1514,7 @@ export class WindsurfAccountManager {
     const updatedIds = new Set<string>();
 
     try {
-      // 步骤1: Channel B —— 所有有密码的账号直接走 GetPlanStatus API（实时数据）
+      // 步骤1: Channel B —— 有密码账号串行走 GetPlanStatus；一旦遇到登录限流立即停止，避免扩大风控。
       for (const account of this.accounts) {
         if (!account.password) continue;
 
@@ -1548,10 +1545,16 @@ export class WindsurfAccountManager {
             daily: result.planInfo.quotaUsage?.dailyRemainingPercent,
           });
         } else {
+          failed++;
+          errors.push(`${account.email}: ${result.error ?? "未知错误"}`);
           this.logger.warn("Channel B failed.", {
             email: account.email,
             error: result.error,
           });
+          if (this.isAuthRateLimitError(result.error)) {
+            errors.push("检测到登录限流，已停止后续账号的网络配额刷新");
+            break;
+          }
         }
 
         // 避免 rate limit
@@ -1563,6 +1566,7 @@ export class WindsurfAccountManager {
       // 步骤2: 对 Channel B 未覆盖的账号（无密码），降级到 Channel E/A
       for (const account of this.accounts) {
         if (updatedIds.has(account.id)) continue;
+        if (account.password) continue;
 
         // Channel E (proto) → Channel D (apikey) → Channel A (cachedPlanInfo)
         const result = await this.quotaFetcher.fetchQuota(
