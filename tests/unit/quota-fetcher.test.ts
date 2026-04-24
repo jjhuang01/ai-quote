@@ -91,6 +91,7 @@ describe('WindsurfQuotaFetcher', () => {
 
     const result = await fetcher.fetchQuota('acc_1', 'a@test.com', 'password', {
       forceRefresh: true,
+      currentRuntimeEmail: 'a@test.com',
     });
 
     expect(protoSpy).toHaveBeenCalledWith('a@test.com');
@@ -100,6 +101,86 @@ describe('WindsurfQuotaFetcher', () => {
     expect(result.success).toBe(true);
     expect(result.source).toBe('local');
     expect(result.planInfo?.planName).toBe('Local');
+  });
+
+  it('非当前运行时账号刷新跳过本地通道并提示需要远端凭据', async () => {
+    const auth = {
+      signIn: vi.fn(),
+    } as any;
+    const fetcher = new WindsurfQuotaFetcher(auth, mockLogger);
+    const protoSpy = vi.spyOn(fetcher as any, 'fetchFromLocalProto').mockResolvedValue({
+      success: true,
+      source: 'proto',
+      userEmail: 'current@test.com',
+      planInfo: createPlanInfo('Current'),
+      fetchedAt: new Date().toISOString(),
+    });
+    const apikeySpy = vi.spyOn(fetcher as any, 'fetchFromLocalApiKey');
+    const localSpy = vi.spyOn(fetcher as any, 'fetchFromLocal');
+    vi.spyOn(fetcher as any, 'fetchFromGetPlanStatus').mockResolvedValue({
+      success: false,
+      source: 'api',
+      error: 'Firebase 登录失败: 账号或密码无效（INVALID_LOGIN_CREDENTIALS）',
+      fetchedAt: new Date().toISOString(),
+    });
+
+    const result = await fetcher.fetchQuota('acc_2', 'other@test.com', 'bad-password', {
+      forceRefresh: true,
+      currentRuntimeEmail: 'current@test.com',
+    });
+
+    expect(protoSpy).not.toHaveBeenCalled();
+    expect(apikeySpy).not.toHaveBeenCalled();
+    expect(localSpy).not.toHaveBeenCalled();
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('目标不是当前 Windsurf 登录账号');
+    expect(result.error).toContain('账号或密码无效');
+  });
+
+  it('非当前运行时账号刷新遇到远端 503 时返回服务暂不可用提示', async () => {
+    const auth = {
+      signIn: vi.fn(),
+    } as any;
+    const fetcher = new WindsurfQuotaFetcher(auth, mockLogger);
+    vi.spyOn(fetcher as any, 'fetchFromGetPlanStatus').mockResolvedValue({
+      success: false,
+      source: 'api',
+      error: 'Devin Auth 登录失败: 请求失败: HTTP 503: <html>Service Temporarily Unavailable</html>',
+      fetchedAt: new Date().toISOString(),
+    });
+
+    const result = await fetcher.fetchQuota('acc_2', 'other@test.com', 'password', {
+      forceRefresh: true,
+      currentRuntimeEmail: 'current@test.com',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('远端服务暂时不可用');
+    expect(result.error).toContain('HTTP 503');
+  });
+
+  it('未提供当前运行时邮箱时保留旧行为，仍允许本地通道验证目标账号', async () => {
+    const auth = {
+      signIn: vi.fn(),
+    } as any;
+    const fetcher = new WindsurfQuotaFetcher(auth, mockLogger);
+    const protoSpy = vi.spyOn(fetcher as any, 'fetchFromLocalProto').mockResolvedValue({
+      success: true,
+      source: 'proto',
+      userEmail: 'a@test.com',
+      planInfo: createPlanInfo('Proto'),
+      fetchedAt: new Date().toISOString(),
+    });
+    const apiSpy = vi.spyOn(fetcher as any, 'fetchFromGetPlanStatus');
+
+    const result = await fetcher.fetchQuota('acc_1', 'a@test.com', 'password', {
+      forceRefresh: true,
+    });
+
+    expect(protoSpy).toHaveBeenCalledWith('a@test.com');
+    expect(apiSpy).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.source).toBe('proto');
   });
 
   it('开启 debugRawResponses 后记录脱敏后的 quota raw payload', async () => {

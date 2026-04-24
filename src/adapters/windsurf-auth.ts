@@ -228,12 +228,28 @@ export class WindsurfAuth {
           error: String(err),
         });
         throw new Error(
-          `${devinPrefix}Firebase 登录失败: ${lastErr.message}`,
+          `${devinPrefix}${this.formatFirebaseSignInError(lastErr)}`,
         );
       }
     }
     throw new Error(
-      `${devinPrefix}Firebase 登录失败: ${lastErr?.message ?? "unknown"}`,
+      `${devinPrefix}${this.formatFirebaseSignInError(lastErr ?? new Error("unknown"))}`,
+    );
+  }
+
+  private formatFirebaseSignInError(err: Error): string {
+    if (this.isInvalidCredentialsError(err)) {
+      return "Firebase 登录失败: 账号或密码无效（INVALID_LOGIN_CREDENTIALS）";
+    }
+    return `Firebase 登录失败: ${err.message}`;
+  }
+
+  public isInvalidCredentialsError(err: Error | string): boolean {
+    const message = String(err instanceof Error ? err.message : err).toLowerCase();
+    return (
+      message.includes("invalid_login_credentials") ||
+      message.includes("invalid-password") ||
+      message.includes("email_not_found")
     );
   }
 
@@ -472,8 +488,17 @@ export class WindsurfAuth {
                 resolve(parsed as T);
               }
             } catch {
+              const statusCode = res.statusCode ?? 0;
+              if (statusCode >= 400) {
+                reject(
+                  new Error(
+                    `请求失败: HTTP ${statusCode}: ${chunks.slice(0, 200)}`,
+                  ),
+                );
+                return;
+              }
               reject(
-                new Error(`Firebase 返回非 JSON: ${chunks.slice(0, 200)}`),
+                new Error(`远端返回非 JSON: ${chunks.slice(0, 200)}`),
               );
             }
           });
@@ -531,8 +556,17 @@ export class WindsurfAuth {
                 resolve(parsed as T);
               }
             } catch {
+              const statusCode = res.statusCode ?? 0;
+              if (statusCode >= 400) {
+                reject(
+                  new Error(
+                    `请求失败: HTTP ${statusCode}: ${chunks.slice(0, 200)}`,
+                  ),
+                );
+                return;
+              }
               reject(
-                new Error(`Firebase 返回非 JSON: ${chunks.slice(0, 200)}`),
+                new Error(`远端返回非 JSON: ${chunks.slice(0, 200)}`),
               );
             }
           });
@@ -581,6 +615,8 @@ export class WindsurfAuth {
       message.includes("econn") ||
       message.includes("etimedout") ||
       message.includes("timeout") ||
+      message.includes("http 503") ||
+      message.includes("service temporarily unavailable") ||
       message.includes("disconnected before secure")
     );
   }

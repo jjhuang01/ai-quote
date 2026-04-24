@@ -46,8 +46,11 @@
 
 ## 打包约定
 
+- 打包前必须先归档根目录旧 VSIX：执行 `npm run archive`，确保根目录不残留旧 `ai-quote-*.vsix`。
 - 打包前必须升级 `package.json` 版本号。
 - 每次生成 VSIX 都必须使用新版本号；不得在同一版本号上重复打包覆盖产物。
+- 打包完成后根目录只允许保留当前新版本 VSIX；旧版本必须位于 `archives/<timestamp>/` 并带 `manifest.json`。
+- 推荐流程：`npm run archive` → 升级 `package.json` / `package-lock.json` 版本 → `npm run test:unit` → `npm run check-types` → `npm run build` → `vsce package --no-dependencies`。
 - 产物应保持精简：排除 `archives/`、`experiments/`、`.superpowers/`、`data/`、源码 map 等非运行时内容。
 - 交付前至少执行：`npm run test:unit`、`npm run check-types`、`npm run build`、`vsce package --no-dependencies`。
 

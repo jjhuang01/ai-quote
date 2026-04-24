@@ -296,9 +296,14 @@ export class WindsurfQuotaFetcher {
     accountId: string,
     email: string,
     password: string,
-    options?: { forceRefresh?: boolean; preferLocal?: boolean }
+    options?: { forceRefresh?: boolean; preferLocal?: boolean; currentRuntimeEmail?: string }
   ): Promise<QuotaFetchResult> {
-    const { forceRefresh, preferLocal } = options ?? {};
+    const { forceRefresh, preferLocal, currentRuntimeEmail } = options ?? {};
+    const runtimeEmail = currentRuntimeEmail?.trim().toLowerCase();
+    const isCurrentRuntimeAccount =
+      !!runtimeEmail && runtimeEmail === email.trim().toLowerCase();
+    const isKnownNonCurrentRuntimeAccount = !!runtimeEmail && !isCurrentRuntimeAccount;
+    const allowLocalRuntimeSources = preferLocal !== false && !isKnownNonCurrentRuntimeAccount;
 
     // 检查缓存
     if (!forceRefresh) {
@@ -309,7 +314,7 @@ export class WindsurfQuotaFetcher {
     }
 
     // 通道 E: userStatusProtoBinaryBase64 proto 解码（最高优先级，实时，离线）
-    if (preferLocal !== false) {
+    if (allowLocalRuntimeSources) {
       const protoResult = await this.fetchFromLocalProto(email);
       if (protoResult.success && protoResult.planInfo) {
         if (this.canUseTargetedLocalResult(protoResult, email)) {
@@ -325,21 +330,23 @@ export class WindsurfQuotaFetcher {
     }
 
     // 通道 D: windsurfAuthStatus.apiKey → GetUserStatus (实时，无需 Firebase)
-    const apikeyResult = await this.fetchFromLocalApiKey(email);
-    if (apikeyResult.success && apikeyResult.planInfo) {
-      if (this.canUseTargetedLocalResult(apikeyResult, email)) {
-        this.cacheSet(accountId, apikeyResult);
-        return apikeyResult;
+    if (allowLocalRuntimeSources) {
+      const apikeyResult = await this.fetchFromLocalApiKey(email);
+      if (apikeyResult.success && apikeyResult.planInfo) {
+        if (this.canUseTargetedLocalResult(apikeyResult, email)) {
+          this.cacheSet(accountId, apikeyResult);
+          return apikeyResult;
+        }
+        this.logger.warn('Skipping apikey quota result without verifiable target email.', {
+          accountId,
+          expectedEmail: email,
+          observedEmail: apikeyResult.userEmail,
+        });
       }
-      this.logger.warn('Skipping apikey quota result without verifiable target email.', {
-        accountId,
-        expectedEmail: email,
-        observedEmail: apikeyResult.userEmail,
-      });
     }
 
     // 通道 A: 本地 cachedPlanInfo (快速，离线，但可能过期)
-    if (preferLocal !== false) {
+    if (allowLocalRuntimeSources) {
       const localResult = await this.fetchFromLocal(email);
       if (localResult.success && localResult.planInfo) {
         this.cacheSet(accountId, localResult);
@@ -349,10 +356,31 @@ export class WindsurfQuotaFetcher {
 
     // 通道 B: Firebase Auth + GetPlanStatus (web-backend.windsurf.com)
     const apiResult = await this.fetchFromGetPlanStatus(accountId, email, password);
+    if (!apiResult.success) {
+      return {
+        ...apiResult,
+        error: this.formatRemoteQuotaError(apiResult.error, isKnownNonCurrentRuntimeAccount),
+      };
+    }
     if (apiResult.success) {
       this.cacheSet(accountId, apiResult);
     }
     return apiResult;
+  }
+
+  private formatRemoteQuotaError(error: string | undefined, isKnownNonCurrentRuntimeAccount: boolean): string {
+    const detail = error ?? '未知错误';
+    const scopeHint = isKnownNonCurrentRuntimeAccount
+      ? '目标不是当前 Windsurf 登录账号，无法使用本地运行时配额，只能通过该账号密码远端登录刷新。'
+      : '本地通道不可用，已尝试远端登录刷新。';
+    const lower = detail.toLowerCase();
+    if (lower.includes('invalid_login_credentials') || lower.includes('账号或密码无效')) {
+      return `${scopeHint} 远端登录失败：账号或密码无效，请检查导入的凭据。原始错误: ${detail}`;
+    }
+    if (lower.includes('http 503') || lower.includes('service temporarily unavailable')) {
+      return `${scopeHint} Windsurf/Devin 远端服务暂时不可用（HTTP 503），请稍后重试。原始错误: ${detail}`;
+    }
+    return `${scopeHint} 配额获取失败: ${detail}`;
   }
 
   /**

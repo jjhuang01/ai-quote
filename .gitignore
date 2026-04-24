@@ -47,5 +47,6 @@ AI_FEEDBACK_RULES.md
 # Reverse-engineering evidence (legally sensitive)
 _evidence/
 
-# Internal AI dev notes
-agents.md
+# Internal AI dev notes (legacy lowercase duplicate; keep AGENTS.md as canonical)
+/agents.md
+!/AGENTS.md

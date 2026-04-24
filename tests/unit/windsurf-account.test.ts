@@ -714,12 +714,12 @@ describe('WindsurfAccountManager', () => {
       await vi.advanceTimersByTimeAsync(11_000);
       const result = await resultPromise;
 
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('切换后校验失败');
+      expect(result.success).toBe(true);
+      expect(result.pendingRuntimeVerification).toBe(true);
       expect(manager.getCurrentAccountId()).toBe(a1.id);
-      expect(manager.getImmediateCurrentAccountId()).toBe(a1.id);
+      expect(manager.getImmediateCurrentAccountId()).toBe(a2.id);
       expect(mockLogger.warn).toHaveBeenCalledWith(
-        'Windsurf runtime account verification failed after switch.',
+        'Windsurf runtime account verification pending after switch.',
         expect.objectContaining({
           expectedEmail: 'b@test.com',
           source: 'proto',
@@ -804,10 +804,10 @@ describe('WindsurfAccountManager', () => {
       expect(manager.getById(a2.id)?.isActive).toBe(true);
     });
 
-    it('切换失败时优先报告 authstatus 观察到的旧账号，避免被旧 proto 误导', async () => {
+    it('注入成功但运行时信号仍是旧账号时标记 pending，不误报失败', async () => {
       vi.useFakeTimers();
       await manager.initialize();
-      await manager.add('a@test.com', 'p');
+      const a1 = await manager.add('a@test.com', 'p');
       const a2 = await manager.add('b@test.com', 'p');
 
       (manager as any).quotaFetcher.fetchCurrentRuntimeUserFromAuthStatus = vi.fn(async () => ({
@@ -828,9 +828,21 @@ describe('WindsurfAccountManager', () => {
       await vi.advanceTimersByTimeAsync(11_000);
       const result = await resultPromise;
 
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('来源 authstatus 当前运行时账号仍是 a@test.com');
-      expect(result.error).not.toContain('legacy@test.com');
+      expect(result.success).toBe(true);
+      expect(result.pendingRuntimeVerification).toBe(true);
+      expect(manager.getCurrentAccountId()).toBe(a1.id);
+      expect(manager.getImmediateCurrentAccountId()).toBe(a2.id);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'Windsurf runtime account verification pending after switch.',
+        expect.objectContaining({
+          source: 'authstatus',
+          observedEmail: 'a@test.com',
+          attempts: expect.arrayContaining([
+            expect.objectContaining({ source: 'authstatus', observedEmail: 'a@test.com' }),
+            expect.objectContaining({ source: 'proto', observedEmail: 'legacy@test.com' }),
+          ]),
+        }),
+      );
     });
 
     it('Firebase 设备限流时提示可尝试重置机器 ID', async () => {
@@ -1027,7 +1039,11 @@ describe('WindsurfAccountManager', () => {
         a2.id,
         'a2@test.com',
         'p2',
-        { forceRefresh: true, preferLocal: true },
+        {
+          forceRefresh: true,
+          preferLocal: true,
+          currentRuntimeEmail: 'a2@test.com',
+        },
       );
       expect(manager.getCurrentAccountId()).toBe(a2.id);
       expect(manager.getById(a2.id)?.realQuota?.dailyRemainingPercent).toBe(20);

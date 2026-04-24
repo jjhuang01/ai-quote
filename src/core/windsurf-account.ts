@@ -83,6 +83,7 @@ async function findPatchedWindsurfAuthCommand(): Promise<string | undefined> {
 export interface SwitchResult {
   success: boolean;
   error?: string;
+  pendingRuntimeVerification?: boolean;
 }
 
 interface PersistedWindsurfAccounts {
@@ -495,6 +496,22 @@ export class WindsurfAccountManager {
     });
     this.currentAccountId = id;
     this.pendingSwitchId = undefined;
+    if (injectedApiKey !== undefined) {
+      target.apiKey = injectedApiKey;
+    }
+    await this.save();
+  }
+
+  private async markPendingSwitch(
+    id: string,
+    injectedApiKey?: string,
+  ): Promise<void> {
+    await this.revalidateBeforeWrite();
+    const target = this.accounts.find((account) => account.id === id);
+    if (!target) {
+      throw new Error("账号不存在");
+    }
+    this.pendingSwitchId = id;
     if (injectedApiKey !== undefined) {
       target.apiKey = injectedApiKey;
     }
@@ -1306,7 +1323,7 @@ export class WindsurfAccountManager {
     const verification = await this.verifyRuntimeSwitch(account.email);
     if (!verification.verified) {
       this.logger.warn(
-        "Windsurf runtime account verification failed after switch.",
+        "Windsurf runtime account verification pending after switch.",
         {
           traceId,
           operation: "account.switch",
@@ -1321,15 +1338,8 @@ export class WindsurfAccountManager {
           durationMs: Date.now() - operationStartedAt,
         },
       );
-      const detail =
-        verification.error ??
-        (verification.observedEmail
-          ? `当前仍检测到 ${verification.observedEmail}`
-          : "无法从本地运行时确认当前账号");
-      return {
-        success: false,
-        error: `切换后校验失败：${detail}。为避免账号混乱，本次切换未标记为成功。`,
-      };
+      await this.markPendingSwitch(id, injectedApiKey);
+      return { success: true, pendingRuntimeVerification: true };
     }
 
     // ── 步骤5: 更新内部状态 ──────────────────────────────────────────────
@@ -1691,7 +1701,13 @@ export class WindsurfAccountManager {
         account.id,
         account.email,
         account.password,
-        { forceRefresh: true, preferLocal: true },
+        {
+          forceRefresh: true,
+          preferLocal: true,
+          currentRuntimeEmail: runtimeId
+            ? this.accounts.find((item) => item.id === runtimeId)?.email
+            : undefined,
+        },
       );
 
       if (result.success && result.planInfo) {

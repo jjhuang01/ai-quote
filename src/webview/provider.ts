@@ -500,7 +500,9 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
             // 切号成功后立刻同步 currentAccountId；真实配额后台完成后再二次同步。
             await this.postAccountsSync({ preferFastCurrentId: true });
             const warmupMode = getSwitchWarmupMode();
-            const msg = getSwitchWarmupSuccessMessage(account.email, warmupMode);
+            const msg = switchResult.pendingRuntimeVerification
+              ? `已发起切换到 ${account.email}，正在等待 Windsurf 运行时同步并预热配额`
+              : getSwitchWarmupSuccessMessage(account.email, warmupMode);
             void this.view?.webview.postMessage({ type: 'switchResult', value: { success: true, message: msg } });
             vscode.window.setStatusBarMessage(`$(check) ${msg}`, 4000);
             if (isSwitchWarmupEnabled(warmupMode)) {
