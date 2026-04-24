@@ -197,6 +197,16 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     reason: 'manual-refresh' | 'switch-warmup';
   }): void {
     const { accountId, reason } = options;
+    const requestedAt = Date.now();
+    const account = accountId
+      ? this.dataManager.windsurfAccounts.getById(accountId)
+      : undefined;
+    this.logger.info('Quota refresh requested.', {
+      operation: 'quota.refresh.request',
+      accountId,
+      email: account?.email,
+      reason,
+    });
     if (accountId) {
       void this.view?.webview.postMessage({
         type: 'quotaFetchStarted',
@@ -221,6 +231,14 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     void Promise.resolve(task)
       .then(async (result) => {
         await this.postAccountsSync({ preferFastCurrentId: true });
+        this.logger.info('Quota refresh request finished.', {
+          operation: 'quota.refresh.request',
+          accountId,
+          email: account?.email,
+          reason,
+          result,
+          durationMs: Date.now() - requestedAt,
+        });
         if (accountId) {
           void this.view?.webview.postMessage({
             type: 'quotaFetchResult',
@@ -235,6 +253,14 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
       })
       .catch(async (err) => {
         await this.postAccountsSync({ preferFastCurrentId: true });
+        this.logger.warn('Quota refresh request failed.', {
+          operation: 'quota.refresh.request',
+          accountId,
+          email: account?.email,
+          reason,
+          error: String(err),
+          durationMs: Date.now() - requestedAt,
+        });
         if (accountId) {
           void this.view?.webview.postMessage({
             type: 'quotaFetchResult',
@@ -485,6 +511,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
             }
           } else {
             void this.view?.webview.postMessage({ type: 'switchLoading', value: false });
+            await this.postAccountsSync({ preferFastCurrentId: false });
             const errMsg = switchResult.error ?? '切换失败：未知错误';
             void this.view?.webview.postMessage({ type: 'switchResult', value: { success: false, message: errMsg } });
             vscode.window.showErrorMessage(`切换失败: ${errMsg}`);
@@ -744,14 +771,28 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
       }
       case 'getDebugInfo': {
         const [logContent, patchStatus] = await Promise.all([
-          this.logger.getRecentLogs(200),
+          this.logger.getRecentLogs(500),
           WindsurfPatchService.isPatchApplied()
         ]);
+        const currentAccountId = this.dataManager.windsurfAccounts.getImmediateCurrentAccountId();
+        const currentAccount = currentAccountId
+          ? this.dataManager.windsurfAccounts.getById(currentAccountId)
+          : undefined;
+        const accounts = this.dataManager.windsurfAccounts.getAll();
         void this.view?.webview.postMessage({
           type: 'debugInfo',
           value: {
             logPath: this.logger.getLogFilePath(),
             logContent,
+            accountSummary: {
+              total: accounts.length,
+              currentAccountId,
+              currentEmail: currentAccount?.email ?? null,
+              quotaFetching: this.dataManager.windsurfAccounts.isQuotaFetching,
+              quotaFetchingAll: this.dataManager.windsurfAccounts.isQuotaFetchingAll,
+              quotaFetchingIds: this.dataManager.windsurfAccounts.getQuotaFetchingAccountIds?.() ?? [],
+              lastAutoSwitchResult: this.dataManager.windsurfAccounts.getLastAutoSwitchResult?.() ?? null,
+            },
             patchApplied: patchStatus.applied,
             patchExtensionPath: patchStatus.extensionPath ?? null,
             patchError: patchStatus.error ?? null
@@ -764,7 +805,12 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         try {
           const result = await WindsurfPatchService.checkAndApply(this.logger);
           const patchStatus = await WindsurfPatchService.isPatchApplied();
-          const logContent = await this.logger.getRecentLogs(200);
+          const logContent = await this.logger.getRecentLogs(500);
+          const currentAccountId = this.dataManager.windsurfAccounts.getImmediateCurrentAccountId();
+          const currentAccount = currentAccountId
+            ? this.dataManager.windsurfAccounts.getById(currentAccountId)
+            : undefined;
+          const accounts = this.dataManager.windsurfAccounts.getAll();
           void this.view?.webview.postMessage({
             type: 'patchApplyResult',
             value: result,
@@ -774,6 +820,15 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
             value: {
               logPath: this.logger.getLogFilePath(),
               logContent,
+              accountSummary: {
+                total: accounts.length,
+                currentAccountId,
+                currentEmail: currentAccount?.email ?? null,
+                quotaFetching: this.dataManager.windsurfAccounts.isQuotaFetching,
+                quotaFetchingAll: this.dataManager.windsurfAccounts.isQuotaFetchingAll,
+                quotaFetchingIds: this.dataManager.windsurfAccounts.getQuotaFetchingAccountIds?.() ?? [],
+                lastAutoSwitchResult: this.dataManager.windsurfAccounts.getLastAutoSwitchResult?.() ?? null,
+              },
               patchApplied: patchStatus.applied,
               patchExtensionPath: patchStatus.extensionPath ?? null,
               patchError: patchStatus.error ?? null

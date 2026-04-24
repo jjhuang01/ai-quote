@@ -99,6 +99,15 @@ interface RuntimeSwitchVerification {
   source?: "local" | "api" | "apikey" | "cache" | "proto" | "authstatus";
   observedEmail?: string;
   error?: string;
+  attempts?: RuntimeSwitchProbeAttempt[];
+}
+
+interface RuntimeSwitchProbeAttempt {
+  source?: "local" | "api" | "apikey" | "cache" | "proto" | "authstatus";
+  verified: boolean;
+  observedEmail?: string;
+  error?: string;
+  durationMs: number;
 }
 
 interface QuotaWriteGuardResult {
@@ -233,7 +242,10 @@ export class WindsurfAccountManager {
 
   public async getRealCurrentAccountId(): Promise<string | undefined> {
     try {
-      const result = await this.quotaFetcher.fetchFromLocalProto();
+      const authStatusResult = await this.quotaFetcher.fetchCurrentRuntimeUserFromAuthStatus();
+      const result = authStatusResult.success
+        ? authStatusResult
+        : await this.quotaFetcher.fetchFromLocalProto();
       if (!result.success) return undefined;
       const email = result.userEmail?.toLowerCase();
       if (!email) return undefined;
@@ -335,6 +347,8 @@ export class WindsurfAccountManager {
     const deadline = Date.now() + timeoutMs;
     let lastObservedEmail: string | undefined;
     let lastError: string | undefined;
+    let lastSource: RuntimeSwitchVerification["source"];
+    let lastAttempts: RuntimeSwitchProbeAttempt[] | undefined;
 
     while (Date.now() <= deadline) {
       const verification = await this.probeRuntimeSwitch(expectedEmail);
@@ -343,6 +357,8 @@ export class WindsurfAccountManager {
       }
       lastObservedEmail = verification.observedEmail ?? lastObservedEmail;
       lastError = verification.error ?? lastError;
+      lastSource = verification.source ?? lastSource;
+      lastAttempts = verification.attempts ?? lastAttempts;
 
       if (Date.now() >= deadline) {
         break;
@@ -354,8 +370,10 @@ export class WindsurfAccountManager {
 
     return {
       verified: false,
+      source: lastSource,
       observedEmail: lastObservedEmail,
       error: lastError,
+      attempts: lastAttempts,
     };
   }
 
@@ -391,47 +409,64 @@ export class WindsurfAccountManager {
   private async probeRuntimeSwitch(
     expectedEmail: string,
   ): Promise<RuntimeSwitchVerification> {
-    const authStatusVerification = this.evaluateRuntimeSwitchSource(
-      await this.quotaFetcher.fetchCurrentRuntimeUserFromAuthStatus(expectedEmail),
-      expectedEmail,
+    const attempts: RuntimeSwitchProbeAttempt[] = [];
+
+    const evaluateSource = async (
+      fetcher: () => Promise<QuotaFetchResult>,
+    ): Promise<RuntimeSwitchVerification> => {
+      const startedAt = Date.now();
+      const verification = this.evaluateRuntimeSwitchSource(
+        await fetcher(),
+        expectedEmail,
+      );
+      attempts.push({
+        source: verification.source,
+        verified: verification.verified,
+        observedEmail: verification.observedEmail,
+        error: verification.error,
+        durationMs: Date.now() - startedAt,
+      });
+      return verification;
+    };
+
+    const timedAuthStatusVerification = await evaluateSource(
+      () => this.quotaFetcher.fetchCurrentRuntimeUserFromAuthStatus(expectedEmail),
     );
-    if (authStatusVerification.verified) {
-      return authStatusVerification;
+    if (timedAuthStatusVerification.verified) {
+      return { ...timedAuthStatusVerification, attempts };
     }
 
-    const protoVerification = this.evaluateRuntimeSwitchSource(
-      await this.quotaFetcher.fetchFromLocalProto(),
-      expectedEmail,
+    const protoVerification = await evaluateSource(() =>
+      this.quotaFetcher.fetchFromLocalProto(),
     );
     if (protoVerification.verified) {
-      return protoVerification;
+      return { ...protoVerification, attempts };
     }
 
-    const apiKeyVerification = this.evaluateRuntimeSwitchSource(
-      await this.quotaFetcher.fetchFromLocalApiKey(),
-      expectedEmail,
+    const apiKeyVerification = await evaluateSource(() =>
+      this.quotaFetcher.fetchFromLocalApiKey(),
     );
     if (apiKeyVerification.verified) {
-      return apiKeyVerification;
+      return { ...apiKeyVerification, attempts };
     }
 
-    if (authStatusVerification.observedEmail) {
-      return authStatusVerification;
+    if (timedAuthStatusVerification.observedEmail) {
+      return { ...timedAuthStatusVerification, attempts };
     }
     if (apiKeyVerification.observedEmail) {
-      return apiKeyVerification;
+      return { ...apiKeyVerification, attempts };
     }
     if (protoVerification.observedEmail) {
-      return protoVerification;
+      return { ...protoVerification, attempts };
     }
-    if (authStatusVerification.error) {
-      return authStatusVerification;
+    if (timedAuthStatusVerification.error) {
+      return { ...timedAuthStatusVerification, attempts };
     }
     if (apiKeyVerification.error) {
-      return apiKeyVerification;
+      return { ...apiKeyVerification, attempts };
     }
 
-    return protoVerification;
+    return { ...protoVerification, attempts };
   }
 
   private async finalizePendingSwitchIfRuntimeMatches(
@@ -472,19 +507,38 @@ export class WindsurfAccountManager {
     fallbackError: string;
     phase: string;
     injectedApiKey?: string;
+    traceId?: string;
+    operationStartedAt?: number;
   }): Promise<SwitchResult> {
     const verification = await this.probeRuntimeSwitch(options.email);
     if (!verification.verified) {
+      this.logger.warn("Account switch failed.", {
+        traceId: options.traceId,
+        operation: "account.switch",
+        phase: options.phase,
+        accountId: options.id,
+        email: options.email,
+        error: options.fallbackError,
+        verification,
+        durationMs: options.operationStartedAt
+          ? Date.now() - options.operationStartedAt
+          : undefined,
+      });
       return { success: false, error: options.fallbackError };
     }
 
     await this.commitVerifiedSwitch(options.id, options.injectedApiKey);
     this.logger.warn("Recovered switch result from runtime truth.", {
+      traceId: options.traceId,
+      operation: "account.switch",
       id: options.id,
       email: options.email,
       phase: options.phase,
       observedEmail: verification.observedEmail,
       fallbackError: options.fallbackError,
+      durationMs: options.operationStartedAt
+        ? Date.now() - options.operationStartedAt
+        : undefined,
     });
     return { success: true };
   }
@@ -602,6 +656,10 @@ export class WindsurfAccountManager {
       default:
         return `登录失败: ${raw}`;
     }
+  }
+
+  private createTraceId(prefix: string): string {
+    return `${prefix}_${Date.now().toString(36)}_${randomBytes(3).toString("hex")}`;
   }
 
   public getAutoSwitchConfig(): AutoSwitchConfig {
@@ -737,12 +795,17 @@ export class WindsurfAccountManager {
   }
 
   public async importBatch(lines: string): Promise<ImportBatchResult> {
+    const traceId = this.createTraceId("import");
+    const startedAt = Date.now();
     const reloaded = await this.revalidateBeforeWrite();
     if (reloaded) {
       throw new Error("账号状态已在其他窗口更新，请重试操作");
     }
+    const lineCount = lines.split("\n").length;
     this.logger.info("Batch import started.", {
-      lineCount: lines.split("\n").length,
+      traceId,
+      operation: "account.import",
+      lineCount,
     });
     const entries = lines
       .split("\n")
@@ -827,7 +890,17 @@ export class WindsurfAccountManager {
       await this.save();
     }
 
-    this.logger.info("Batch import done.", { added, skipped, skippedReasons });
+    this.logger.info("Batch import done.", {
+      traceId,
+      operation: "account.import",
+      lineCount,
+      entryCount: entries.length,
+      added,
+      skipped,
+      skippedReasons,
+      activatedAccountId: this.currentAccountId,
+      durationMs: Date.now() - startedAt,
+    });
     return { added, skipped, skippedReasons };
   }
 
@@ -895,10 +968,31 @@ export class WindsurfAccountManager {
    * 优先使用已安装的无感补丁命令直接注入 apiKey session；没有补丁时保留原生命令 fallback。
    */
   public async switchTo(id: string): Promise<SwitchResult> {
+    const traceId = this.createTraceId("switch");
+    const operationStartedAt = Date.now();
     await this.revalidateBeforeWrite();
     const account = this.accounts.find((a) => a.id === id);
-    if (!account) return { success: false, error: "账号不存在" };
+    if (!account) {
+      this.logger.warn("Account switch failed.", {
+        traceId,
+        operation: "account.switch",
+        phase: "lookup",
+        accountId: id,
+        error: "账号不存在",
+        durationMs: Date.now() - operationStartedAt,
+      });
+      return { success: false, error: "账号不存在" };
+    }
 
+    this.logger.info("Account switch started.", {
+      traceId,
+      operation: "account.switch",
+      accountId: id,
+      email: account.email,
+      currentAccountId: this.currentAccountId,
+    });
+
+    const precheckStartedAt = Date.now();
     const runtimeAlreadyTarget = await this.probeRuntimeSwitch(account.email);
     if (runtimeAlreadyTarget.verified) {
       await this.commitVerifiedSwitch(id);
@@ -907,6 +1001,14 @@ export class WindsurfAccountManager {
         {
           id,
           email: account.email,
+          traceId,
+          operation: "account.switch",
+          phase: "precheck",
+          observedEmail: runtimeAlreadyTarget.observedEmail,
+          source: runtimeAlreadyTarget.source,
+          attempts: runtimeAlreadyTarget.attempts,
+          phaseDurationMs: Date.now() - precheckStartedAt,
+          durationMs: Date.now() - operationStartedAt,
         },
       );
       return { success: true };
@@ -914,6 +1016,7 @@ export class WindsurfAccountManager {
 
     // ── 步骤1: 获取 Windsurf 可消费 auth token ────────────────────────────
     let idToken: string;
+    const authStartedAt = Date.now();
     try {
       const auth = await this.auth.signIn(
         account.email,
@@ -922,8 +1025,12 @@ export class WindsurfAccountManager {
       );
       idToken = auth.idToken;
       this.logger.info("Windsurf auth token ready for switch.", {
+        traceId,
+        operation: "account.switch",
+        phase: "auth",
         email: account.email,
         provider: auth.provider ?? "firebase",
+        phaseDurationMs: Date.now() - authStartedAt,
       });
     } catch (err) {
       return this.reconcileSwitchResultWithRuntime({
@@ -931,15 +1038,21 @@ export class WindsurfAccountManager {
         email: account.email,
         phase: "auth",
         fallbackError: this.formatSwitchAuthFailure(err),
+        traceId,
+        operationStartedAt,
       });
     }
 
     // ── 步骤2: 发现 Windsurf session 注入命令 ────────────────────────────
     this.logger.info("Discovering Windsurf auth commands.", {
+      traceId,
+      operation: "account.switch",
+      phase: "discover-command",
       email: account.email,
     });
     let patchedAuthCmd: string | undefined;
     let nativeAuthCmd: string | undefined;
+    const discoveryStartedAt = Date.now();
     try {
       [patchedAuthCmd, nativeAuthCmd] = await Promise.all([
         findPatchedWindsurfAuthCommand(),
@@ -947,7 +1060,12 @@ export class WindsurfAccountManager {
       ]);
     } catch (err) {
       this.logger.warn("Windsurf auth command discovery failed.", {
+        traceId,
+        operation: "account.switch",
+        phase: "discover-command",
         error: String(err),
+        phaseDurationMs: Date.now() - discoveryStartedAt,
+        durationMs: Date.now() - operationStartedAt,
       });
       return {
         success: false,
@@ -969,6 +1087,15 @@ export class WindsurfAccountManager {
           this.logger,
         );
         if (patchResult.success && patchResult.needsRestart) {
+          this.logger.warn("Account switch failed.", {
+            traceId,
+            operation: "account.switch",
+            phase: "patch-apply",
+            accountId: id,
+            email: account.email,
+            error: "无感补丁已写入，请重启 Windsurf 后再次切换账号。",
+            durationMs: Date.now() - operationStartedAt,
+          });
           return {
             success: false,
             error: "无感补丁已写入，请重启 Windsurf 后再次切换账号。",
@@ -984,21 +1111,44 @@ export class WindsurfAccountManager {
     }
 
     if (!patchedAuthCmd && !nativeAuthCmd) {
+      this.logger.warn("Account switch failed.", {
+        traceId,
+        operation: "account.switch",
+        phase: "discover-command",
+        accountId: id,
+        email: account.email,
+        error: "未找到 Windsurf 认证命令，请确保 Windsurf 已完全加载。",
+        durationMs: Date.now() - operationStartedAt,
+      });
       return {
         success: false,
         error: "未找到 Windsurf 认证命令，请确保 Windsurf 已完全加载。",
       };
     }
     this.logger.info("Found Windsurf auth command.", {
+      traceId,
+      operation: "account.switch",
+      phase: "discover-command",
       command: patchedAuthCmd ?? nativeAuthCmd,
       mode: patchedAuthCmd ? "patched" : "native",
+      phaseDurationMs: Date.now() - discoveryStartedAt,
     });
 
     // ── 步骤3: 注入新 session（不先 logout，避免中断当前会话） ──────────
     let injectedApiKey: string | undefined;
+    const injectionStartedAt = Date.now();
     try {
       if (patchedAuthCmd) {
+        const registerStartedAt = Date.now();
         const registered = await this.auth.registerUser(idToken);
+        this.logger.info("Account switch phase done.", {
+          traceId,
+          operation: "account.switch",
+          phase: "register-user",
+          accountId: id,
+          email: account.email,
+          phaseDurationMs: Date.now() - registerStartedAt,
+        });
         injectedApiKey = registered.apiKey;
         const result = await withTimeout(
           vscode.commands.executeCommand<{
@@ -1014,7 +1164,11 @@ export class WindsurfAccountManager {
         );
         if (result?.error) {
           this.logger.warn("Windsurf patched auth command returned error.", {
+            traceId,
+            operation: "account.switch",
+            phase: "patched-command",
             error: result.error,
+            phaseDurationMs: Date.now() - injectionStartedAt,
           });
           injectedApiKey = undefined;
           if (!nativeAuthCmd) {
@@ -1023,6 +1177,8 @@ export class WindsurfAccountManager {
               email: account.email,
               phase: "patched-command",
               fallbackError: `Windsurf 认证失败: ${JSON.stringify(result.error)}`,
+              traceId,
+              operationStartedAt,
             });
           }
         } else {
@@ -1031,6 +1187,10 @@ export class WindsurfAccountManager {
             {
               id,
               email: account.email,
+              traceId,
+              operation: "account.switch",
+              phase: "patched-command",
+              phaseDurationMs: Date.now() - injectionStartedAt,
             },
           );
         }
@@ -1038,6 +1198,15 @@ export class WindsurfAccountManager {
 
       if (!patchedAuthCmd || !injectedApiKey) {
         if (!nativeAuthCmd) {
+          this.logger.warn("Account switch failed.", {
+            traceId,
+            operation: "account.switch",
+            phase: "native-command",
+            accountId: id,
+            email: account.email,
+            error: "未找到 Windsurf 原生认证命令，且补丁注入未成功。",
+            durationMs: Date.now() - operationStartedAt,
+          });
           return {
             success: false,
             error: "未找到 Windsurf 原生认证命令，且补丁注入未成功。",
@@ -1054,13 +1223,19 @@ export class WindsurfAccountManager {
         );
         if (result?.error) {
           this.logger.warn("Windsurf auth command returned error.", {
+            traceId,
+            operation: "account.switch",
+            phase: "native-command",
             error: result.error,
+            phaseDurationMs: Date.now() - injectionStartedAt,
           });
           return this.reconcileSwitchResultWithRuntime({
             id,
             email: account.email,
             phase: "native-command",
             fallbackError: `Windsurf 认证失败: ${JSON.stringify(result.error)}`,
+            traceId,
+            operationStartedAt,
           });
         }
       }
@@ -1072,12 +1247,18 @@ export class WindsurfAccountManager {
           phase: "session-injection",
           fallbackError: `Session 注入失败: ${String(err)}`,
           injectedApiKey,
+          traceId,
+          operationStartedAt,
         });
       }
       this.logger.warn(
         "Patched session injection failed, falling back to native auth command.",
         {
+          traceId,
+          operation: "account.switch",
+          phase: "native-command-fallback",
           error: String(err),
+          phaseDurationMs: Date.now() - injectionStartedAt,
         },
       );
       try {
@@ -1091,13 +1272,19 @@ export class WindsurfAccountManager {
         );
         if (result?.error) {
           this.logger.warn("Windsurf auth command returned error.", {
+            traceId,
+            operation: "account.switch",
+            phase: "native-command-fallback",
             error: result.error,
+            phaseDurationMs: Date.now() - injectionStartedAt,
           });
           return this.reconcileSwitchResultWithRuntime({
             id,
             email: account.email,
             phase: "native-command-fallback",
             fallbackError: `Windsurf 认证失败: ${JSON.stringify(result.error)}`,
+            traceId,
+            operationStartedAt,
           });
         }
         injectedApiKey = undefined;
@@ -1108,20 +1295,30 @@ export class WindsurfAccountManager {
           phase: "native-command-fallback",
           fallbackError: `Session 注入失败: ${String(err)}; fallback: ${String(fallbackErr)}`,
           injectedApiKey,
+          traceId,
+          operationStartedAt,
         });
       }
     }
 
     // ── 步骤4: 验证运行时当前账号确实已切换 ───────────────────────────────
+    const verifyStartedAt = Date.now();
     const verification = await this.verifyRuntimeSwitch(account.email);
     if (!verification.verified) {
       this.logger.warn(
         "Windsurf runtime account verification failed after switch.",
         {
+          traceId,
+          operation: "account.switch",
+          phase: "verify",
+          accountId: id,
           expectedEmail: account.email,
           source: verification.source,
           observedEmail: verification.observedEmail,
           error: verification.error,
+          attempts: verification.attempts,
+          phaseDurationMs: Date.now() - verifyStartedAt,
+          durationMs: Date.now() - operationStartedAt,
         },
       );
       const detail =
@@ -1138,9 +1335,17 @@ export class WindsurfAccountManager {
     // ── 步骤5: 更新内部状态 ──────────────────────────────────────────────
     await this.commitVerifiedSwitch(id, injectedApiKey);
     this.logger.info("Switched to account.", {
+      traceId,
+      operation: "account.switch",
+      phase: "done",
       id,
       email: account.email,
       mode: injectedApiKey ? "patched" : "native",
+      verificationSource: verification.source,
+      observedEmail: verification.observedEmail,
+      attempts: verification.attempts,
+      verifyDurationMs: Date.now() - verifyStartedAt,
+      durationMs: Date.now() - operationStartedAt,
     });
     return { success: true };
   }
@@ -1431,11 +1636,51 @@ export class WindsurfAccountManager {
   public async fetchRealQuota(
     accountId?: string,
   ): Promise<{ success: boolean; error?: string }> {
-    const id = accountId ?? this.currentAccountId;
+    const traceId = this.createTraceId("quota");
+    const startedAt = Date.now();
+    const requestedId = accountId ?? this.currentAccountId;
+    const runtimeId = await this.getRealCurrentAccountId();
+    let id = requestedId;
+    if (
+      runtimeId &&
+      requestedId &&
+      runtimeId !== requestedId &&
+      (requestedId === this.currentAccountId || requestedId === this.pendingSwitchId)
+    ) {
+      this.logger.warn("Quota refresh target reconciled with runtime account.", {
+        traceId,
+        operation: "quota.refresh",
+        phase: "resolve-target",
+        requestedAccountId: requestedId,
+        runtimeAccountId: runtimeId,
+        currentAccountId: this.currentAccountId,
+        pendingSwitchId: this.pendingSwitchId,
+      });
+      await this.finalizePendingSwitch(runtimeId, false);
+      id = runtimeId;
+    } else if (!id && runtimeId) {
+      id = runtimeId;
+    }
     const account = id ? this.accounts.find((a) => a.id === id) : undefined;
     if (!account) {
+      this.logger.warn("Quota refresh failed.", {
+        traceId,
+        operation: "quota.refresh",
+        phase: "lookup",
+        accountId: id,
+        error: "账号不存在",
+        durationMs: Date.now() - startedAt,
+      });
       return { success: false, error: "账号不存在" };
     }
+
+    this.logger.info("Quota refresh started.", {
+      traceId,
+      operation: "quota.refresh",
+      phase: "start",
+      accountId: account.id,
+      email: account.email,
+    });
 
     const endQuotaFetch = this.beginQuotaFetch([account.id]);
     try {
@@ -1465,6 +1710,10 @@ export class WindsurfAccountManager {
               source: result.source,
               observedEmail: result.userEmail,
               reason: quotaGuard.reason,
+              traceId,
+              operation: "quota.refresh",
+              phase: "write-guard",
+              durationMs: Date.now() - startedAt,
             });
             return { success: false, error: quotaGuard.reason };
           }
@@ -1484,9 +1733,30 @@ export class WindsurfAccountManager {
           }
           await this.save();
         }
+        this.logger.info("Quota refresh succeeded.", {
+          traceId,
+          operation: "quota.refresh",
+          phase: "done",
+          accountId: account.id,
+          email: account.email,
+          source: result.source,
+          observedEmail: result.userEmail,
+          durationMs: Date.now() - startedAt,
+        });
         return { success: true };
       }
 
+      this.logger.warn("Quota refresh failed.", {
+        traceId,
+        operation: "quota.refresh",
+        phase: "fetch",
+        accountId: account.id,
+        email: account.email,
+        source: result.source,
+        observedEmail: result.userEmail,
+        error: result.error,
+        durationMs: Date.now() - startedAt,
+      });
       return { success: false, error: result.error };
     } finally {
       endQuotaFetch();

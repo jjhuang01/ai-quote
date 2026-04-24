@@ -497,6 +497,14 @@ describe('QuoteSidebarProvider - handleMessage', () => {
 
       expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).toHaveBeenCalledWith('ws_1');
       expect(order).toEqual(['sync', 'result', 'quota-start', 'sync']);
+      expect(ctx.logger.info).toHaveBeenCalledWith(
+        'Quota refresh requested.',
+        expect.objectContaining({
+          operation: 'quota.refresh.request',
+          accountId: 'ws_1',
+          reason: 'switch-warmup',
+        }),
+      );
       const switchResult = ctx.postMessage.mock.calls
         .map((c: any) => c[0])
         .find((m: any) => m.type === 'switchResult');
@@ -573,6 +581,8 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
       const switchResult = calls.find((m: any) => m.type === 'switchResult');
       expect(switchResult?.value?.success).toBe(false);
+      expect(ctx.dataManager.windsurfAccounts.getDisplayCurrentAccountId).toHaveBeenCalled();
+      expect(calls.some((m: any) => m.type === 'accountsSync')).toBe(true);
     });
   });
 
@@ -811,6 +821,14 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       await ctx.send({ type: 'fetchQuota', value: 'ws_1' });
 
       expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).toHaveBeenCalledWith('ws_1');
+      expect(ctx.logger.info).toHaveBeenCalledWith(
+        'Quota refresh requested.',
+        expect.objectContaining({
+          operation: 'quota.refresh.request',
+          accountId: 'ws_1',
+          reason: 'manual-refresh',
+        }),
+      );
 
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
       expect(calls.some((m: any) => m.type === 'quotaFetchStarted' && m.value?.accountId === 'ws_1')).toBe(true);
@@ -868,6 +886,21 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       expect(calls.some((m: any) => m.type === 'debugInfo')).toBe(true);
       expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
         expect.stringContaining('重启 Windsurf'),
+      );
+    });
+
+    it('获取 debugInfo 时包含账号摘要并读取更多日志', async () => {
+      await ctx.send({ type: 'getDebugInfo' });
+
+      expect(ctx.logger.getRecentLogs).toHaveBeenCalledWith(500);
+      const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      const debugInfo = calls.find((m: any) => m.type === 'debugInfo');
+      expect(debugInfo?.value?.accountSummary).toEqual(
+        expect.objectContaining({
+          total: 0,
+          currentAccountId: 'ws_1',
+          currentEmail: 'test@example.com',
+        }),
       );
     });
   });

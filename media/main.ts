@@ -333,6 +333,15 @@ let state = {
     | {
         logPath: string;
         logContent: string;
+        accountSummary?: {
+          total: number;
+          currentAccountId?: string;
+          currentEmail: string | null;
+          quotaFetching: boolean;
+          quotaFetchingAll: boolean;
+          quotaFetchingIds: string[];
+          lastAutoSwitchResult?: unknown;
+        };
         patchApplied: boolean;
         patchExtensionPath: string | null;
         patchError: string | null;
@@ -1603,6 +1612,22 @@ function renderDebugTab(_bs: Bootstrap): string {
           }
         </div>
 
+        ${
+          info?.accountSummary
+            ? `
+        <div class="dbg-section">
+          <div class="dbg-row">
+            <span class="dbg-label">账号状态</span>
+            <span class="dbg-path">总数 ${info.accountSummary.total} · 当前 ${escapeHtml(info.accountSummary.currentEmail ?? info.accountSummary.currentAccountId ?? "—")}</span>
+          </div>
+          <div class="dbg-row">
+            <span class="dbg-label">刷新状态</span>
+            <span class="dbg-path">${info.accountSummary.quotaFetching ? "刷新中" : "空闲"}${info.accountSummary.quotaFetchingAll ? " · 全量" : ""}${info.accountSummary.quotaFetchingIds.length > 0 ? ` · ${escapeHtml(info.accountSummary.quotaFetchingIds.join(", "))}` : ""}</span>
+          </div>
+        </div>`
+            : ""
+        }
+
         <div class="dbg-section">
           <div class="dbg-row-header">
             <span class="dbg-label">${icon("fileText")} 日志 (${filtered.length}/${rawLines.length})</span>
@@ -2577,7 +2602,8 @@ function handleAction(el: HTMLElement): void {
       break;
     case "debugCopyLogs": {
       if (state.debugInfo) {
-        const header = `=== Quote Debug Report ===\n日志路径: ${state.debugInfo.logPath}\nWindsurf 补丁: ${state.debugInfo.patchApplied ? "已应用" : "未应用"}${state.debugInfo.patchExtensionPath ? `\nextension.js: ${state.debugInfo.patchExtensionPath}` : ""}${state.debugInfo.patchError ? `\n补丁错误: ${state.debugInfo.patchError}` : ""}\n时间: ${new Date().toISOString()}\n\n=== 最近日志 ===\n`;
+        const summary = state.debugInfo.accountSummary;
+        const header = `=== Quote Debug Report ===\n日志路径: ${state.debugInfo.logPath}\nWindsurf 补丁: ${state.debugInfo.patchApplied ? "已应用" : "未应用"}${state.debugInfo.patchExtensionPath ? `\nextension.js: ${state.debugInfo.patchExtensionPath}` : ""}${state.debugInfo.patchError ? `\n补丁错误: ${state.debugInfo.patchError}` : ""}\n账号总数: ${summary?.total ?? "未知"}\n当前账号: ${summary?.currentEmail ?? summary?.currentAccountId ?? "未知"}\n刷新状态: ${summary?.quotaFetching ? "刷新中" : "空闲"}${summary?.quotaFetchingAll ? " / 全量" : ""}${summary?.quotaFetchingIds?.length ? ` / ${summary.quotaFetchingIds.join(",")}` : ""}\n最近自动换号: ${summary?.lastAutoSwitchResult ? JSON.stringify(summary.lastAutoSwitchResult) : "无"}\n时间: ${new Date().toISOString()}\n\n=== 最近日志 ===\n`;
         void navigator.clipboard
           .writeText(header + state.debugInfo.logContent)
           .then(() => {

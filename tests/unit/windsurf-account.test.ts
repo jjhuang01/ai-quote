@@ -474,6 +474,26 @@ describe('WindsurfAccountManager', () => {
       expect(updatedA2.quota.dailyUsed).toBe(1);
       expect(manager.getCurrentAccountId()).toBe(a2.id);
     });
+
+    it('getRealCurrentAccountId 优先使用 authstatus，避免被滞后 proto 误导', async () => {
+      await manager.initialize();
+      await manager.add('a1@test.com', 'p1');
+      const a2 = await manager.add('a2@test.com', 'p2');
+      (manager as any).quotaFetcher.fetchCurrentRuntimeUserFromAuthStatus = vi.fn(async () => ({
+        success: true,
+        source: 'authstatus',
+        userEmail: 'a2@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      (manager as any).quotaFetcher.fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a1@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+
+      await expect(manager.getRealCurrentAccountId()).resolves.toBe(a2.id);
+    });
   });
 
   describe('配额快照', () => {
@@ -698,6 +718,19 @@ describe('WindsurfAccountManager', () => {
       expect(result.error).toContain('切换后校验失败');
       expect(manager.getCurrentAccountId()).toBe(a1.id);
       expect(manager.getImmediateCurrentAccountId()).toBe(a1.id);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'Windsurf runtime account verification failed after switch.',
+        expect.objectContaining({
+          expectedEmail: 'b@test.com',
+          source: 'proto',
+          observedEmail: 'a@test.com',
+          attempts: expect.arrayContaining([
+            expect.objectContaining({ source: 'authstatus', verified: false }),
+            expect.objectContaining({ source: 'proto', verified: false, observedEmail: 'a@test.com' }),
+            expect.objectContaining({ source: 'apikey', verified: false }),
+          ]),
+        }),
+      );
     });
 
     it('切换后若 proto 仍是旧账号但 apikey 已切到目标账号，则按真实运行时判定为成功', async () => {
@@ -930,7 +963,74 @@ describe('WindsurfAccountManager', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('目标账号是 a2@test.com');
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'Rejected quota write for mismatched account.',
+        expect.objectContaining({
+          operation: 'quota.refresh',
+          phase: 'write-guard',
+          traceId: expect.stringMatching(/^quota_/),
+          accountId: a2.id,
+        }),
+      );
       expect(manager.getById(a2.id)?.realQuota).toBeUndefined();
+      expect(manager.getById(a1.id)?.realQuota).toBeUndefined();
+    });
+
+    it('fetchRealQuota 当前账号陈旧时按真实运行时账号刷新并收敛 currentAccountId', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a1@test.com', 'p1');
+      const a2 = await manager.add('a2@test.com', 'p2');
+      (manager as any).quotaFetcher.fetchCurrentRuntimeUserFromAuthStatus = vi.fn(async () => ({
+        success: true,
+        source: 'authstatus',
+        userEmail: 'a2@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      (manager as any).quotaFetcher.fetchQuota = vi.fn(async (_id: string, email: string) => ({
+        success: true,
+        source: 'proto',
+        userEmail: email,
+        fetchedAt: new Date().toISOString(),
+        planInfo: {
+          planName: 'Trial',
+          billingStrategy: 'quota',
+          startTimestamp: 0,
+          endTimestamp: 0,
+          usage: {
+            duration: 0,
+            messages: 100,
+            flowActions: 0,
+            flexCredits: 0,
+            usedMessages: 80,
+            usedFlowActions: 0,
+            usedFlexCredits: 0,
+            remainingMessages: 20,
+            remainingFlowActions: 0,
+            remainingFlexCredits: 0,
+          },
+          hasBillingWritePermissions: false,
+          gracePeriodStatus: 0,
+          quotaUsage: {
+            dailyRemainingPercent: 20,
+            weeklyRemainingPercent: 70,
+            overageBalanceMicros: 0,
+            dailyResetAtUnix: 0,
+            weeklyResetAtUnix: 0,
+          },
+        },
+      }));
+
+      const result = await manager.fetchRealQuota(a1.id);
+
+      expect(result.success).toBe(true);
+      expect((manager as any).quotaFetcher.fetchQuota).toHaveBeenCalledWith(
+        a2.id,
+        'a2@test.com',
+        'p2',
+        { forceRefresh: true, preferLocal: true },
+      );
+      expect(manager.getCurrentAccountId()).toBe(a2.id);
+      expect(manager.getById(a2.id)?.realQuota?.dailyRemainingPercent).toBe(20);
       expect(manager.getById(a1.id)?.realQuota).toBeUndefined();
     });
 
@@ -967,6 +1067,16 @@ describe('WindsurfAccountManager', () => {
       const existing = await manager.add('existing@test.com', 'p');
       const result = await manager.importBatch('new1@test.com----p1\nnew2@test.com----p2');
       expect(result.added).toBe(2);
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'Batch import done.',
+        expect.objectContaining({
+          operation: 'account.import',
+          traceId: expect.stringMatching(/^import_/),
+          entryCount: 2,
+          added: 2,
+          durationMs: expect.any(Number),
+        }),
+      );
       expect(manager.getCurrentAccountId()).toBe(existing.id);
       // 新导入的不应 isActive
       const newAccounts = manager.getAll().filter(a => a.id !== existing.id);

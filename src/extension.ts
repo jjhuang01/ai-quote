@@ -165,8 +165,7 @@ export async function activate(
       if (!dataManager) {
         return { success: 0, failed: 1, errors: ["DataManager unavailable"] };
       }
-      const currentId = dataManager.windsurfAccounts.getImmediateCurrentAccountId()
-        ?? dataManager.windsurfAccounts.getCurrentAccountId();
+      const currentId = await dataManager.windsurfAccounts.getDisplayCurrentAccountId();
       if (!currentId) {
         return { success: 0, failed: 1, errors: ["No current account"] };
       }
@@ -459,8 +458,7 @@ export async function activate(
   const QUOTA_AUTO_REFRESH_MS = 5 * 60_000;
   const quotaRefreshInterval = setInterval(async () => {
     if (!dataManager) return;
-    const currentId = dataManager.windsurfAccounts.getImmediateCurrentAccountId()
-      ?? dataManager.windsurfAccounts.getCurrentAccountId();
+    const currentId = await dataManager.windsurfAccounts.getDisplayCurrentAccountId();
     if (!currentId) return;
     await dataManager.windsurfAccounts.fetchRealQuota(currentId);
     sidebarProvider.postBootstrap();
