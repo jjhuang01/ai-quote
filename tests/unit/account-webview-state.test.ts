@@ -4,6 +4,7 @@ import {
   filterAccountsForQuery,
   getFilteredAccountIds,
   normalizeAccountSelection,
+  reconcileQuotaFetchingIds,
 } from '../../media/account-webview-state';
 
 describe('account-webview-state', () => {
@@ -31,6 +32,17 @@ describe('account-webview-state', () => {
 
     expect(getFilteredAccountIds(accounts, 'teams')).toEqual(['2']);
     expect(getFilteredAccountIds(accounts, '')).toEqual(['1', '2', '3']);
+  });
+
+
+  it('reconciles local quota fetching ids with provider ids and existing accounts', () => {
+    const next = reconcileQuotaFetchingIds({
+      localIds: new Set(['ws_1', 'ws_stale', 'ws_deleted']),
+      providerIds: ['ws_2', 'ws_deleted'],
+      existingAccountIds: ['ws_1', 'ws_2'],
+    });
+
+    expect([...next]).toEqual(['ws_2']);
   });
 
   it('clamps scroll after account count shrinks', () => {

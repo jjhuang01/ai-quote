@@ -210,23 +210,26 @@ export async function activate(
     bridge.updateToolName(newName);
     activeToolName = newName;
     await rememberOwnedMcpName(context, newName);
+    const rotationConfig = getExtensionConfig();
     const sseUrl = `http://127.0.0.1:${bridge.getPort()}/sse`;
-    try {
-      await writeMcpConfig(detectCurrentIde(), newName, sseUrl);
-      await configureGlobalRules(newName);
-      logger?.info('MCP config + rules re-written after rotation.', { newName });
-    } catch (err) {
-      logger?.warn('Re-write after rotation partially failed.', { error: String(err) });
-    }
-    try {
-      const { cleanupStaleRules } = await import('./adapters/rules');
-      const removed = await cleanupStaleRules(newName);
-      if (removed.length > 0) {
-        logger?.info('Stale rule files cleaned up after rotation.', { removed });
+    const rewritten: string[] = [];
+    if (rotationConfig.autoConfigureMcp && vscode.workspace.isTrusted) {
+      try {
+        await writeMcpConfig(detectCurrentIde(), newName, sseUrl);
+        rewritten.push('mcp');
+      } catch (err) {
+        logger?.warn('MCP config re-write after rotation failed.', { error: String(err) });
       }
-    } catch (err) {
-      logger?.warn('cleanupStaleRules after rotation failed (non-fatal).', { error: String(err) });
     }
+    if (rotationConfig.autoConfigureRules && vscode.workspace.isTrusted) {
+      try {
+        await configureGlobalRules(newName);
+        rewritten.push('rules');
+      } catch (err) {
+        logger?.warn('Rules re-write after rotation failed.', { error: String(err) });
+      }
+    }
+    logger?.info('Rotation side effects completed.', { newName, rewritten });
     return { newName };
   };
   sidebarProvider.setRotateMcpNameCallback(rotateMcpName);
@@ -248,40 +251,51 @@ export async function activate(
 
   // Auto MCP config and rules writing
   const sseUrl = `http://127.0.0.1:${runningPort}/sse`;
-  if (config.autoConfigureRules && vscode.workspace.isTrusted) {
-    const configuredPaths: string[] = [];
-    try {
-      const mcpPath = await writeMcpConfig(currentIde, toolName, sseUrl);
-      await rememberOwnedMcpName(context, toolName);
-      configuredPaths.push(mcpPath);
-      logger.info('MCP config written.', { mcpPath });
-    } catch (err) {
-      logger.warn('Failed to write MCP config.', { error: String(err) });
+  const configuredPaths: string[] = [];
+  if (vscode.workspace.isTrusted) {
+    if (config.autoConfigureMcp) {
+      try {
+        const mcpPath = await writeMcpConfig(currentIde, toolName, sseUrl);
+        await rememberOwnedMcpName(context, toolName);
+        configuredPaths.push(mcpPath);
+        logger.info('MCP config written.', { mcpPath });
+      } catch (err) {
+        logger.warn('Failed to write MCP config.', { error: String(err) });
+      }
+
+      const guardLogger = logger;
+      const mcpGuardInterval = setInterval(async () => {
+        try {
+          const ok = await ensureMcpConfigEntry(currentIde, toolName, sseUrl);
+          if (!ok) {
+            guardLogger.warn('MCP config entry missing — re-written.');
+          }
+        } catch {
+          /* ignore */
+        }
+      }, 30_000);
+      context.subscriptions.push({ dispose: () => clearInterval(mcpGuardInterval) });
     }
-    try {
-      const ruleResults = await configureGlobalRules(toolName);
-      configuredPaths.push(
-        ...ruleResults.filter((r) => r.written).map((r) => r.path),
-      );
-      logger.info('Rules configured.', { ruleResults });
-    } catch (err) {
-      logger.warn('Failed to configure rules.', { error: String(err) });
+
+    if (config.autoConfigureRules) {
+      try {
+        const ruleResults = await configureGlobalRules(toolName);
+        configuredPaths.push(
+          ...ruleResults.filter((r) => r.written).map((r) => r.path),
+        );
+        logger.info('Rules configured.', { ruleResults });
+      } catch (err) {
+        logger.warn('Failed to configure rules.', { error: String(err) });
+      }
     }
     bridge.setConfiguredPaths(configuredPaths);
     logger.info('Auto configuration completed.', { configuredPaths, secondaryInstance });
-
-    const guardLogger = logger;
-    const mcpGuardInterval = setInterval(async () => {
-      try {
-        const ok = await ensureMcpConfigEntry(currentIde, toolName, sseUrl);
-        if (!ok) {
-          guardLogger.warn('MCP config entry missing — re-written.');
-        }
-      } catch {
-        /* ignore */
-      }
-    }, 30_000);
-    context.subscriptions.push({ dispose: () => clearInterval(mcpGuardInterval) });
+  } else {
+    bridge.setConfiguredPaths(configuredPaths);
+    logger.info('Auto configuration skipped because workspace is untrusted.', {
+      autoConfigureMcp: config.autoConfigureMcp,
+      autoConfigureRules: config.autoConfigureRules,
+    });
   }
 
   // Register MCP dialog callback: open QuoteDialogPanel (editor tab) on LLM call
@@ -483,7 +497,9 @@ export async function activate(
     currentIde: currentIde.name,
     requestedPort: config.serverPort,
     runningPort,
+    autoConfigureMcp: config.autoConfigureMcp,
     autoConfigureRules: config.autoConfigureRules,
+    cleanupOnDeactivate: config.cleanupOnDeactivate,
   });
 
   // ── 备用渠道：如果有 pending 切换则完成（兼容旧逻辑） ───────────────
@@ -522,36 +538,42 @@ async function completePendingSwitch(
 }
 
 export async function deactivate(): Promise<void> {
-  // Clean up this window's MCP config entry and workspace rules.
   try {
-    const context = extensionContext;
-    const ide = detectCurrentIde();
-    const ownedNames = context ? getOwnedMcpNames(context) : [];
-    const namesToClean = new Set<string>(ownedNames);
-    if (activeToolName) {
-      namesToClean.add(activeToolName);
-    }
-    if (namesToClean.size > 0) {
-      await removeMcpConfigEntries(ide, [...namesToClean]);
-    }
-    // Remove workspace rules only if they reference OUR toolName (not another window's)
-    const fs = await import('node:fs/promises');
-    const path = await import('node:path');
-    const wsFolder = vscode.workspace.workspaceFolders?.[0];
-    if (wsFolder && activeToolName) {
-      for (const rulesFile of ['.windsurfrules', 'AI_FEEDBACK_RULES.md']) {
-        const rulesPath = path.join(wsFolder.uri.fsPath, rulesFile);
-        const content = await fs.readFile(rulesPath, 'utf8').catch(() => '');
-        if (content.includes(activeToolName)) {
-          await fs.unlink(rulesPath).catch(() => {});
+    const cleanupConfig = getExtensionConfig();
+    if (cleanupConfig.cleanupOnDeactivate) {
+      const context = extensionContext;
+      const ide = detectCurrentIde();
+      const ownedNames = context ? getOwnedMcpNames(context) : [];
+      const namesToClean = new Set<string>(ownedNames);
+      if (activeToolName) {
+        namesToClean.add(activeToolName);
+      }
+      if (namesToClean.size > 0) {
+        await removeMcpConfigEntries(ide, [...namesToClean]);
+      }
+      const fs = await import('node:fs/promises');
+      const path = await import('node:path');
+      const wsFolder = vscode.workspace.workspaceFolders?.[0];
+      if (wsFolder && activeToolName) {
+        for (const rulesFile of ['.windsurfrules', 'AI_FEEDBACK_RULES.md']) {
+          const rulesPath = path.join(wsFolder.uri.fsPath, rulesFile);
+          const content = await fs.readFile(rulesPath, 'utf8').catch(() => '');
+          if (content.includes(activeToolName)) {
+            await fs.unlink(rulesPath).catch(() => {});
+          }
         }
       }
+      logger?.info('Deactivate cleanup done.', {
+        activeToolName,
+        secondaryInstance,
+        ownedMcpNames: [...namesToClean],
+      });
+    } else {
+      logger?.info('Deactivate cleanup skipped by configuration.', {
+        activeToolName,
+        secondaryInstance,
+      });
     }
-    logger?.info('Deactivate cleanup done.', {
-      activeToolName,
-      secondaryInstance,
-      ownedMcpNames: [...namesToClean],
-    });
   } catch (err) {
     logger?.warn('Deactivate cleanup failed (non-fatal).', { error: String(err) });
   }

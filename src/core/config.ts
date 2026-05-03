@@ -4,7 +4,9 @@ export type SwitchWarmupMode = 'off' | 'quota-only';
 
 export interface QuoteConfig {
   serverPort: number;
+  autoConfigureMcp: boolean;
   autoConfigureRules: boolean;
+  cleanupOnDeactivate: boolean;
   dialogTimeoutSeconds: number;
   switchWarmupMode: SwitchWarmupMode;
 }
@@ -37,7 +39,9 @@ export function getExtensionConfig(): QuoteConfig {
   const config = vscode.workspace.getConfiguration('quote');
   return {
     serverPort: config.get<number>('serverPort', 3456),
-    autoConfigureRules: config.get<boolean>('autoConfigureRules', true),
+    autoConfigureMcp: config.get<boolean>('autoConfigureMcp', false),
+    autoConfigureRules: config.get<boolean>('autoConfigureRules', false),
+    cleanupOnDeactivate: config.get<boolean>('cleanupOnDeactivate', false),
     dialogTimeoutSeconds: config.get<number>('dialogTimeoutSeconds', 0),
     switchWarmupMode: getSwitchWarmupMode()
   };

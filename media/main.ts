@@ -9,6 +9,7 @@ import {
   filterAccountsForQuery,
   getFilteredAccountIds,
   normalizeAccountSelection,
+  reconcileQuotaFetchingIds,
 } from "./account-webview-state";
 
 declare function acquireVsCodeApi(): {
@@ -176,6 +177,12 @@ interface Bootstrap {
   };
   responseQueue?: string[];
 }
+
+type AccountDeleteBatchResult =
+  | { success: true; removed: number; message: string }
+  | { success: false; canceled: true; message: string }
+  | { success: false; canceled?: false; message: string };
+
 
 declare global {
   interface Window {
@@ -964,6 +971,17 @@ function renderAccountItem(
               >
                 <span class="ac-refresh-ico">${icon("refresh")}</span>
               </button>
+              ${!state.selectMode ? `
+              <button
+                class="ac-btn ac-btn-delete"
+                data-action="accountDelete"
+                data-id="${a.id}"
+                type="button"
+                title="删除账号"
+                aria-label="删除账号 ${escapeHtml(a.email)}"
+              >
+                <span class="ac-delete-ico">${icon("trash")}</span>
+              </button>` : ""}
             </div>
           </div>
         </div>
@@ -1307,31 +1325,6 @@ function renderSettingsTab(bs: Bootstrap): string {
       </section>
 
       <section class="card">
-        <div class="section-header"><h2>MCP 清理白名单</h2></div>
-        <div class="settings-section">
-          <p class="hint" style="margin:0 0 8px">以下 MCP 服务在执行「清理旧MCP配置」时将被保留，不会被删除。</p>
-          <div class="whitelist-tags" id="mcpWhitelistTags">
-            ${(settings.mcpWhitelist ?? [])
-              .map(
-                (name: string) => `
-              <span class="whitelist-tag">
-                ${escapeHtml(name)}
-                <button class="whitelist-tag-remove" data-action="mcpWhitelistRemove" data-name="${escapeHtml(name)}" title="移除">×</button>
-              </span>`,
-              )
-              .join("")}
-          </div>
-          <div class="whitelist-add-row">
-            <input class="text-input text-input-sm" id="mcpWhitelistInput" placeholder="输入 MCP 名称…" style="flex:1">
-            <button class="btn-secondary btn-sm" data-action="mcpWhitelistAdd">添加</button>
-          </div>
-        </div>
-        <div class="actions">
-          <button class="btn-grad btn-sm" data-action="settingsSave">保存白名单</button>
-        </div>
-      </section>
-
-      <section class="card">
         <div class="section-header"><h2>诊断</h2></div>
         <div class="settings-section">
           <div class="setting-row">
@@ -1352,8 +1345,8 @@ function renderSettingsTab(bs: Bootstrap): string {
       <section class="card">
         <div class="section-header"><h2>维护</h2></div>
         <div class="maintenance-grid">
-          ${renderMaintenanceBtn("maintenanceCleanMcp", `${icon("broom")} 清理旧MCP配置`, "cleanMcp")}
-          <p class="hint">清理MCP配置文件中的旧端口记录</p>
+          ${renderMaintenanceBtn("maintenanceCleanMcp", `${icon("broom")} 清理 Quote 旧 MCP 配置`, "cleanMcp")}
+          <p class="hint">仅删除本插件记录过且当前未使用的 MCP 条目</p>
           ${renderMaintenanceBtn("maintenanceResetSettings", `${icon("reset")} 重置所有设置`, "resetSettings")}
           <p class="hint">恢复默认设置（清空快捷回复、模板等）</p>
           ${renderMaintenanceBtn("maintenanceRewriteRules", `${icon("fileText")} 重写规则文件`, "rewriteRules")}
@@ -2247,8 +2240,6 @@ function handleAction(el: HTMLElement): void {
           type: "accountDeleteBatch",
           value: [...state.selectedAccountIds],
         });
-        state.selectMode = false;
-        state.selectedAccountIds = new Set();
       }
       break;
     case "autoSwitchSave": {
@@ -2449,11 +2440,6 @@ function handleAction(el: HTMLElement): void {
         (
           document.getElementById("settingFirebaseApiKey") as HTMLInputElement
         )?.value?.trim() ?? "";
-      const mcpWhitelist = Array.from(
-        document.querySelectorAll<HTMLElement>(".whitelist-tag-remove"),
-      )
-        .map((btn) => btn.dataset.name ?? "")
-        .filter(Boolean);
       vscode.postMessage({
         type: "settingsUpdate",
         payload: {
@@ -2466,46 +2452,9 @@ function handleAction(el: HTMLElement): void {
           soundAlert,
           historyLimit,
           firebaseApiKey,
-          mcpWhitelist,
         },
       });
       showToast("设置已保存");
-      break;
-    }
-    case "mcpWhitelistAdd": {
-      const input = document.getElementById(
-        "mcpWhitelistInput",
-      ) as HTMLInputElement | null;
-      const name = input?.value.trim();
-      if (!name) {
-        showToast("请输入 MCP 名称", "error");
-        break;
-      }
-      const current = (window.__QUOTE_BOOTSTRAP__?.settings?.mcpWhitelist ??
-        []) as string[];
-      if (current.includes(name)) {
-        showToast("已在白名单中", "error");
-        break;
-      }
-      const updated = [...current, name];
-      vscode.postMessage({
-        type: "settingsUpdate",
-        payload: { mcpWhitelist: updated },
-      });
-      showToast(`已添加: ${name}`);
-      break;
-    }
-    case "mcpWhitelistRemove": {
-      const name = el.dataset.name ?? "";
-      if (!name) break;
-      const current = (window.__QUOTE_BOOTSTRAP__?.settings?.mcpWhitelist ??
-        []) as string[];
-      const updated = current.filter((n: string) => n !== name);
-      vscode.postMessage({
-        type: "settingsUpdate",
-        payload: { mcpWhitelist: updated },
-      });
-      showToast(`已移除: ${name}`);
       break;
     }
     case "settingsReset":
@@ -2833,10 +2782,16 @@ window.addEventListener("message", (event) => {
     };
     window.__QUOTE_BOOTSTRAP__ = bootstrap;
 
+    const existingAccountIds = value.accounts.map((account) => account.id);
     state.selectedAccountIds = normalizeAccountSelection(
       state.selectedAccountIds,
-      value.accounts.map((account) => account.id),
+      existingAccountIds,
     );
+    state.quotaFetchingIds = reconcileQuotaFetchingIds({
+      localIds: state.quotaFetchingIds,
+      providerIds: value.quotaFetchingIds ?? [],
+      existingAccountIds,
+    });
 
     state.accountScrollTop = clampAccountScrollTop({
       scrollTop: state.accountScrollTop,
@@ -2955,6 +2910,18 @@ window.addEventListener("message", (event) => {
     if (Array.isArray(newQueue)) {
       state.responseQueue = newQueue;
       render();
+    }
+    return;
+  }
+
+  if (msg.type === "accountDeleteBatchResult") {
+    const r = msg.value as AccountDeleteBatchResult;
+    if (r.success) {
+      state.selectMode = false;
+      state.selectedAccountIds = new Set();
+      render();
+    } else {
+      showToast(r.message, r.canceled ? "info" : "error");
     }
     return;
   }

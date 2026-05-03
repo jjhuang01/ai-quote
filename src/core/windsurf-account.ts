@@ -9,7 +9,6 @@ import type {
   AutoSwitchConfig,
   AutoSwitchResult,
   QuotaSnapshot,
-  AccountQuota,
   RealQuotaInfo,
   ImportBatchResult,
   ImportSkipReasons,
@@ -27,6 +26,10 @@ const WINDSURF_COMMAND_EXECUTION_TIMEOUT_MS = 15000;
 const WINDSURF_SWITCH_VERIFY_TIMEOUT_MS = 10000;
 const WINDSURF_SWITCH_VERIFY_INTERVAL_MS = 500;
 const RELAXED_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+
+function isFutureResetAtUnix(resetAtUnix: number | undefined, nowMs = Date.now()): boolean {
+  return typeof resetAtUnix === "number" && resetAtUnix > 0 && resetAtUnix * 1000 > nowMs;
+}
 
 async function withTimeout<T>(
   promise: PromiseLike<T>,
@@ -1446,9 +1449,8 @@ export class WindsurfAccountManager {
       // Free plan availablePromptCredits=0 导致 remainingMessages=0，但 dailyRemainingPercent=100）
       const hasDailyPct = rq.dailyRemainingPercent >= 0;
       const hasWeeklyPct = rq.weeklyRemainingPercent >= 0;
-      // -1 + resetAtUnix > 0 = no data but quota tracked → treat as exhausted
-      const dailyExhaustedNoData = !hasDailyPct && rq.dailyResetAtUnix > 0;
-      const weeklyExhaustedNoData = !hasWeeklyPct && rq.weeklyResetAtUnix > 0;
+      const dailyExhaustedNoData = !hasDailyPct && isFutureResetAtUnix(rq.dailyResetAtUnix);
+      const weeklyExhaustedNoData = !hasWeeklyPct && isFutureResetAtUnix(rq.weeklyResetAtUnix);
       const dailyExhausted =
         this.autoSwitch.switchOnDaily &&
         (dailyExhaustedNoData ||
@@ -1496,9 +1498,8 @@ export class WindsurfAccountManager {
       // quota 制下 remainingMessages 不可靠，优先用百分比判断
       const hasDailyPct = rq.dailyRemainingPercent >= 0;
       const hasWeeklyPct = rq.weeklyRemainingPercent >= 0;
-      // -1 + resetAtUnix > 0 = no data but quota tracked → treat as exhausted
-      const dailyExhaustedNoData = !hasDailyPct && rq.dailyResetAtUnix > 0;
-      const weeklyExhaustedNoData = !hasWeeklyPct && rq.weeklyResetAtUnix > 0;
+      const dailyExhaustedNoData = !hasDailyPct && isFutureResetAtUnix(rq.dailyResetAtUnix);
+      const weeklyExhaustedNoData = !hasWeeklyPct && isFutureResetAtUnix(rq.weeklyResetAtUnix);
       const dailyOk =
         !this.autoSwitch.switchOnDaily ||
         (!dailyExhaustedNoData &&
@@ -1578,11 +1579,11 @@ export class WindsurfAccountManager {
       // 优先使用真实配额数据计算 warningLevel
       let warningLevel: QuotaSnapshot["warningLevel"] = "ok";
       if (rq) {
-        // -1 = API 未返回百分比字段；但 resetAtUnix > 0 表示配额有跟踪 → 视为耗尽
+        // -1 = API 未返回百分比字段；仅未来 resetAtUnix 表示当前周期配额有跟踪 → 视为耗尽
         const dailyExhaustedNoData =
-          rq.dailyRemainingPercent < 0 && rq.dailyResetAtUnix > 0;
+          rq.dailyRemainingPercent < 0 && isFutureResetAtUnix(rq.dailyResetAtUnix);
         const weeklyExhaustedNoData =
-          rq.weeklyRemainingPercent < 0 && rq.weeklyResetAtUnix > 0;
+          rq.weeklyRemainingPercent < 0 && isFutureResetAtUnix(rq.weeklyResetAtUnix);
         if (
           dailyExhaustedNoData ||
           (rq.dailyRemainingPercent >= 0 && rq.dailyRemainingPercent <= 0)

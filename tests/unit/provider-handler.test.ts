@@ -194,7 +194,7 @@ function setupProvider() {
     await (provider as any).handleMessage(msg);
   };
 
-  return { provider, bridge, logger, dataManager, postMessage, send, visibilityHandlers, disposeHandlers, mockWebviewView };
+  return { provider, bridge, logger, dataManager, postMessage, send, visibilityHandlers, disposeHandlers, mockWebviewView, mockContext };
 }
 
 describe('QuoteSidebarProvider - handleMessage', () => {
@@ -634,9 +634,37 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
       const opResult = calls.find((m: any) => m.type === 'opResult');
       expect(opResult?.value?.message).toContain('2');
+      const batchResult = calls.find((m: any) => m.type === 'accountDeleteBatchResult');
+      expect(batchResult?.value).toEqual({ success: true, removed: 2, message: '已删除 2 个账号' });
       const syncCalls = calls.filter((m: any) => m.type === 'accountsSync');
       expect(syncCalls.length).toBeGreaterThan(0);
       expect(syncCalls.every((m: any) => m.value?.currentAccountId === 'ws_1')).toBe(true);
+    });
+
+    it('取消批量删除时发送取消 result 且保留数据', async () => {
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as any);
+      ctx.postMessage.mockClear();
+
+      await ctx.send({ type: 'accountDeleteBatch', value: ['ws_1', 'ws_2'] });
+
+      expect(ctx.dataManager.windsurfAccounts.deleteBatch).not.toHaveBeenCalled();
+      const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      const batchResult = calls.find((m: any) => m.type === 'accountDeleteBatchResult');
+      expect(batchResult?.value).toEqual({ success: false, canceled: true, message: '已取消删除' });
+      expect(calls.some((m: any) => m.type === 'accountsSync')).toBe(false);
+    });
+
+    it('批量删除失败时发送失败 result 而不是向 handler 外抛出', async () => {
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('删除' as any);
+      ctx.dataManager.windsurfAccounts.deleteBatch.mockRejectedValue(new Error('磁盘写入失败'));
+      ctx.postMessage.mockClear();
+
+      await expect(ctx.send({ type: 'accountDeleteBatch', value: ['ws_1'] })).resolves.toBeUndefined();
+
+      const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      const batchResult = calls.find((m: any) => m.type === 'accountDeleteBatchResult');
+      expect(batchResult?.value).toEqual({ success: false, message: '批量删除失败: 磁盘写入失败' });
+      expect(calls.some((m: any) => m.type === 'accountsSync')).toBe(false);
     });
   });
 
@@ -704,14 +732,27 @@ describe('QuoteSidebarProvider - handleMessage', () => {
   // --- Maintenance: Clean MCP ---
 
   describe('maintenanceCleanMcp', () => {
-    it('发送 loading → 清理 (白名单过滤) → 结果消息', async () => {
+    it('确认后仅清理 owned 旧 MCP 并发送结果消息', async () => {
+      ctx.mockContext.globalState.get.mockReturnValue(['quote_old_tool', 'echo-test', 'quote_old_tool']);
+      vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('清理' as any);
+      vi.spyOn(ctx.provider as any, 'cleanOldMcpConfigs').mockResolvedValue({
+        cleaned: 1,
+        details: ['Windsurf: 删除 quote_old_tool'],
+      });
+
       await ctx.send({ type: 'maintenanceCleanMcp' });
 
+      expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+        expect.stringContaining('quote_old_tool'),
+        { modal: true },
+        '清理'
+      );
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
       const loading = calls.find((m: any) => m.type === 'maintenanceLoading' && m.value === 'cleanMcp');
       expect(loading).toBeDefined();
       const result = calls.find((m: any) => m.type === 'maintenanceResult' && m.value?.action === 'cleanMcp');
       expect(result).toBeDefined();
+      expect((ctx.provider as any).cleanOldMcpConfigs).toHaveBeenCalledWith(['quote_old_tool']);
     });
   });
 

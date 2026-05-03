@@ -57,6 +57,10 @@ function getSafeRemaining(value: number | undefined): number | undefined {
   return typeof value === 'number' && value >= 0 ? value : undefined;
 }
 
+function isFutureResetAtUnix(resetAtUnix: number | undefined, nowMs = Date.now()): boolean {
+  return typeof resetAtUnix === 'number' && resetAtUnix > 0 && resetAtUnix * 1000 > nowMs;
+}
+
 function getScoreValue(ui: AccountUiState): number {
   const weekly = ui.weeklyRemainingPercent ?? -1;
   const daily = ui.dailyRemainingPercent ?? -1;
@@ -73,9 +77,9 @@ export function deriveAccountUiState(
   const isExpired = !!rq?.planEndTimestamp && rq.planEndTimestamp > 0 && rq.planEndTimestamp < Date.now();
   const weeklyRemainingPercent = getSafeRemaining(rq?.weeklyRemainingPercent);
   const dailyRemainingPercent = getSafeRemaining(rq?.dailyRemainingPercent);
-  // -1 with reset time = API didn't return %, but quota IS tracked → treat as exhausted
-  const dailyExhaustedNoData = (rq?.dailyRemainingPercent ?? 0) < 0 && (rq?.dailyResetAtUnix ?? 0) > 0;
-  const weeklyExhaustedNoData = (rq?.weeklyRemainingPercent ?? 0) < 0 && (rq?.weeklyResetAtUnix ?? 0) > 0;
+  // -1 with a future reset time = API didn't return %, but quota IS tracked → treat as exhausted
+  const dailyExhaustedNoData = (rq?.dailyRemainingPercent ?? 0) < 0 && isFutureResetAtUnix(rq?.dailyResetAtUnix);
+  const weeklyExhaustedNoData = (rq?.weeklyRemainingPercent ?? 0) < 0 && isFutureResetAtUnix(rq?.weeklyResetAtUnix);
   const isUnavailable = !isExpired && (
     dailyExhaustedNoData ||
     weeklyExhaustedNoData ||

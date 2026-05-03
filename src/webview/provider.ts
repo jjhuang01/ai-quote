@@ -14,6 +14,12 @@ import { WindsurfPatchService } from '../adapters/windsurf-patch';
 
 export type RotateMcpNameCallback = () => Promise<{ newName: string } | undefined>;
 
+type AccountDeleteBatchResult =
+  | { success: true; removed: number; message: string }
+  | { success: false; canceled: true; message: string }
+  | { success: false; message: string };
+
+
 export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'quoteView';
   private view?: vscode.WebviewView;
@@ -521,15 +527,29 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         }
         return true;
       case 'accountDeleteBatch': {
-        const ids = value as string[];
-        if (Array.isArray(ids) && ids.length > 0) {
+        const ids = Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
+        if (ids.length > 0) {
           const choice = await vscode.window.showWarningMessage(
             `确定要删除选中的 ${ids.length} 个账号吗？`, { modal: true }, '删除'
           );
-          if (choice === '删除') {
+          if (choice !== '删除') {
+            const result: AccountDeleteBatchResult = { success: false, canceled: true, message: '已取消删除' };
+            void this.view?.webview.postMessage({ type: 'accountDeleteBatchResult', value: result });
+            return true;
+          }
+
+          try {
             const removed = await this.dataManager.windsurfAccounts.deleteBatch(ids);
             await this.postAccountsSync({ preferFastCurrentId: true });
-            void this.view?.webview.postMessage({ type: 'opResult', value: { message: `已删除 ${removed} 个账号` } });
+            const message = `已删除 ${removed} 个账号`;
+            const result: AccountDeleteBatchResult = { success: true, removed, message };
+            void this.view?.webview.postMessage({ type: 'opResult', value: { message } });
+            void this.view?.webview.postMessage({ type: 'accountDeleteBatchResult', value: result });
+          } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            const result: AccountDeleteBatchResult = { success: false, message: `批量删除失败: ${errorMessage}` };
+            this.logger.error('Failed to delete selected accounts.', { error: errorMessage, count: ids.length });
+            void this.view?.webview.postMessage({ type: 'accountDeleteBatchResult', value: result });
           }
         }
         return true;
@@ -705,15 +725,29 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         this.postBootstrap();
         return true;
       case 'maintenanceCleanMcp':
-        void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'cleanMcp' });
-        try {
-          const whitelist = this.dataManager.settings.get().mcpWhitelist ?? [];
-          const result = await this.cleanOldMcpConfigs(whitelist);
-          void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'cleanMcp' } });
-          vscode.window.showInformationMessage(`已清理 ${result.cleaned} 条旧MCP配置`);
-        } catch (err) {
-          void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'cleanMcp', error: String(err) } });
-          vscode.window.showErrorMessage(`清理旧MCP配置失败: ${String(err)}`);
+        {
+          const candidates = this.getOwnedMcpCleanupCandidates();
+          if (candidates.length === 0) {
+            vscode.window.showInformationMessage('没有可清理的 Quote 旧 MCP 配置');
+            return true;
+          }
+          const choice = await vscode.window.showWarningMessage(
+            `将只删除 Quote 记录过且当前未使用的 MCP 配置：${candidates.join(', ')}。不会按名称模式扫描其他 MCP。`,
+            { modal: true },
+            '清理'
+          );
+          if (choice !== '清理') {
+            return true;
+          }
+          void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'cleanMcp' });
+          try {
+            const result = await this.cleanOldMcpConfigs(candidates);
+            void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'cleanMcp' } });
+            vscode.window.showInformationMessage(`已清理 ${result.cleaned} 条 Quote 旧 MCP 配置`);
+          } catch (err) {
+            void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'cleanMcp', error: String(err) } });
+            vscode.window.showErrorMessage(`清理 Quote 旧 MCP 配置失败: ${String(err)}`);
+          }
         }
         return true;
       case 'maintenanceResetSettings': {
@@ -883,7 +917,14 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
 
   // --- Maintenance helpers ---
 
-  private async cleanOldMcpConfigs(whitelist: string[] = []): Promise<{ cleaned: number; details: string[] }> {
+  private getOwnedMcpCleanupCandidates(): string[] {
+    const owned = this.context.globalState.get<string[]>('ownedMcpNames', []);
+    const currentToolName = this.bridge.getStatus().toolName;
+    return [...new Set(Array.isArray(owned) ? owned : [])]
+      .filter((name) => typeof name === 'string' && name.length > 0 && name !== currentToolName);
+  }
+
+  private async cleanOldMcpConfigs(candidates: string[]): Promise<{ cleaned: number; details: string[] }> {
     const { IDE_TARGETS } = await import('../adapters/mcp-config');
     const fs = await import('node:fs/promises');
     let cleaned = 0;
@@ -895,17 +936,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         const config = JSON.parse(raw) as { mcpServers?: Record<string, unknown> };
         if (!config.mcpServers) continue;
 
-        const currentToolName = this.bridge.getStatus().toolName;
-        const keysToRemove = Object.keys(config.mcpServers).filter(k =>
-          k !== currentToolName &&
-          !whitelist.includes(k) && (
-            k.startsWith('windsurf_endless_') ||
-            k.startsWith('echo_') ||
-            k.startsWith('infinite_') ||
-            k.startsWith('ai-echo') ||
-            /^[a-z]{4}_[a-f0-9]{8}$/.test(k)
-          )
-        );
+        const keysToRemove = candidates.filter(k => config.mcpServers?.[k]);
 
         if (keysToRemove.length === 0) continue;
 
@@ -921,7 +952,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
       }
     }
 
-    this.logger.info('Old MCP configs cleaned.', { cleaned, details });
+    this.logger.info('Old MCP configs cleaned.', { cleaned, details, candidates });
     return { cleaned, details };
   }
 

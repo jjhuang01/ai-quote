@@ -3,7 +3,7 @@
   "displayName": "Quote",
   "icon": "resources/icon.png",
   "description": "VS Code extension: Windsurf account switcher with quota stats, MCP Bridge, and LLM dialog panel",
-  "version": "2.9.77",
+  "version": "2.9.79",
   "publisher": "opensource",
   "license": "MIT",
   "author": "EVILZIXIE",
@@ -100,10 +100,20 @@
           "default": 3456,
           "description": "服务端口"
         },
+        "quote.autoConfigureMcp": {
+          "type": "boolean",
+          "default": false,
+          "description": "启动时自动写入当前 IDE 的 MCP 配置"
+        },
         "quote.autoConfigureRules": {
           "type": "boolean",
           "default": false,
-          "description": "自动配置全局规则"
+          "description": "启动时自动写入工作区提示词文件（AI_FEEDBACK_RULES.md 和 .windsurfrules）"
+        },
+        "quote.cleanupOnDeactivate": {
+          "type": "boolean",
+          "default": false,
+          "description": "停用扩展时清理本插件记录的 MCP 配置与工作区提示词文件（默认关闭，开启后会删除配置/文件）"
         },
         "quote.dialogTimeoutSeconds": {
           "type": "number",

@@ -74,6 +74,10 @@ function makeSnapshot(accountId: string, real?: Partial<RealQuotaInfo>): QuotaSn
   };
 }
 
+function pastResetAtUnix(): number {
+  return Math.floor(Date.now() / 1000) - 3600;
+}
+
 describe('deriveAccountUiState', () => {
   it('marks account unavailable when weekly remaining is below 10', () => {
     const ui = deriveAccountUiState(
@@ -144,6 +148,38 @@ describe('deriveAccountUiState', () => {
     );
 
     expect(ui.isUnavailable).toBe(false);
+    expect(ui.sortBucket).toBe('healthy');
+  });
+
+  it('does NOT mark daily exhausted-no-data as unavailable when reset time is in the past', () => {
+    const ui = deriveAccountUiState(
+      makeAccount('a', 'a@test.com'),
+      undefined,
+      makeSnapshot('a', {
+        dailyRemainingPercent: -1,
+        weeklyRemainingPercent: 40,
+        dailyResetAtUnix: pastResetAtUnix(),
+      })
+    );
+
+    expect(ui.isUnavailable).toBe(false);
+    expect(ui.availabilityLabel).toBeUndefined();
+    expect(ui.sortBucket).toBe('healthy');
+  });
+
+  it('does NOT mark weekly exhausted-no-data as unavailable when reset time is in the past', () => {
+    const ui = deriveAccountUiState(
+      makeAccount('a', 'a@test.com'),
+      undefined,
+      makeSnapshot('a', {
+        dailyRemainingPercent: 40,
+        weeklyRemainingPercent: -1,
+        weeklyResetAtUnix: pastResetAtUnix(),
+      })
+    );
+
+    expect(ui.isUnavailable).toBe(false);
+    expect(ui.availabilityLabel).toBeUndefined();
     expect(ui.sortBucket).toBe('healthy');
   });
 

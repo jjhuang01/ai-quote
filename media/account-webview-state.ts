@@ -23,6 +23,15 @@ export function normalizeAccountSelection(current: Set<string>, existingIds: str
   return new Set([...current].filter((id) => allowed.has(id)));
 }
 
+export function reconcileQuotaFetchingIds(input: {
+  localIds: Set<string>;
+  providerIds: string[];
+  existingAccountIds: string[];
+}): Set<string> {
+  const existingIds = new Set(input.existingAccountIds);
+  return new Set(input.providerIds.filter((id) => existingIds.has(id)));
+}
+
 export function clampAccountScrollTop(input: {
   scrollTop: number;
   itemCount: number;

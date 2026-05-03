@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { WindsurfPatchService } from '../../src/adapters/windsurf-patch';
+import type { RealQuotaInfo } from '../../src/core/contracts';
 
 // Mock vscode
 vi.mock('vscode', () => ({
@@ -95,6 +96,38 @@ const mockLogger = {
 const mockContext = {
   globalStorageUri: { fsPath: '/tmp/test-storage' }
 } as any;
+
+function makeRealQuota(overrides: Partial<RealQuotaInfo> = {}): RealQuotaInfo {
+  return {
+    planName: 'Pro',
+    billingStrategy: 'quota',
+    dailyRemainingPercent: 100,
+    weeklyRemainingPercent: 100,
+    dailyResetAtUnix: 0,
+    weeklyResetAtUnix: 0,
+    messages: 500,
+    usedMessages: 0,
+    remainingMessages: 500,
+    flowActions: 0,
+    usedFlowActions: 0,
+    remainingFlowActions: 0,
+    overageBalanceMicros: 0,
+    fetchedAt: new Date().toISOString(),
+    source: 'api',
+    ...overrides,
+  };
+}
+
+function pastResetAtUnix(): number {
+  return Math.floor(Date.now() / 1000) - 3600;
+}
+
+function replaceQuotaProtoFetcher(manager: WindsurfAccountManager, fetchFromLocalProto: unknown): void {
+  const quotaFetcher = Reflect.get(manager, 'quotaFetcher');
+  if (typeof quotaFetcher === 'object' && quotaFetcher !== null) {
+    Reflect.set(quotaFetcher, 'fetchFromLocalProto', fetchFromLocalProto);
+  }
+}
 
 describe('WindsurfAccountManager', () => {
   let manager: WindsurfAccountManager;
@@ -555,7 +588,7 @@ describe('WindsurfAccountManager', () => {
         userEmail: 'a1@test.com',
         fetchedAt: new Date().toISOString(),
       }));
-      (manager as any).quotaFetcher.fetchFromLocalProto = fetchFromLocalProto;
+      replaceQuotaProtoFetcher(manager, fetchFromLocalProto);
       await manager.setQuotaLimits(a1.id, 5, 100);
       await manager.setQuotaLimits(a2.id, 50, 200);
       await manager.updateAutoSwitch({ enabled: true, switchOnDaily: true, threshold: 5 });
@@ -1194,6 +1227,20 @@ describe('WindsurfAccountManager', () => {
       expect(snapshots[0].warningLevel).toBe('ok');
     });
 
+    it('past daily resetAt with missing percent does not trigger critical', async () => {
+      await manager.initialize();
+      const account = await manager.add('test@test.com', 'p');
+      account.realQuota = makeRealQuota({
+        dailyRemainingPercent: -1,
+        weeklyRemainingPercent: 50,
+        dailyResetAtUnix: pastResetAtUnix(),
+        remainingMessages: 0,
+      });
+
+      const snapshots = manager.getQuotaSnapshots();
+      expect(snapshots[0].warningLevel).toBe('ok');
+    });
+
     it('dailyRemainingPercent = 0 触发 critical', async () => {
       await manager.initialize();
       const account = await manager.add('test@test.com', 'p');
@@ -1277,7 +1324,7 @@ describe('WindsurfAccountManager', () => {
 
     it('pending switch 存在时，autoSwitch 不会被旧 realId 打回原账号', async () => {
       await manager.initialize();
-      const a1 = await manager.add('a1@test.com', 'p');
+      await manager.add('a1@test.com', 'p');
       const a2 = await manager.add('a2@test.com', 'p');
       await manager.updateAutoSwitch({ enabled: true, switchOnDaily: true, threshold: 5 });
 
@@ -1287,7 +1334,7 @@ describe('WindsurfAccountManager', () => {
         userEmail: 'a2@test.com',
         fetchedAt: new Date().toISOString(),
       }));
-      (manager as any).quotaFetcher.fetchFromLocalProto = fetchFromLocalProto;
+      replaceQuotaProtoFetcher(manager, fetchFromLocalProto);
 
       const switchResult = await manager.switchTo(a2.id);
       expect(switchResult.success).toBe(true);
@@ -1304,6 +1351,42 @@ describe('WindsurfAccountManager', () => {
       const switched = await manager.autoSwitchIfNeeded();
       expect(switched).toBe(false);
       expect(manager.getImmediateCurrentAccountId()).toBe(a2.id);
+      expect(manager.getCurrentAccountId()).toBe(a2.id);
+    });
+
+    it('past daily resetAt with missing percent does not reject auto-switch candidate', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a1@test.com', 'p');
+      const a2 = await manager.add('a2@test.com', 'p');
+      const fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a2@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      fetchFromLocalProto.mockImplementationOnce(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a1@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      replaceQuotaProtoFetcher(manager, fetchFromLocalProto);
+      await manager.updateAutoSwitch({ enabled: true, switchOnDaily: true, threshold: 5 });
+      a1.realQuota = makeRealQuota({
+        dailyRemainingPercent: 0,
+        weeklyRemainingPercent: 50,
+        remainingMessages: 0,
+      });
+      a2.realQuota = makeRealQuota({
+        dailyRemainingPercent: -1,
+        weeklyRemainingPercent: 80,
+        dailyResetAtUnix: pastResetAtUnix(),
+        remainingMessages: 0,
+      });
+
+      const switched = await manager.autoSwitchIfNeeded();
+
+      expect(switched).toBe(true);
       expect(manager.getCurrentAccountId()).toBe(a2.id);
     });
   });
