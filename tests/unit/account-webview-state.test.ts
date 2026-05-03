@@ -61,4 +61,25 @@ describe('account-webview-state', () => {
     expect(selectModeCardClickBranch?.[0]).toContain('render();');
     expect(selectModeCardClickBranch?.[0]).not.toContain('patchAccountTab();');
   });
+
+  it("delegates patched account action buttons before account card click handling", () => {
+    const source = readFileSync("media/main.ts", "utf8");
+    const viewportClickHandler = source.match(
+      /accountViewport\.addEventListener\("click", \(e\) => \{[\s\S]*?vscode\.postMessage\(\{ type: "accountSwitch", value: id \}\);\n\s*\}\);/,
+    );
+
+    const handlerSource = viewportClickHandler?.[0] ?? "";
+    const checkboxReturnIndex = handlerSource.indexOf("target.closest(\".ac-checkbox\")");
+    const actionLookupIndex = handlerSource.indexOf("target.closest<HTMLElement>(\"[data-action]\")");
+    const handleActionIndex = handlerSource.indexOf("handleAction(actionEl);");
+    const cardLookupIndex = handlerSource.indexOf("target.closest<HTMLElement>(\".ac-card[data-id]\")");
+
+    expect(viewportClickHandler).not.toBeNull();
+    expect(checkboxReturnIndex).toBeGreaterThan(-1);
+    expect(actionLookupIndex).toBeGreaterThan(checkboxReturnIndex);
+    expect(handleActionIndex).toBeGreaterThan(actionLookupIndex);
+    expect(cardLookupIndex).toBeGreaterThan(handleActionIndex);
+    expect(handlerSource).toContain("accountViewport.contains(actionEl)");
+  });
+
 });

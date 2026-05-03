@@ -1674,9 +1674,15 @@ function bindAccountTabEvents(): void {
       accountViewport.dataset.clickBound = "true";
       accountViewport.addEventListener("click", (e) => {
         const target = e.target as HTMLElement;
+        if (target.closest(".ac-checkbox")) return;
+        const actionEl = target.closest<HTMLElement>("[data-action]");
+        if (actionEl && accountViewport.contains(actionEl)) {
+          e.stopPropagation();
+          handleAction(actionEl);
+          return;
+        }
         const card = target.closest<HTMLElement>(".ac-card[data-id]");
         if (!card) return;
-        if (target.closest(".ac-checkbox, [data-action]")) return;
         const id = card.dataset.id;
         if (!id) return;
         if (state.selectMode) {
