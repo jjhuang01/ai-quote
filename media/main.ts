@@ -1685,7 +1685,7 @@ function bindAccountTabEvents(): void {
           } else {
             state.selectedAccountIds.add(id);
           }
-          patchAccountTab();
+          render();
           return;
         }
         if (

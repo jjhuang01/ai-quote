@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   clampAccountScrollTop,
@@ -49,5 +50,15 @@ describe('account-webview-state', () => {
     expect(
       clampAccountScrollTop({ scrollTop: 400, itemCount: 2, itemHeight: 96, viewportHeight: 240 }),
     ).toBe(0);
+  });
+
+  it('uses full render after selecting an account card in select mode', () => {
+    const source = readFileSync('media/main.ts', 'utf8');
+    const selectModeCardClickBranch = source.match(
+      /if \(state\.selectMode\) \{[\s\S]*?return;\n\s*\}/,
+    );
+
+    expect(selectModeCardClickBranch?.[0]).toContain('render();');
+    expect(selectModeCardClickBranch?.[0]).not.toContain('patchAccountTab();');
   });
 });
