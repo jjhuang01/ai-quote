@@ -1,12 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
+import * as https from 'node:https';
 import type { WindsurfPlanInfo } from '../../src/adapters/quota-fetcher';
 import { WindsurfQuotaFetcher } from '../../src/adapters/quota-fetcher';
+
+vi.mock('node:https', () => ({
+  request: vi.fn(),
+}));
 
 const mockLogger = {
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
   debug: vi.fn(),
+};
+
+type MockIncomingMessage = EventEmitter & { statusCode?: number };
+type MockClientRequest = EventEmitter & {
+  write: ReturnType<typeof vi.fn>;
+  end: ReturnType<typeof vi.fn>;
+  destroy: ReturnType<typeof vi.fn>;
+};
+type FetcherWithCallGetPlanStatus = {
+  callGetPlanStatus(idToken: string): Promise<WindsurfPlanInfo | null>;
 };
 
 function createPlanInfo(planName: string): WindsurfPlanInfo {
@@ -37,6 +53,28 @@ function createPlanInfo(planName: string): WindsurfPlanInfo {
       weeklyResetAtUnix: 0,
     },
   };
+}
+
+function mockGetPlanStatusResponse(payload: unknown, statusCode = 200): void {
+  const requestImpl = (_options: unknown, callback?: (response: MockIncomingMessage) => void): MockClientRequest => {
+    const request = new EventEmitter() as MockClientRequest;
+    request.write = vi.fn();
+    request.end = vi.fn(() => {
+      const response = new EventEmitter() as MockIncomingMessage;
+      response.statusCode = statusCode;
+      callback?.(response);
+      response.emit('data', JSON.stringify(payload));
+      response.emit('end');
+      return request;
+    });
+    request.destroy = vi.fn(() => request);
+    return request;
+  };
+  vi.mocked(https.request).mockImplementationOnce(requestImpl as unknown as typeof https.request);
+}
+
+function callGetPlanStatusForTest(fetcher: WindsurfQuotaFetcher, idToken: string): Promise<WindsurfPlanInfo | null> {
+  return (fetcher as unknown as FetcherWithCallGetPlanStatus).callGetPlanStatus(idToken);
 }
 
 describe('WindsurfQuotaFetcher', () => {
@@ -207,5 +245,64 @@ describe('WindsurfQuotaFetcher', () => {
         }),
       }),
     );
+  });
+
+  it('GetPlanStatus parser 支持真实 number 百分比和 string reset 字段', async () => {
+    const fetcher = new WindsurfQuotaFetcher(
+      { signIn: vi.fn() } as unknown as ConstructorParameters<typeof WindsurfQuotaFetcher>[0],
+      mockLogger,
+    );
+    mockGetPlanStatusResponse({
+      planStatus: {
+        planInfo: {
+          planName: 'Pro',
+          billingStrategy: 'quota',
+          monthlyPromptCredits: 500,
+          monthlyFlowCredits: 100,
+        },
+        planStart: '2026-05-01T00:00:00.000Z',
+        planEnd: '2026-06-01T00:00:00.000Z',
+        availablePromptCredits: 500,
+        availableFlowCredits: 100,
+        dailyQuotaRemainingPercent: 42,
+        weeklyQuotaRemainingPercent: 36,
+        dailyQuotaResetAtUnix: '1770000000',
+        weeklyQuotaResetAtUnix: '1770600000',
+      },
+    });
+
+    const planInfo = await callGetPlanStatusForTest(fetcher, 'test-id-token');
+
+    expect(planInfo?.quotaUsage.dailyRemainingPercent).toBe(42);
+    expect(planInfo?.quotaUsage.weeklyRemainingPercent).toBe(36);
+    expect(planInfo?.quotaUsage.dailyResetAtUnix).toBe(1770000000);
+    expect(planInfo?.quotaUsage.weeklyResetAtUnix).toBe(1770600000);
+    expect(planInfo?.billingStrategy).toBe('quota');
+  });
+
+  it('GetPlanStatus parser 不把缺失 daily 百分比默认成满额，也不制造无效 reset 时间', async () => {
+    const fetcher = new WindsurfQuotaFetcher(
+      { signIn: vi.fn() } as unknown as ConstructorParameters<typeof WindsurfQuotaFetcher>[0],
+      mockLogger,
+    );
+    mockGetPlanStatusResponse({
+      planStatus: {
+        planInfo: {
+          planName: 'Free',
+          billingStrategy: 'quota',
+          monthlyPromptCredits: 0,
+          monthlyFlowCredits: 0,
+        },
+        weeklyQuotaRemainingPercent: 36,
+        dailyQuotaResetAtUnix: 'not-a-valid-unix-time',
+      },
+    });
+
+    const planInfo = await callGetPlanStatusForTest(fetcher, 'test-id-token');
+
+    expect(planInfo?.quotaUsage.dailyRemainingPercent).toBeUndefined();
+    expect(planInfo?.quotaUsage.weeklyRemainingPercent).toBe(36);
+    expect(planInfo?.quotaUsage.dailyResetAtUnix).toBe(0);
+    expect(planInfo?.quotaUsage.weeklyResetAtUnix).toBe(0);
   });
 });

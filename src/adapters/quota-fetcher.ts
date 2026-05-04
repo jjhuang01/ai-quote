@@ -18,6 +18,18 @@ function pickLikelyEmail(...candidates: Array<string | undefined>): string | und
   return undefined;
 }
 
+function parseOptionalPercent(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function parseUnixSeconds(value: string | number | undefined): number {
+  if (value === undefined) {
+    return 0;
+  }
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
 // --- Windsurf Plan & Quota 真实数据结构 (从 cachedPlanInfo 逆向) ---
 
 export interface WindsurfPlanInfo {
@@ -731,9 +743,8 @@ export class WindsurfQuotaFetcher {
 
               const userEmail = us.userEmail;
 
-              // 如果 planInfo 缺少 quotaUsage 但有 planStatus 里的 credits，构造一个最小 planInfo
-              // 注意: 此场景无法推断真实的日/周配额百分比，故不设置 quotaUsage
-              // planInfoToRealQuota 的 clampPct 会将缺失的百分比默认为 100（满额），避免误报
+              // 如果 planInfo 缺少 quotaUsage 但有 planStatus 里的 credits，构造一个最小 planInfo。
+              // 此场景无法推断真实的日/周配额百分比，百分比字段保持 undefined。
               if (!planInfo && us.planStatus) {
                 const ps = us.planStatus;
                 const msgs = ps.availablePromptCredits ?? 0;
@@ -758,8 +769,8 @@ export class WindsurfQuotaFetcher {
                   gracePeriodStatus: 0,
                   billingStrategy: 'credits',
                   quotaUsage: {
-                    dailyRemainingPercent: 100,   // 无法推断，默认满额避免误报
-                    weeklyRemainingPercent: 100,
+                    dailyRemainingPercent: undefined,
+                    weeklyRemainingPercent: undefined,
                     overageBalanceMicros: 0,
                     dailyResetAtUnix: 0,
                     weeklyResetAtUnix: 0
@@ -957,15 +968,15 @@ export class WindsurfQuotaFetcher {
               if (!ps) { resolve(null); return; }
 
               // NOTE: 使用 undefined 表示「API 未返回此字段」，不要默认为 100（否则误导用户）
-              const dailyRemainingPercent  = ps.dailyQuotaRemainingPercent;   // undefined = no data
-              const weeklyRemainingPercent = ps.weeklyQuotaRemainingPercent;  // undefined = no data
+              const dailyRemainingPercent  = parseOptionalPercent(ps.dailyQuotaRemainingPercent);   // undefined = no data
+              const weeklyRemainingPercent = parseOptionalPercent(ps.weeklyQuotaRemainingPercent);  // undefined = no data
               this.logger.debug('GetPlanStatus raw quota fields.', {
                 dailyRemainingPercent: ps.dailyQuotaRemainingPercent,
                 weeklyRemainingPercent: ps.weeklyQuotaRemainingPercent,
                 planName: ps.planInfo?.planName
               });
-              const dailyResetAtUnix  = Number(ps.dailyQuotaResetAtUnix  ?? 0);
-              const weeklyResetAtUnix = Number(ps.weeklyQuotaResetAtUnix ?? 0);
+              const dailyResetAtUnix  = parseUnixSeconds(ps.dailyQuotaResetAtUnix);
+              const weeklyResetAtUnix = parseUnixSeconds(ps.weeklyQuotaResetAtUnix);
               // NOTE: availablePromptCredits 在旧 credit 制下为 centi-credits（需 /100），
               //       在新 quota 制下语义不同（可能是 token 预算）。
               //       当前 remainingMessages 仅用于 credits 制 Enterprise 判断，quota 制下以百分比为准。
