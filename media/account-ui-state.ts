@@ -61,6 +61,36 @@ function isFutureResetAtUnix(resetAtUnix: number | undefined, nowMs = Date.now()
   return typeof resetAtUnix === 'number' && resetAtUnix > 0 && resetAtUnix * 1000 > nowMs;
 }
 
+function isPastResetAtUnix(resetAtUnix: number | undefined, nowMs = Date.now()): boolean {
+  return typeof resetAtUnix === 'number' && resetAtUnix > 0 && resetAtUnix * 1000 <= nowMs;
+}
+
+export function shouldShowExhaustedNoDataDash(
+  remainingPercent: number | undefined,
+  resetAtUnix: number | undefined,
+  nowMs = Date.now(),
+): boolean {
+  return typeof remainingPercent === 'number' && remainingPercent < 0 && isFutureResetAtUnix(resetAtUnix, nowMs);
+}
+
+export function shouldRequestQuotaSelfHeal(snapshot: QuotaSnapshotLike | undefined, nowMs = Date.now()): boolean {
+  const rq = snapshot?.real;
+  if (!rq) return false;
+  return (
+    (rq.dailyRemainingPercent < 0 && isPastResetAtUnix(rq.dailyResetAtUnix, nowMs)) ||
+    (rq.weeklyRemainingPercent < 0 && isPastResetAtUnix(rq.weeklyResetAtUnix, nowMs))
+  );
+}
+
+export function formatPlanExpiryLabel(planEndTimestamp: number | undefined, nowMs = Date.now()): string {
+  if (typeof planEndTimestamp !== 'number' || planEndTimestamp <= 0) return '';
+  const label = new Date(planEndTimestamp).toLocaleDateString('zh-CN', {
+    month: 'short',
+    day: 'numeric',
+  });
+  return `${planEndTimestamp < nowMs ? '已到期' : '到期'} ${label}`;
+}
+
 function getScoreValue(ui: AccountUiState): number {
   const weekly = ui.weeklyRemainingPercent ?? -1;
   const daily = ui.dailyRemainingPercent ?? -1;
@@ -78,8 +108,8 @@ export function deriveAccountUiState(
   const weeklyRemainingPercent = getSafeRemaining(rq?.weeklyRemainingPercent);
   const dailyRemainingPercent = getSafeRemaining(rq?.dailyRemainingPercent);
   // -1 with a future reset time = API didn't return %, but quota IS tracked → treat as exhausted
-  const dailyExhaustedNoData = (rq?.dailyRemainingPercent ?? 0) < 0 && isFutureResetAtUnix(rq?.dailyResetAtUnix);
-  const weeklyExhaustedNoData = (rq?.weeklyRemainingPercent ?? 0) < 0 && isFutureResetAtUnix(rq?.weeklyResetAtUnix);
+  const dailyExhaustedNoData = shouldShowExhaustedNoDataDash(rq?.dailyRemainingPercent, rq?.dailyResetAtUnix);
+  const weeklyExhaustedNoData = shouldShowExhaustedNoDataDash(rq?.weeklyRemainingPercent, rq?.weeklyResetAtUnix);
   const isUnavailable = !isExpired && (
     dailyExhaustedNoData ||
     weeklyExhaustedNoData ||

@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   compareAccountsByUiState,
   deriveAccountUiState,
+  formatPlanExpiryLabel,
   getAvailableAccountCount,
   getVirtualWindow,
+  shouldRequestQuotaSelfHeal,
+  shouldShowExhaustedNoDataDash,
 } from '../../media/account-ui-state';
 
 type RealQuotaInfo = {
@@ -210,6 +213,65 @@ describe('deriveAccountUiState', () => {
     expect(ui.isCurrent).toBe(true);
     expect(ui.isUnavailable).toBe(true);
     expect(ui.sortBucket).toBe('current');
+  });
+});
+
+describe('quota stale reset semantics', () => {
+  it('keeps exhausted dash only when reset evidence is still in the future', () => {
+    const nowMs = Date.UTC(2026, 4, 5, 12, 0, 0);
+    const futureResetAtUnix = Math.floor(nowMs / 1000) + 60;
+    const pastResetAtUnix = Math.floor(nowMs / 1000) - 60;
+
+    expect(shouldShowExhaustedNoDataDash(-1, futureResetAtUnix, nowMs)).toBe(true);
+    expect(shouldShowExhaustedNoDataDash(-1, pastResetAtUnix, nowMs)).toBe(false);
+    expect(shouldShowExhaustedNoDataDash(-1, 0, nowMs)).toBe(false);
+    expect(shouldShowExhaustedNoDataDash(-1, undefined, nowMs)).toBe(false);
+  });
+
+  it('requests quota self-heal only for negative percent with past reset evidence', () => {
+    const nowMs = Date.UTC(2026, 4, 5, 12, 0, 0);
+    const pastResetAtUnix = Math.floor(nowMs / 1000) - 60;
+    const futureResetAtUnix = Math.floor(nowMs / 1000) + 60;
+
+    expect(shouldRequestQuotaSelfHeal(makeSnapshot('daily', {
+      dailyRemainingPercent: -1,
+      weeklyRemainingPercent: 50,
+      dailyResetAtUnix: pastResetAtUnix,
+    }), nowMs)).toBe(true);
+    expect(shouldRequestQuotaSelfHeal(makeSnapshot('weekly', {
+      dailyRemainingPercent: 50,
+      weeklyRemainingPercent: -1,
+      weeklyResetAtUnix: pastResetAtUnix,
+    }), nowMs)).toBe(true);
+    expect(shouldRequestQuotaSelfHeal(makeSnapshot('future', {
+      dailyRemainingPercent: -1,
+      weeklyRemainingPercent: 50,
+      dailyResetAtUnix: futureResetAtUnix,
+    }), nowMs)).toBe(false);
+    expect(shouldRequestQuotaSelfHeal(makeSnapshot('missing', {
+      dailyRemainingPercent: -1,
+      weeklyRemainingPercent: 50,
+      dailyResetAtUnix: 0,
+    }), nowMs)).toBe(false);
+  });
+});
+
+describe('formatPlanExpiryLabel', () => {
+  it('formats future plan end from existing planEndTimestamp with expiry prefix', () => {
+    const label = formatPlanExpiryLabel(Date.UTC(2026, 4, 6, 9, 30, 0), Date.UTC(2026, 4, 5, 12, 0, 0));
+    expect(label).toMatch(/^到期 /);
+    expect(label).toContain('5月6日');
+  });
+
+  it('formats past plan end from existing planEndTimestamp with expired prefix', () => {
+    const label = formatPlanExpiryLabel(Date.UTC(2026, 4, 4, 9, 30, 0), Date.UTC(2026, 4, 5, 12, 0, 0));
+    expect(label).toMatch(/^已到期 /);
+    expect(label).toContain('5月4日');
+  });
+
+  it('does not invent a label when planEndTimestamp is absent', () => {
+    expect(formatPlanExpiryLabel(undefined, Date.UTC(2026, 4, 5, 12, 0, 0))).toBe('');
+    expect(formatPlanExpiryLabel(0, Date.UTC(2026, 4, 5, 12, 0, 0))).toBe('');
   });
 });
 
