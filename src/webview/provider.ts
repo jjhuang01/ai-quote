@@ -26,6 +26,9 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
   private responseQueue: string[] = [];
   private bootstrapTimer?: ReturnType<typeof setTimeout>;
   private rotateMcpName?: RotateMcpNameCallback;
+  private readonly selfHealQuotaQueue: string[] = [];
+  private readonly selfHealQuotaQueuedIds = new Set<string>();
+  private selfHealQuotaDraining = false;
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
@@ -290,6 +293,118 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           },
         });
       });
+  }
+
+  private queueSelfHealQuota(accountId: string): void {
+    const account = this.dataManager.windsurfAccounts.getById(accountId);
+    if (!account) {
+      this.postSkippedSelfHealQuota(accountId, false, '账号不存在');
+      return;
+    }
+    if (this.isQuotaFetchInProgress(accountId)) {
+      this.postSkippedSelfHealQuota(accountId, true);
+      return;
+    }
+    if (this.selfHealQuotaQueuedIds.has(accountId)) return;
+    this.selfHealQuotaQueuedIds.add(accountId);
+    this.selfHealQuotaQueue.push(accountId);
+    void this.drainSelfHealQuotaQueue();
+  }
+
+  private isQuotaFetchInProgress(accountId: string): boolean {
+    const fetchingIds = this.dataManager.windsurfAccounts.getQuotaFetchingAccountIds?.() ?? [];
+    return fetchingIds.includes(accountId);
+  }
+
+  private postSkippedSelfHealQuota(accountId: string, success: boolean, error?: string): void {
+    void this.view?.webview.postMessage({
+      type: 'quotaFetchResult',
+      value: {
+        success,
+        accountId,
+        reason: 'self-heal',
+        skipped: true,
+        ...(error ? { error } : {}),
+      },
+    });
+  }
+
+  private async drainSelfHealQuotaQueue(): Promise<void> {
+    if (this.selfHealQuotaDraining) return;
+    this.selfHealQuotaDraining = true;
+    try {
+      while (this.selfHealQuotaQueue.length > 0) {
+        const accountId = this.selfHealQuotaQueue.shift();
+        if (!accountId) continue;
+        try {
+          await this.runQuotaFetchForSelfHeal(accountId);
+        } finally {
+          this.selfHealQuotaQueuedIds.delete(accountId);
+        }
+      }
+    } finally {
+      this.selfHealQuotaDraining = false;
+    }
+  }
+
+  private async runQuotaFetchForSelfHeal(accountId: string): Promise<void> {
+    const requestedAt = Date.now();
+    const account = this.dataManager.windsurfAccounts.getById(accountId);
+    if (!account) {
+      this.postSkippedSelfHealQuota(accountId, false, '账号不存在');
+      return;
+    }
+    if (this.isQuotaFetchInProgress(accountId)) {
+      this.postSkippedSelfHealQuota(accountId, true);
+      return;
+    }
+    this.logger.info('Quota refresh requested.', {
+      operation: 'quota.refresh.request',
+      accountId,
+      email: account?.email,
+      reason: 'self-heal',
+    });
+    void this.view?.webview.postMessage({
+      type: 'quotaFetchStarted',
+      value: { accountId, reason: 'self-heal' },
+    });
+    await this.postAccountsSync({ preferFastCurrentId: true });
+
+    try {
+      const result = await this.dataManager.windsurfAccounts.fetchRealQuota(accountId, { mode: 'auto' });
+      await this.postAccountsSync({ preferFastCurrentId: true });
+      this.logger.info('Quota refresh request finished.', {
+        operation: 'quota.refresh.request',
+        accountId,
+        email: account?.email,
+        reason: 'self-heal',
+        result,
+        durationMs: Date.now() - requestedAt,
+      });
+      void this.view?.webview.postMessage({
+        type: 'quotaFetchResult',
+        value: { ...result, accountId, reason: 'self-heal' },
+      });
+    } catch (err) {
+      await this.postAccountsSync({ preferFastCurrentId: true });
+      this.logger.warn('Quota refresh request failed.', {
+        operation: 'quota.refresh.request',
+        accountId,
+        email: account?.email,
+        reason: 'self-heal',
+        error: String(err),
+        durationMs: Date.now() - requestedAt,
+      });
+      void this.view?.webview.postMessage({
+        type: 'quotaFetchResult',
+        value: {
+          success: false,
+          error: String(err),
+          accountId,
+          reason: 'self-heal',
+        },
+      });
+    }
   }
 
   private async postAccountsSync(options?: { preferFastCurrentId?: boolean }): Promise<void> {
@@ -601,6 +716,13 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
             accountId: id,
             reason: 'manual-refresh',
           });
+        }
+        return true;
+      }
+      case 'selfHealQuota': {
+        const id = typeof value === 'string' ? value : undefined;
+        if (id) {
+          this.queueSelfHealQuota(id);
         }
         return true;
       }

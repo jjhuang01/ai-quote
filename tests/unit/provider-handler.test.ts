@@ -108,6 +108,7 @@ function createMockDataManager() {
       setQuotaLimits: vi.fn(async () => true),
       recordPrompt: vi.fn(async () => {}),
       fetchRealQuota: vi.fn(async () => ({ success: true })),
+      fetchAllRealQuotas: vi.fn(async () => ({ success: 0, failed: 0, errors: [] })),
       setFirebaseApiKey: vi.fn(),
       setDebugRawResponses: vi.fn(),
     },
@@ -913,9 +914,136 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       await ctx.send({ type: 'fetchAllQuotas' });
 
       expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).not.toHaveBeenCalled();
+      expect(ctx.dataManager.windsurfAccounts.fetchAllRealQuotas).not.toHaveBeenCalled();
       const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
       expect(calls.some((m: any) => m.type === 'quotaFetchAllStarted')).toBe(false);
       expect(calls.some((m: any) => m.type === 'quotaFetchAllResult')).toBe(false);
+    });
+
+    it('selfHealQuota 只走单账号刷新且不触发批量配额接口', async () => {
+      ctx.postMessage.mockClear();
+
+      await ctx.send({ type: 'selfHealQuota', value: 'ws_1' });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).toHaveBeenCalledTimes(1);
+      expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).toHaveBeenCalledWith('ws_1', {
+        mode: 'auto',
+      });
+      expect(ctx.dataManager.windsurfAccounts.fetchAllRealQuotas).not.toHaveBeenCalled();
+
+      const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      expect(calls.some((m: any) => m.type === 'quotaFetchStarted' && m.value?.accountId === 'ws_1')).toBe(true);
+      expect(calls.some((m: any) => m.type === 'quotaFetchAllStarted')).toBe(false);
+      expect(calls.some((m: any) => m.type === 'quotaFetchAllResult')).toBe(false);
+    });
+
+    it('selfHealQuota 对重复账号去重并串行处理不同账号', async () => {
+      const order: string[] = [];
+      const resolvers: Array<() => void> = [];
+      ctx.postMessage.mockClear();
+      ctx.dataManager.windsurfAccounts.fetchRealQuota.mockImplementation((accountId: string) => {
+        order.push(`start:${accountId}`);
+        return new Promise((resolve) => {
+          resolvers.push(() => {
+            order.push(`finish:${accountId}`);
+            resolve({ success: true });
+          });
+        });
+      });
+
+      await ctx.send({ type: 'selfHealQuota', value: 'ws_1' });
+      await ctx.send({ type: 'selfHealQuota', value: 'ws_1' });
+      await ctx.send({ type: 'selfHealQuota', value: 'ws_2' });
+      await Promise.resolve();
+
+      expect(order).toEqual(['start:ws_1']);
+      expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).toHaveBeenCalledTimes(1);
+
+      resolvers[0]?.();
+      for (let i = 0; i < 10; i += 1) {
+        await Promise.resolve();
+      }
+
+      expect(order).toEqual(['start:ws_1', 'finish:ws_1', 'start:ws_2']);
+      expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).toHaveBeenCalledTimes(2);
+      expect(ctx.dataManager.windsurfAccounts.fetchAllRealQuotas).not.toHaveBeenCalled();
+    });
+
+    it('selfHealQuota 失败后释放队列并继续处理后续账号', async () => {
+      const order: string[] = [];
+      ctx.postMessage.mockClear();
+      ctx.dataManager.windsurfAccounts.fetchRealQuota.mockImplementation(async (accountId: string) => {
+        order.push(`start:${accountId}`);
+        if (accountId === 'ws_1') {
+          throw new Error('heal boom');
+        }
+        return { success: true };
+      });
+
+      await ctx.send({ type: 'selfHealQuota', value: 'ws_1' });
+      await ctx.send({ type: 'selfHealQuota', value: 'ws_2' });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(order).toEqual(['start:ws_1', 'start:ws_2']);
+      expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).toHaveBeenCalledTimes(2);
+      expect(ctx.dataManager.windsurfAccounts.fetchAllRealQuotas).not.toHaveBeenCalled();
+
+      const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      const firstResult = calls.find((m: any) => m.type === 'quotaFetchResult' && m.value?.accountId === 'ws_1');
+      const secondResult = calls.find((m: any) => m.type === 'quotaFetchResult' && m.value?.accountId === 'ws_2');
+      expect(firstResult?.value?.success).toBe(false);
+      expect(firstResult?.value?.error).toContain('heal boom');
+      expect(secondResult?.value?.success).toBe(true);
+    });
+
+    it('selfHealQuota 避让同账号已有刷新并回传结果释放前端去重', async () => {
+      ctx.postMessage.mockClear();
+      ctx.dataManager.windsurfAccounts.getQuotaFetchingAccountIds.mockReturnValue(['ws_1']);
+
+      await ctx.send({ type: 'selfHealQuota', value: 'ws_1' });
+      await Promise.resolve();
+
+      expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).not.toHaveBeenCalled();
+      expect(ctx.dataManager.windsurfAccounts.fetchAllRealQuotas).not.toHaveBeenCalled();
+
+      const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      const result = calls.find((m: any) => m.type === 'quotaFetchResult' && m.value?.accountId === 'ws_1');
+      expect(result?.value).toEqual(
+        expect.objectContaining({
+          success: true,
+          accountId: 'ws_1',
+          reason: 'self-heal',
+          skipped: true,
+        }),
+      );
+      expect(calls.some((m: any) => m.type === 'quotaFetchStarted' && m.value?.accountId === 'ws_1')).toBe(false);
+    });
+
+    it('selfHealQuota 忽略不存在账号并回传失败结果释放前端去重', async () => {
+      ctx.postMessage.mockClear();
+      ctx.dataManager.windsurfAccounts.getById.mockReturnValue(undefined);
+
+      await ctx.send({ type: 'selfHealQuota', value: 'missing_ws' });
+      await Promise.resolve();
+
+      expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).not.toHaveBeenCalled();
+      expect(ctx.dataManager.windsurfAccounts.fetchAllRealQuotas).not.toHaveBeenCalled();
+
+      const calls = ctx.postMessage.mock.calls.map((c: any) => c[0]);
+      const result = calls.find((m: any) => m.type === 'quotaFetchResult' && m.value?.accountId === 'missing_ws');
+      expect(result?.value).toEqual(
+        expect.objectContaining({
+          success: false,
+          accountId: 'missing_ws',
+          reason: 'self-heal',
+        }),
+      );
+      expect(result?.value?.error).toContain('账号不存在');
     });
   });
 
