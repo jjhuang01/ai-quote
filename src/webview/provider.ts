@@ -203,6 +203,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     reason: 'manual-refresh' | 'switch-warmup';
   }): void {
     const { accountId, reason } = options;
+    const mode = reason === 'manual-refresh' ? 'manual' : 'switch-warmup';
     const requestedAt = Date.now();
     const account = accountId
       ? this.dataManager.windsurfAccounts.getById(accountId)
@@ -231,7 +232,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     void this.postAccountsSync({ preferFastCurrentId: true });
 
     const task = accountId
-      ? this.dataManager.windsurfAccounts.fetchRealQuota(accountId)
+      ? this.dataManager.windsurfAccounts.fetchRealQuota(accountId, { mode })
       : this.dataManager.windsurfAccounts.fetchAllRealQuotas();
 
     void Promise.resolve(task)

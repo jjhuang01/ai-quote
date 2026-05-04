@@ -48,7 +48,9 @@ async function refreshQuotaAfterSwitch(accountId: string, reason: string): Promi
     return;
   }
   try {
-    const quotaResult = await dataManager.windsurfAccounts.fetchRealQuota(accountId);
+    const quotaResult = await dataManager.windsurfAccounts.fetchRealQuota(accountId, {
+      mode: "switch-warmup",
+    });
     if (!quotaResult.success) {
       logger?.warn("Fetch quota after account switch failed.", {
         accountId,
@@ -474,7 +476,7 @@ export async function activate(
     if (!dataManager) return;
     const currentId = await dataManager.windsurfAccounts.getDisplayCurrentAccountId();
     if (!currentId) return;
-    await dataManager.windsurfAccounts.fetchRealQuota(currentId);
+    await dataManager.windsurfAccounts.fetchRealQuota(currentId, { mode: "auto" });
     sidebarProvider.postBootstrap();
     const cfg = dataManager.windsurfAccounts.getAutoSwitchConfig();
     if (cfg.enabled) {

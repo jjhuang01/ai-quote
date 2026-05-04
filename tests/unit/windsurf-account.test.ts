@@ -97,6 +97,11 @@ const mockContext = {
   globalStorageUri: { fsPath: '/tmp/test-storage' }
 } as any;
 
+type TestQuotaFetcher = {
+  fetchCurrentRuntimeUserFromAuthStatus: ReturnType<typeof vi.fn>;
+  fetchQuota: ReturnType<typeof vi.fn>;
+};
+
 function makeRealQuota(overrides: Partial<RealQuotaInfo> = {}): RealQuotaInfo {
   return {
     planName: 'Pro',
@@ -1080,6 +1085,72 @@ describe('WindsurfAccountManager', () => {
       );
       expect(manager.getCurrentAccountId()).toBe(a2.id);
       expect(manager.getById(a2.id)?.realQuota?.dailyRemainingPercent).toBe(20);
+      expect(manager.getById(a1.id)?.realQuota).toBeUndefined();
+    });
+
+    it('fetchRealQuota 手动刷新选中账号时不被当前运行时账号重定向', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a1@test.com', 'p1');
+      const a2 = await manager.add('a2@test.com', 'p2');
+      Reflect.set(manager, 'currentAccountId', a2.id);
+      a1.isActive = false;
+      a2.isActive = true;
+      const quotaFetcher = Reflect.get(manager, 'quotaFetcher') as unknown as TestQuotaFetcher;
+      quotaFetcher.fetchCurrentRuntimeUserFromAuthStatus = vi.fn(async () => ({
+        success: true,
+        source: 'authstatus',
+        userEmail: 'a1@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      quotaFetcher.fetchQuota = vi.fn(async (_id: string, email: string) => ({
+        success: true,
+        source: 'api',
+        userEmail: email,
+        fetchedAt: new Date().toISOString(),
+        planInfo: {
+          planName: 'Pro',
+          billingStrategy: 'quota',
+          startTimestamp: 0,
+          endTimestamp: 0,
+          usage: {
+            duration: 0,
+            messages: 100,
+            flowActions: 0,
+            flexCredits: 0,
+            usedMessages: 20,
+            usedFlowActions: 0,
+            usedFlexCredits: 0,
+            remainingMessages: 80,
+            remainingFlowActions: 0,
+            remainingFlexCredits: 0,
+          },
+          hasBillingWritePermissions: false,
+          gracePeriodStatus: 0,
+          quotaUsage: {
+            dailyRemainingPercent: 80,
+            weeklyRemainingPercent: 60,
+            overageBalanceMicros: 0,
+            dailyResetAtUnix: 0,
+            weeklyResetAtUnix: 0,
+          },
+        },
+      }));
+
+      const result = await manager.fetchRealQuota(a2.id, { mode: 'manual' });
+
+      expect(result.success).toBe(true);
+      expect(quotaFetcher.fetchQuota).toHaveBeenCalledWith(
+        a2.id,
+        'a2@test.com',
+        'p2',
+        {
+          forceRefresh: true,
+          preferLocal: false,
+          currentRuntimeEmail: 'a1@test.com',
+        },
+      );
+      expect(manager.getCurrentAccountId()).toBe(a2.id);
+      expect(manager.getById(a2.id)?.realQuota?.dailyRemainingPercent).toBe(80);
       expect(manager.getById(a1.id)?.realQuota).toBeUndefined();
     });
 

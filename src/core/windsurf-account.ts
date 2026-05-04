@@ -1646,13 +1646,17 @@ export class WindsurfAccountManager {
    */
   public async fetchRealQuota(
     accountId?: string,
+    options?: { mode?: "auto" | "manual" | "switch-warmup" },
   ): Promise<{ success: boolean; error?: string }> {
     const traceId = this.createTraceId("quota");
     const startedAt = Date.now();
+    const mode = options?.mode ?? "auto";
+    const isManual = mode === "manual";
     const requestedId = accountId ?? this.currentAccountId;
     const runtimeId = await this.getRealCurrentAccountId();
     let id = requestedId;
     if (
+      !isManual &&
       runtimeId &&
       requestedId &&
       runtimeId !== requestedId &&
@@ -1691,6 +1695,7 @@ export class WindsurfAccountManager {
       phase: "start",
       accountId: account.id,
       email: account.email,
+      mode,
     });
 
     const endQuotaFetch = this.beginQuotaFetch([account.id]);
@@ -1704,7 +1709,7 @@ export class WindsurfAccountManager {
         account.password,
         {
           forceRefresh: true,
-          preferLocal: true,
+          preferLocal: !isManual,
           currentRuntimeEmail: runtimeId
             ? this.accounts.find((item) => item.id === runtimeId)?.email
             : undefined,
@@ -1758,6 +1763,7 @@ export class WindsurfAccountManager {
           email: account.email,
           source: result.source,
           observedEmail: result.userEmail,
+          mode,
           durationMs: Date.now() - startedAt,
         });
         return { success: true };

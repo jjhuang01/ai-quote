@@ -495,7 +495,9 @@ describe('QuoteSidebarProvider - handleMessage', () => {
 
       await ctx.send({ type: 'accountSwitch', value: 'ws_1' });
 
-      expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).toHaveBeenCalledWith('ws_1');
+      expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).toHaveBeenCalledWith('ws_1', {
+        mode: 'switch-warmup',
+      });
       expect(order).toEqual(['sync', 'result', 'quota-start', 'sync']);
       expect(ctx.logger.info).toHaveBeenCalledWith(
         'Quota refresh requested.',
@@ -861,7 +863,9 @@ describe('QuoteSidebarProvider - handleMessage', () => {
     it('获取配额后返回 quotaFetchResult', async () => {
       await ctx.send({ type: 'fetchQuota', value: 'ws_1' });
 
-      expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).toHaveBeenCalledWith('ws_1');
+      expect(ctx.dataManager.windsurfAccounts.fetchRealQuota).toHaveBeenCalledWith('ws_1', {
+        mode: 'manual',
+      });
       expect(ctx.logger.info).toHaveBeenCalledWith(
         'Quota refresh requested.',
         expect.objectContaining({
