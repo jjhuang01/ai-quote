@@ -42,3 +42,14 @@ export function clampAccountScrollTop(input: {
   const maxScrollTop = Math.max(0, totalHeight - Math.max(0, input.viewportHeight));
   return Math.min(Math.max(0, input.scrollTop), maxScrollTop);
 }
+
+export function requestQuotaSelfHealOnce(
+  accountId: string,
+  requestedIds: Set<string>,
+  postMessage: (message: { type: 'selfHealQuota'; value: string }) => void,
+): boolean {
+  if (!accountId || requestedIds.has(accountId)) return false;
+  requestedIds.add(accountId);
+  postMessage({ type: 'selfHealQuota', value: accountId });
+  return true;
+}

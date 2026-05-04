@@ -2,7 +2,10 @@ import "./main.css";
 import {
   compareAccountsByUiState,
   deriveAccountUiState,
+  formatPlanExpiryLabel,
   getAvailableAccountCount,
+  shouldRequestQuotaSelfHeal,
+  shouldShowExhaustedNoDataDash,
 } from "./account-ui-state";
 import {
   clampAccountScrollTop,
@@ -10,6 +13,7 @@ import {
   getFilteredAccountIds,
   normalizeAccountSelection,
   reconcileQuotaFetchingIds,
+  requestQuotaSelfHealOnce,
 } from "./account-webview-state";
 
 declare function acquireVsCodeApi(): {
@@ -304,6 +308,7 @@ let state = {
   // Quota fetching
   quotaFetchingAll: false,
   quotaFetchingIds: new Set<string>(),
+  quotaSelfHealRequestedIds: new Set<string>(),
   // Maintenance loading
   maintenanceLoadingAction: undefined as string | undefined,
   // Switch loading
@@ -632,6 +637,16 @@ function buildSnapshotMap(quotaSnapshots: QuotaSnapshot[]): Map<string, QuotaSna
   return new Map(quotaSnapshots.map((snapshot) => [snapshot.accountId, snapshot]));
 }
 
+function requestQuotaSelfHealFromBootstrap(bs: Bootstrap): void {
+  const accountIds = new Set(bs.accounts.map((account) => account.id));
+  for (const snapshot of bs.quotaSnapshots) {
+    if (!accountIds.has(snapshot.accountId) || !shouldRequestQuotaSelfHeal(snapshot)) continue;
+    requestQuotaSelfHealOnce(snapshot.accountId, state.quotaSelfHealRequestedIds, (message) => {
+      vscode.postMessage({ type: "selfHealQuota", value: message.value });
+    });
+  }
+}
+
 function sortAccountsByUiState(
   accounts: WindsurfAccount[],
   currentAccountId: string | undefined,
@@ -893,9 +908,8 @@ function renderAccountItem(
   let weeklyExhaustedNoData = false;
 
   if (rq) {
-    // -1 = API didn't return %; if resetAtUnix exists the quota IS tracked → treat as exhausted
-    dailyExhaustedNoData = rq.dailyRemainingPercent < 0 && rq.dailyResetAtUnix > 0;
-    weeklyExhaustedNoData = rq.weeklyRemainingPercent < 0 && rq.weeklyResetAtUnix > 0;
+    dailyExhaustedNoData = shouldShowExhaustedNoDataDash(rq.dailyRemainingPercent, rq.dailyResetAtUnix);
+    weeklyExhaustedNoData = shouldShowExhaustedNoDataDash(rq.weeklyRemainingPercent, rq.weeklyResetAtUnix);
     dailyFillPct = dailyExhaustedNoData
       ? 100
       : rq.dailyRemainingPercent >= 0
@@ -912,13 +926,7 @@ function renderAccountItem(
       dailyResetText = formatResetDateTime(rq.dailyResetAtUnix * 1000);
     if (rq.weeklyResetAtUnix)
       weeklyResetText = formatResetDateTime(rq.weeklyResetAtUnix * 1000);
-    if (rq.planEndTimestamp && rq.planEndTimestamp > 0) {
-      const endDate = new Date(rq.planEndTimestamp);
-      planEndText = endDate.toLocaleDateString("zh-CN", {
-        month: "short",
-        day: "numeric",
-      });
-    }
+    planEndText = formatPlanExpiryLabel(rq.planEndTimestamp);
   } else if (q && q.dailyLimit > 0) {
     dailyFillPct = pct(q.dailyUsed, q.dailyLimit);
     weeklyFillPct = q.weeklyLimit > 0 ? pct(q.weeklyUsed, q.weeklyLimit) : null;
@@ -2798,6 +2806,7 @@ window.addEventListener("message", (event) => {
       providerIds: value.quotaFetchingIds ?? [],
       existingAccountIds,
     });
+    requestQuotaSelfHealFromBootstrap(bootstrap);
 
     state.accountScrollTop = clampAccountScrollTop({
       scrollTop: state.accountScrollTop,
@@ -2817,6 +2826,7 @@ window.addEventListener("message", (event) => {
   if (msg.type === "bootstrap") {
     bootstrap = msg.value as Bootstrap;
     window.__QUOTE_BOOTSTRAP__ = bootstrap;
+    requestQuotaSelfHealFromBootstrap(bootstrap);
     const status = bootstrap.status;
     const pending = status?.activeDialog ?? status?.pendingDialog;
     if (pending) state.pendingDialog = pending;
@@ -2974,10 +2984,17 @@ window.addEventListener("message", (event) => {
       success: boolean;
       error?: string;
       accountId?: string;
-      reason?: "manual-refresh" | "switch-warmup";
+      reason?: "manual-refresh" | "switch-warmup" | "self-heal";
     };
     if (r.accountId) {
       state.quotaFetchingIds.delete(r.accountId);
+      if (r.reason === "self-heal") {
+        state.quotaSelfHealRequestedIds.delete(r.accountId);
+      }
+    }
+    if (r.reason === "self-heal") {
+      render();
+      return;
     }
     showToast(
       r.success
@@ -3107,4 +3124,5 @@ window.addEventListener("message", (event) => {
   }
 });
 
+requestQuotaSelfHealFromBootstrap(window.__QUOTE_BOOTSTRAP__);
 render();

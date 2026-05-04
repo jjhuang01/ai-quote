@@ -6,6 +6,7 @@ import {
   getFilteredAccountIds,
   normalizeAccountSelection,
   reconcileQuotaFetchingIds,
+  requestQuotaSelfHealOnce,
 } from '../../media/account-webview-state';
 
 describe('account-webview-state', () => {
@@ -50,6 +51,30 @@ describe('account-webview-state', () => {
     expect(
       clampAccountScrollTop({ scrollTop: 400, itemCount: 2, itemHeight: 96, viewportHeight: 240 }),
     ).toBe(0);
+  });
+
+  it('posts single-account self-heal requests only once per account', () => {
+    const requestedIds = new Set<string>();
+    const messages: Array<{ type: string; value: string }> = [];
+    const postMessage = (message: { type: string; value: string }) => {
+      messages.push(message);
+    };
+
+    expect(requestQuotaSelfHealOnce('ws_1', requestedIds, postMessage)).toBe(true);
+    expect(requestQuotaSelfHealOnce('ws_1', requestedIds, postMessage)).toBe(false);
+    expect(requestQuotaSelfHealOnce('', requestedIds, postMessage)).toBe(false);
+
+    expect(messages).toEqual([{ type: 'selfHealQuota', value: 'ws_1' }]);
+    expect(messages.some((message) => message.type === 'fetchAllQuotas')).toBe(false);
+  });
+
+  it('wires stale quota self-heal without using fetchAllQuotas in webview source', () => {
+    const source = readFileSync('media/main.ts', 'utf8');
+
+    expect(source).toContain('requestQuotaSelfHealOnce');
+    expect(source).toContain('shouldRequestQuotaSelfHeal');
+    expect(source).toContain('selfHealQuota');
+    expect(source).not.toContain('type: "fetchAllQuotas"');
   });
 
   it('uses full render after selecting an account card in select mode', () => {
