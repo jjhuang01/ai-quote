@@ -54,6 +54,16 @@
 - 产物应保持精简：排除 `archives/`、`experiments/`、`.superpowers/`、`data/`、源码 map 等非运行时内容。
 - 交付前至少执行：`npm run test:unit`、`npm run check-types`、`npm run build`、`vsce package --no-dependencies`。
 
+## GitHub Release 约定
+
+- 每次生成新版本 VSIX 后，必须同步发布 GitHub Release。
+- 普通 `git push` 不自动更新 Release；只有完成版本号升级和 VSIX 打包后才发布 Release。
+- Release tag 使用 `v<package.json version>`，例如 `v2.9.81`。
+- Release asset 必须上传根目录当前版本 VSIX：`ai-quote-<version>.vsix`。
+- 如果 Release 不存在，使用 `gh release create` 创建并上传：`gh release create "v${VERSION}" "./ai-quote-${VERSION}.vsix" --target main --title "v${VERSION}" --notes "Release v${VERSION}" --latest`。
+- 如果 Release 已存在，使用 `gh release upload "v${VERSION}" "./ai-quote-${VERSION}.vsix" --clobber` 覆盖同名 VSIX。
+- 发布后必须用 `gh release view "v${VERSION}" --json tagName,name,url,assets,targetCommitish,isDraft,isPrerelease` 验证 asset 已存在。
+
 ## Delivery Standard
 
 - `npm run check-types`
