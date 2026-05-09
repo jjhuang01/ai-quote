@@ -39,8 +39,8 @@ export function getExtensionConfig(): QuoteConfig {
   const config = vscode.workspace.getConfiguration('quote');
   return {
     serverPort: config.get<number>('serverPort', 3456),
-    autoConfigureMcp: config.get<boolean>('autoConfigureMcp', false),
-    autoConfigureRules: config.get<boolean>('autoConfigureRules', false),
+    autoConfigureMcp: false, // Disabled as per project requirements
+    autoConfigureRules: false, // Disabled as per project requirements
     cleanupOnDeactivate: config.get<boolean>('cleanupOnDeactivate', false),
     dialogTimeoutSeconds: config.get<number>('dialogTimeoutSeconds', 0),
     switchWarmupMode: getSwitchWarmupMode()

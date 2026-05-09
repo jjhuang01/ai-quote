@@ -31,8 +31,8 @@ describe('getExtensionConfig', () => {
 
     const config = getExtensionConfig();
 
-    expect(config.autoConfigureMcp).toBe(true);
-    expect(config.autoConfigureRules).toBe(true);
+    expect(config.autoConfigureMcp).toBe(false); // Disabled as per project requirements
+    expect(config.autoConfigureRules).toBe(false); // Disabled as per project requirements
     expect(config.cleanupOnDeactivate).toBe(true);
   });
 });

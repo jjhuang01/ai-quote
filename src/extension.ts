@@ -1,16 +1,14 @@
 import * as vscode from "vscode";
-import type { WindsurfAccount } from "./core/contracts";
-import { QuoteBridge } from "./core/bridge";
+import { detectCurrentIde, removeMcpConfigEntries } from "./adapters/mcp-config";
 import type { DialogCallback } from "./core/bridge";
+import { QuoteBridge } from "./core/bridge";
 import { getExtensionConfig, isSwitchWarmupEnabled } from "./core/config";
-import { QuoteLogger } from "./core/logger";
+import type { WindsurfAccount } from "./core/contracts";
 import { DataManager } from "./core/data-manager";
-import { detectCurrentIde, writeMcpConfig, ensureMcpConfigEntry } from "./adapters/mcp-config";
-import { QuoteSidebarProvider } from "./webview/provider";
-import { QuoteDialogPanel } from "./webview/dialog-panel";
+import { QuoteLogger } from "./core/logger";
 import { loadOrCreateToolName, rotateToolName } from "./utils/tool-name";
-import { configureGlobalRules } from "./adapters/rules";
-import { removeMcpConfigEntries } from "./adapters/mcp-config";
+import { QuoteDialogPanel } from "./webview/dialog-panel";
+import { QuoteSidebarProvider } from "./webview/provider";
 // windsurf-patch 仅供 provider.ts 调试面板查询状态，此文件不再需要
 
 let statusBarItem: vscode.StatusBarItem | undefined;
@@ -212,26 +210,8 @@ export async function activate(
     bridge.updateToolName(newName);
     activeToolName = newName;
     await rememberOwnedMcpName(context, newName);
-    const rotationConfig = getExtensionConfig();
-    const sseUrl = `http://127.0.0.1:${bridge.getPort()}/sse`;
-    const rewritten: string[] = [];
-    if (rotationConfig.autoConfigureMcp && vscode.workspace.isTrusted) {
-      try {
-        await writeMcpConfig(detectCurrentIde(), newName, sseUrl);
-        rewritten.push('mcp');
-      } catch (err) {
-        logger?.warn('MCP config re-write after rotation failed.', { error: String(err) });
-      }
-    }
-    if (rotationConfig.autoConfigureRules && vscode.workspace.isTrusted) {
-      try {
-        await configureGlobalRules(newName);
-        rewritten.push('rules');
-      } catch (err) {
-        logger?.warn('Rules re-write after rotation failed.', { error: String(err) });
-      }
-    }
-    logger?.info('Rotation side effects completed.', { newName, rewritten });
+    // MCP and rules configuration disabled as per project requirements
+    logger?.info('Rotation completed (MCP and rules side effects disabled).', { newName });
     return { newName };
   };
   sidebarProvider.setRotateMcpNameCallback(rotateMcpName);
@@ -251,54 +231,15 @@ export async function activate(
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
-  // Auto MCP config and rules writing
-  const sseUrl = `http://127.0.0.1:${runningPort}/sse`;
+  // Auto MCP config and rules writing — DISABLED
   const configuredPaths: string[] = [];
-  if (vscode.workspace.isTrusted) {
-    if (config.autoConfigureMcp) {
-      try {
-        const mcpPath = await writeMcpConfig(currentIde, toolName, sseUrl);
-        await rememberOwnedMcpName(context, toolName);
-        configuredPaths.push(mcpPath);
-        logger.info('MCP config written.', { mcpPath });
-      } catch (err) {
-        logger.warn('Failed to write MCP config.', { error: String(err) });
-      }
-
-      const guardLogger = logger;
-      const mcpGuardInterval = setInterval(async () => {
-        try {
-          const ok = await ensureMcpConfigEntry(currentIde, toolName, sseUrl);
-          if (!ok) {
-            guardLogger.warn('MCP config entry missing — re-written.');
-          }
-        } catch {
-          /* ignore */
-        }
-      }, 30_000);
-      context.subscriptions.push({ dispose: () => clearInterval(mcpGuardInterval) });
-    }
-
-    if (config.autoConfigureRules) {
-      try {
-        const ruleResults = await configureGlobalRules(toolName);
-        configuredPaths.push(
-          ...ruleResults.filter((r) => r.written).map((r) => r.path),
-        );
-        logger.info('Rules configured.', { ruleResults });
-      } catch (err) {
-        logger.warn('Failed to configure rules.', { error: String(err) });
-      }
-    }
-    bridge.setConfiguredPaths(configuredPaths);
-    logger.info('Auto configuration completed.', { configuredPaths, secondaryInstance });
-  } else {
-    bridge.setConfiguredPaths(configuredPaths);
-    logger.info('Auto configuration skipped because workspace is untrusted.', {
-      autoConfigureMcp: config.autoConfigureMcp,
-      autoConfigureRules: config.autoConfigureRules,
-    });
-  }
+  // MCP and rules configuration disabled as per project requirements
+  const rawConfig = vscode.workspace.getConfiguration('quote');
+  logger.info('Auto configuration disabled.', {
+    userConfiguredMcp: rawConfig.get<boolean>('autoConfigureMcp', false),
+    userConfiguredRules: rawConfig.get<boolean>('autoConfigureRules', false),
+  });
+  bridge.setConfiguredPaths(configuredPaths);
 
   // Register MCP dialog callback: open QuoteDialogPanel (editor tab) on LLM call
   const dialogHandler: DialogCallback = (req) => {

@@ -1,16 +1,16 @@
 import * as vscode from 'vscode';
-import type { QuoteBridge } from '../core/bridge';
-import type { QuoteLogger } from '../core/logger';
-import {
-  getSwitchWarmupMode,
-  getSwitchWarmupSuccessMessage,
-  isSwitchWarmupEnabled,
-} from '../core/config';
-import type { DataManager } from '../core/data-manager';
-import type { WebviewBootstrap } from '../core/contracts';
-import { buildWebviewHtml } from './view-html';
-import { QuoteDialogPanel } from './dialog-panel';
 import { WindsurfPatchService } from '../adapters/windsurf-patch';
+import type { QuoteBridge } from '../core/bridge';
+import {
+    getSwitchWarmupMode,
+    getSwitchWarmupSuccessMessage,
+    isSwitchWarmupEnabled,
+} from '../core/config';
+import type { WebviewBootstrap } from '../core/contracts';
+import type { DataManager } from '../core/data-manager';
+import type { QuoteLogger } from '../core/logger';
+import { QuoteDialogPanel } from './dialog-panel';
+import { buildWebviewHtml } from './view-html';
 
 export type RotateMcpNameCallback = () => Promise<{ newName: string } | undefined>;
 
@@ -894,19 +894,9 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         return true;
       }
       case 'maintenanceRewriteRules':
-        void this.view?.webview.postMessage({ type: 'maintenanceLoading', value: 'rewriteRules' });
-        try {
-          const result = await this.rewriteRules();
-          void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { ...result, action: 'rewriteRules' } });
-          if (result.failed.length > 0) {
-            vscode.window.showWarningMessage(`规则写入: ${result.written.length} 成功, ${result.failed.length} 失败`);
-          } else {
-            vscode.window.showInformationMessage(`规则文件已重新写入 (${result.written.length} 个文件)`);
-          }
-        } catch (err) {
-          void this.view?.webview.postMessage({ type: 'maintenanceError', value: { action: 'rewriteRules', error: String(err) } });
-          vscode.window.showErrorMessage(`重写规则文件失败: ${String(err)}`);
-        }
+        // Disabled as per project requirements (no prompt injection)
+        void this.view?.webview.postMessage({ type: 'maintenanceResult', value: { written: [], failed: [], action: 'rewriteRules', disabled: true } });
+        vscode.window.showInformationMessage('规则注入已停用');
         return true;
       case 'maintenanceClearCache': {
         const mccChoice = await vscode.window.showWarningMessage(
