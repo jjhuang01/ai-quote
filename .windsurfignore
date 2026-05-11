@@ -1,0 +1,48 @@
+# 通用噪声 - AI 索引无需看
+.DS_Store
+Thumbs.db
+*.log
+logs/
+*.tmp
+*.temp
+tmp/
+temp/
+.cache/
+*.cache
+
+# 本地环境文件（可能含敏感信息）
+.env
+.env.local
+.env.*.local
+.envrc
+
+# IDE 产物
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 备份文件
+*.bak
+*.backup
+*.old
+*.orig
+
+# === Node.js ===
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+.pnp.*
+.yarn/
+dist/
+build/
+out/
+.next/
+.nuxt/
+.turbo/
+.svelte-kit/
+.astro/
+coverage/
+.nyc_output/
