@@ -72,8 +72,8 @@ async function updateStatusBar(): Promise<void> {
   }
   const status = bridge.getStatus();
   const waitingIcon = status.activeDialog ? '$(pause-circle) ' : '';
-  const onlineText = status.running ? `端口 ${status.port}` : '离线';
-  statusBarItem.text = `${waitingIcon}$(comment) Quote (${onlineText})`;
+  const onlineText = status.running ? '运行中' : '离线';
+  statusBarItem.text = `${waitingIcon}$(comment) Windsurf Quote`;
   const queuedText = status.queuedDialogCount > 0 ? `  \n队列中: ${status.queuedDialogCount}` : '';
   const toolTipMd = new vscode.MarkdownString(
     `**Quote 已激活 (${onlineText})**  \n` +
@@ -246,7 +246,7 @@ export async function activate(
   // Register MCP dialog callback: open QuoteDialogPanel (editor tab) on LLM call
   const dialogHandler: DialogCallback = (req) => {
     if (statusBarItem) {
-      statusBarItem.text = `$(pause-circle) $(comment) Quote ${bridge?.getPort() ?? '?'}`;
+      statusBarItem.text = `$(pause-circle) $(comment) Windsurf Quote`;
       statusBarItem.tooltip = '⏸ LLM 等待用户响应...';
     }
 

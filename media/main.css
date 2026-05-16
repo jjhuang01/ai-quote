@@ -176,10 +176,11 @@ body {
   letter-spacing: -0.03em;
 }
 
-.header-sub {
-  font-size: var(--fs-sm);
+.header-byline {
+  font-size: var(--fs-xs);
   color: var(--muted);
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
+  opacity: 0.7;
 }
 
 .subtle,
@@ -1409,7 +1410,30 @@ button:focus-visible {
   height: 32px;
   margin-top: 0;
   padding-left: 32px;
-  padding-right: 10px;
+  padding-right: 32px;
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  padding: 0;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.search-clear-btn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
 .account-search-row .btn-xs {
@@ -1460,6 +1484,7 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 240px;
   padding: 10px 12px;
   background: var(--surface);
   border-radius: var(--radius-lg);
@@ -1987,6 +2012,8 @@ button:focus-visible {
   border-radius: var(--radius-pill);
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .plan-pro {
   color: var(--plan-pro);

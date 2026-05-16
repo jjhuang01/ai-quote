@@ -259,6 +259,11 @@ const SVG_ICONS: Record<string, string> = {
     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
   copy: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>',
   key: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>',
+  checkSquare:
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>',
+  download:
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+  x: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
 };
 
 function icon(name: string, cls = ""): string {
@@ -397,12 +402,11 @@ function render(): void {
 // ---- Header ----
 
 function renderHeader(bs: Bootstrap): string {
-  const queued = bs.status.queuedDialogCount ?? 0;
   return `
     <header class="infinite-header">
       <div class="header-brand">
-        <span class="header-title">Quote${state.pendingDialog ? " ⏸" : ""}</span>
-        <span class="header-sub">:${bs.status.port} · ${escapeHtml(bs.status.currentIde)}${queued > 0 ? ` · 排队 ${queued}` : ""}</span>
+        <span class="header-title">Windsurf Quote${state.pendingDialog ? " ⏸" : ""}</span>
+        <span class="header-byline">by 无双 · jjh644</span>
       </div>
       <span class="status-pill ${bs.status.running ? "online" : "offline"}">
         <span class="pill-dot"></span>
@@ -676,8 +680,8 @@ function renderAccountSearchRow(): string {
       <div class="search-input-wrap">
         ${icon("search")}
         <input class="text-input" id="accountSearch" type="text" placeholder="搜索邮箱或套餐" value="${escapeHtml(state.accountSearchQuery)}">
+        ${state.accountSearchQuery ? `<button class="search-clear-btn" data-action="accountSearchClear" type="button" title="清空搜索">${icon("x")}</button>` : ""}
       </div>
-      <button class="btn-xs btn-icon${state.accountSearchQuery ? "" : " is-hidden"}" data-action="accountSearchClear" type="button">清空</button>
     </div>`;
 }
 
@@ -727,7 +731,7 @@ function renderAccountListContent(bs: Bootstrap): string {
             )
             .join("")}
         </div>`
-    : `<div class="empty-state">${icon("inbox", "empty-icon")} <p>${state.accountSearchQuery ? "未找到匹配账号" : "暂无账号，点击“添加”或“批量导入”"}</p></div>`;
+    : `<div class="empty-state">${icon("inbox", "empty-icon")} <p>${state.accountSearchQuery ? "未找到匹配账号" : "暂无账号，点击批量添加导入"}</p></div>`;
 }
 
 function patchAccountTab(): void {
@@ -753,9 +757,10 @@ function patchAccountTab(): void {
     searchInput.value = state.accountSearchQuery;
   }
 
-  const clearButton = document.querySelector<HTMLButtonElement>('[data-action="accountSearchClear"]');
-  if (clearButton) {
-    clearButton.classList.toggle("is-hidden", !state.accountSearchQuery);
+  // 重新渲染搜索行以更新清空按钮的显示/隐藏
+  const searchRow = document.querySelector(".account-search-row");
+  if (searchRow) {
+    searchRow.outerHTML = renderAccountSearchRow();
   }
 }
 
@@ -770,12 +775,11 @@ function renderAccountTab(bs: Bootstrap): string {
           <h2 id="accountTabTitle">账号 (${availableCount}/${accounts.length})</h2>
           <div class="btn-group">
             ${!state.selectMode && !state.showAddAccount && !state.showImportAccount ? `
-            <button class="btn-xs btn-icon" data-action="toggleAddAccount">添加</button>
             <button class="btn-xs btn-icon" data-action="toggleImportAccount">${icon("upload")} 批量添加</button>
-            ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="toggleSelectMode" title="多选删除">☑ 选择</button>` : ""}
-            ${accounts.length > 0 ? `<button class="btn-xs btn-danger-xs" data-action="accountClear">清空</button>` : ""}
+            ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="toggleSelectMode" title="多选删除">${icon("checkSquare")} 选择</button>` : ""}
+            ${accounts.length > 0 ? `<button class="btn-xs btn-danger-xs" data-action="accountClear">${icon("trash")} 清空</button>` : ""}
             ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="batchRefreshQuota">${icon("refresh")} 批量刷新</button>` : ""}
-            ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="accountExport">${icon("upload")} 导出</button>` : ""}
+            ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="accountExport">${icon("download")} 导出</button>` : ""}
             ` : ""}
           </div>
           ${
