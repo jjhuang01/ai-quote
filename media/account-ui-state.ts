@@ -84,11 +84,12 @@ export function shouldRequestQuotaSelfHeal(snapshot: QuotaSnapshotLike | undefin
 
 export function formatPlanExpiryLabel(planEndTimestamp: number | undefined, nowMs = Date.now()): string {
   if (typeof planEndTimestamp !== 'number' || planEndTimestamp <= 0) return '';
-  const label = new Date(planEndTimestamp).toLocaleDateString('zh-CN', {
-    month: 'short',
-    day: 'numeric',
-  });
-  return `${planEndTimestamp < nowMs ? '已到期' : '到期'} ${label}`;
+  if (planEndTimestamp < nowMs) return '已到期';
+  const remainingMs = planEndTimestamp - nowMs;
+  const days = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+  if (days <= 0) return '今日到期';
+  if (days === 1) return '剩余 1 天';
+  return `剩余 ${days} 天`;
 }
 
 function getScoreValue(ui: AccountUiState): number {

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  compareAccountsByUiState,
-  deriveAccountUiState,
-  formatPlanExpiryLabel,
-  getAvailableAccountCount,
-  getVirtualWindow,
-  shouldRequestQuotaSelfHeal,
-  shouldShowExhaustedNoDataDash,
+    compareAccountsByUiState,
+    deriveAccountUiState,
+    formatPlanExpiryLabel,
+    getAvailableAccountCount,
+    getVirtualWindow,
+    shouldRequestQuotaSelfHeal,
+    shouldShowExhaustedNoDataDash,
 } from '../../media/account-ui-state';
 
 type RealQuotaInfo = {
@@ -257,16 +257,14 @@ describe('quota stale reset semantics', () => {
 });
 
 describe('formatPlanExpiryLabel', () => {
-  it('formats future plan end from existing planEndTimestamp with expiry prefix', () => {
+  it('formats future plan end from existing planEndTimestamp with remaining days', () => {
     const label = formatPlanExpiryLabel(Date.UTC(2026, 4, 6, 9, 30, 0), Date.UTC(2026, 4, 5, 12, 0, 0));
-    expect(label).toMatch(/^到期 /);
-    expect(label).toContain('5月6日');
+    expect(label).toMatch(/^剩余 \d+ 天$/);
   });
 
-  it('formats past plan end from existing planEndTimestamp with expired prefix', () => {
+  it('formats past plan end from existing planEndTimestamp with expired label', () => {
     const label = formatPlanExpiryLabel(Date.UTC(2026, 4, 4, 9, 30, 0), Date.UTC(2026, 4, 5, 12, 0, 0));
-    expect(label).toMatch(/^已到期 /);
-    expect(label).toContain('5月4日');
+    expect(label).toBe('已到期');
   });
 
   it('does not invent a label when planEndTimestamp is absent', () => {
