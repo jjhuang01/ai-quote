@@ -593,9 +593,64 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         return true;
       case 'accountImport':
         if (typeof value === 'string') {
-          const result = await this.dataManager.windsurfAccounts.importBatch(value);
-          void this.view?.webview.postMessage({ type: 'importResult', value: result });
-          await this.postAccountsSync({ preferFastCurrentId: true });
+          void this.view?.webview.postMessage({ type: 'importLoading', value: true });
+          try {
+            const result = await this.dataManager.windsurfAccounts.importBatch(
+              value,
+              (current, total) => {
+                void this.view?.webview.postMessage({
+                  type: 'importProgress',
+                  value: { current, total },
+                });
+              },
+            );
+            void this.view?.webview.postMessage({ type: 'importResult', value: result });
+            await this.postAccountsSync({ preferFastCurrentId: true });
+          } finally {
+            void this.view?.webview.postMessage({ type: 'importLoading', value: false });
+          }
+        }
+        return true;
+      case 'accountImportToken':
+        if (typeof value === 'string' && value.trim().startsWith('auth1_')) {
+          void this.view?.webview.postMessage({ type: 'tokenImportLoading', value: true });
+          try {
+            const result = await this.dataManager.windsurfAccounts.importAuth1Token(value.trim());
+            void this.view?.webview.postMessage({ type: 'tokenImportLoading', value: false });
+            if (result.success && result.account) {
+              await this.postAccountsSync({ preferFastCurrentId: true });
+              void this.view?.webview.postMessage({
+                type: 'tokenImportResult',
+                value: { success: true, accountId: result.account.id, email: result.account.email },
+              });
+              void this.view?.webview.postMessage({
+                type: 'opResult',
+                value: { message: `Token 导入成功${result.account.email ? `: ${result.account.email}` : ''}` },
+              });
+              if (result.account.id) {
+                this.runQuotaFetchInBackground({
+                  accountId: result.account.id,
+                  reason: 'switch-warmup',
+                });
+              }
+            } else {
+              void this.view?.webview.postMessage({
+                type: 'tokenImportResult',
+                value: { success: false, error: result.error ?? 'Token 导入失败' },
+              });
+            }
+          } catch (err) {
+            void this.view?.webview.postMessage({ type: 'tokenImportLoading', value: false });
+            void this.view?.webview.postMessage({
+              type: 'tokenImportResult',
+              value: { success: false, error: String(err) },
+            });
+          }
+        } else {
+          void this.view?.webview.postMessage({
+            type: 'tokenImportResult',
+            value: { success: false, error: 'Token 格式无效：必须以 auth1_ 开头' },
+          });
         }
         return true;
       case 'accountDelete':

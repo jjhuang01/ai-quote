@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { WindsurfPatchService } from '../../src/adapters/windsurf-patch';
@@ -58,6 +58,14 @@ vi.mock('../../src/adapters/windsurf-auth', () => ({
       name: 'Mock User',
       apiServerUrl: 'https://server.codeium.com',
     }));
+    resolveAuth1Token = vi.fn(async () => ({
+      sessionToken: 'mock-session-token',
+      apiKey: 'mock-api-key',
+      name: 'Mock User',
+      email: 'mock@email.com',
+      accountId: 'mock-account-id',
+    }));
+    isTransientNetworkError = vi.fn(() => false);
     setApiKey = vi.fn();
   }
 }));
@@ -1278,6 +1286,291 @@ describe('WindsurfAccountManager', () => {
       expect(result.added).toBe(1);
       expect(result.skipped).toBe(0);
       expect(manager.getAll()[0].email).toBe("very.unusual+tag/box.o'hara@example.travel");
+    });
+  });
+
+  describe('importBatch auth1Token 批量', () => {
+    it('纯 auth1 token 批量导入，解析真实邮箱并创建账号', async () => {
+      await manager.initialize();
+      const result = await manager.importBatch([
+        'auth1_token001----已绑卡',
+        'auth1_token002----新卡',
+      ].join('\n'));
+
+      // mock resolveAuth1Token 返回相同 apiKey，第二个 token 触发更新
+      expect(result.added).toBe(1);
+      expect(result.updated).toBe(1);
+      expect(result.failed).toBe(0);
+      expect(result.skipped).toBe(0);
+      const accounts = manager.getAll();
+      expect(accounts).toHaveLength(1);
+      expect(accounts[0].email).toBe('mock@email.com');
+      expect(accounts[0].password).toBe('auth1_token002'); // 被更新为第二个 token
+      expect(accounts[0].notes).toBe('新卡'); // notes 也更新
+      expect(accounts[0].apiKey).toBe('mock-api-key');
+    });
+
+    it('混合导入 auth1 token + 邮箱密码', async () => {
+      await manager.initialize();
+      const result = await manager.importBatch([
+        'auth1_token001----已绑卡',
+        'user@test.com----pass123',
+        'auth1_token002',
+      ].join('\n'));
+
+      // auth1_token001 新建, user@test.com 新建, auth1_token002 同 apiKey 更新
+      expect(result.added).toBe(2);
+      expect(result.updated).toBe(1);
+      expect(result.skipped).toBe(0);
+      const accounts = manager.getAll();
+      expect(accounts).toHaveLength(2);
+      // 邮箱密码账号
+      const emailAccount = accounts.find((a) => a.email === 'user@test.com');
+      expect(emailAccount).toBeDefined();
+      expect(emailAccount!.password).toBe('pass123');
+      // token 账号
+      const tokenAccount = accounts.find((a) => a.password.startsWith('auth1_'));
+      expect(tokenAccount).toBeDefined();
+    });
+
+    it('auth1 token 按 apiKey 去重，重复导入更新已有账号', async () => {
+      await manager.initialize();
+      // 第一次导入
+      const r1 = await manager.importBatch('auth1_token001----标签A\n');
+      expect(r1.added).toBe(1);
+      const firstId = manager.getAll()[0].id;
+
+      // 第二次导入相同 apiKey 的 token（mock 返回相同 apiKey: 'mock-api-key'）
+      const r2 = await manager.importBatch('auth1_token_new----标签B\n');
+      expect(r2.added).toBe(0);
+      expect(r2.updated).toBe(1);
+      // 应该更新已有账号而非新建
+      expect(manager.getAll()).toHaveLength(1);
+      expect(manager.getAll()[0].id).toBe(firstId);
+      expect(manager.getAll()[0].password).toBe('auth1_token_new');
+      expect(manager.getAll()[0].notes).toBe('标签B');
+    });
+
+    it('auth1 token 解析失败时记录失败，不影响同批次其他 token', async () => {
+      await manager.initialize();
+      const spy = vi.spyOn((manager as any).auth, 'resolveAuth1Token');
+      spy
+        .mockResolvedValueOnce({
+          sessionToken: 's1', apiKey: 'key1', name: 'n1',
+          email: 'a@test.com', accountId: 'acc1',
+        })
+        .mockRejectedValueOnce(new Error('Token 已过期'))
+        .mockResolvedValueOnce({
+          sessionToken: 's3', apiKey: 'key3', name: 'n3',
+          email: 'c@test.com', accountId: 'acc3',
+        });
+
+      const result = await manager.importBatch([
+        'auth1_good1',
+        'auth1_bad',
+        'auth1_good2',
+      ].join('\n'));
+
+      expect(result.added).toBe(2);
+      expect(result.failed).toBe(1);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]).toContain('[#2]');
+      expect(result.failures[0]).toContain('Token 已过期');
+      expect(manager.getAll()).toHaveLength(2);
+    });
+
+    it('auth1 token 无分隔符时 notes 为空', async () => {
+      await manager.initialize();
+      await manager.importBatch('auth1_token001\n');
+      expect(manager.getAll()[0].notes).toBeUndefined();
+    });
+
+    it('importBatchResult 包含 updated、failed、failures 字段', async () => {
+      await manager.initialize();
+      const result = await manager.importBatch('user@test.com----pass\n');
+      // email/password 导入也应返回完整字段
+      expect(result).toHaveProperty('updated');
+      expect(result).toHaveProperty('failed');
+      expect(result).toHaveProperty('failures');
+      expect(result.updated).toBe(0);
+      expect(result.failed).toBe(0);
+      expect(result.failures).toEqual([]);
+    });
+
+    it('瞬态网络错误重试成功', async () => {
+      vi.useFakeTimers();
+      await manager.initialize();
+      // isTransientNetworkError → true，触发重试
+      (manager as any).auth.isTransientNetworkError = vi.fn(() => true);
+      const spy = vi.spyOn((manager as any).auth, 'resolveAuth1Token');
+      spy
+        .mockRejectedValueOnce(new Error('TLS 连接断开'))
+        .mockRejectedValueOnce(new Error('socket hang up'))
+        .mockResolvedValueOnce({
+          sessionToken: 's1', apiKey: 'key1', name: 'n1',
+          email: 'retry@test.com', accountId: 'acc1',
+        });
+
+      const promise = manager.importBatch('auth1_token_retry\n');
+      // 第一次失败 → 等待 1s → 第二次失败 → 等待 2s → 第三次成功
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(2000);
+      const result = await promise;
+
+      expect(result.added).toBe(1);
+      expect(result.failed).toBe(0);
+      expect(spy).toHaveBeenCalledTimes(3);
+      vi.useRealTimers();
+    });
+
+    it('瞬态错误重试 3 次耗尽后计入失败', async () => {
+      vi.useFakeTimers();
+      await manager.initialize();
+      (manager as any).auth.isTransientNetworkError = vi.fn(() => true);
+      const spy = vi.spyOn((manager as any).auth, 'resolveAuth1Token');
+      spy.mockRejectedValue(new Error('TLS 连接断开'));
+
+      const promise = manager.importBatch('auth1_token_fail\n');
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(2000);
+      const result = await promise;
+
+      expect(result.added).toBe(0);
+      expect(result.failed).toBe(1);
+      expect(result.failures[0]).toContain('TLS 连接断开');
+      expect(spy).toHaveBeenCalledTimes(3);
+      vi.useRealTimers();
+    });
+
+    it('非瞬态错误不重试，直接计入失败', async () => {
+      await manager.initialize();
+      // isTransientNetworkError → false（默认）
+      const spy = vi.spyOn((manager as any).auth, 'resolveAuth1Token');
+      spy.mockRejectedValue(new Error('Token 已过期'));
+
+      const result = await manager.importBatch('auth1_token_expired\n');
+      expect(result.failed).toBe(1);
+      expect(spy).toHaveBeenCalledTimes(1); // 不重试
+    });
+
+    it('email 回退永不用原始 token，用 accountId 或随机 ID', async () => {
+      await manager.initialize();
+      const spy = vi.spyOn((manager as any).auth, 'resolveAuth1Token');
+      // GetCurrentUser 和 RegisterUser 都失败，且无 accountId
+      spy.mockResolvedValueOnce({
+        sessionToken: 's1', apiKey: 'key-1', name: '',
+        email: '', accountId: undefined,
+      });
+
+      await manager.importBatch('auth1_secret_token_12345----test\n');
+      const email = manager.getAll()[0].email;
+      // 不应包含原始 token
+      expect(email).not.toContain('secret');
+      expect(email).not.toContain('auth1_');
+      // 应该是 @windsurf.auth1 格式
+      expect(email).toContain('@windsurf.auth1');
+    });
+
+    it('按 email 去重（apiKey 为空时回退）', async () => {
+      await manager.initialize();
+      const spy = vi.spyOn((manager as any).auth, 'resolveAuth1Token');
+      // 第一个 token: 无 apiKey，有 email
+      spy.mockResolvedValueOnce({
+        sessionToken: 's1', apiKey: '', name: 'n1',
+        email: 'same@test.com', accountId: 'acc1',
+      });
+      // 第二个 token: 无 apiKey，相同 email
+      spy.mockResolvedValueOnce({
+        sessionToken: 's2', apiKey: '', name: 'n2',
+        email: 'same@test.com', accountId: 'acc2',
+      });
+
+      const result = await manager.importBatch('auth1_t1\nauth1_t2\n');
+      expect(result.added).toBe(1);
+      expect(result.updated).toBe(1);
+      expect(manager.getAll()).toHaveLength(1);
+    });
+
+    it('按 accountId 去重（apiKey 和 email 均为空时回退）', async () => {
+      await manager.initialize();
+      const spy = vi.spyOn((manager as any).auth, 'resolveAuth1Token');
+      spy.mockResolvedValueOnce({
+        sessionToken: 's1', apiKey: '', name: '',
+        email: '', accountId: 'same-acc',
+      });
+      spy.mockResolvedValueOnce({
+        sessionToken: 's2', apiKey: '', name: '',
+        email: '', accountId: 'same-acc',
+      });
+
+      const result = await manager.importBatch('auth1_t1\nauth1_t2\n');
+      expect(result.added).toBe(1);
+      expect(result.updated).toBe(1);
+      expect(manager.getAll()).toHaveLength(1);
+    });
+
+    it('onProgress 回调正确传递进度', async () => {
+      await manager.initialize();
+      const progressCalls: Array<{ current: number; total: number }> = [];
+      const onProgress = (current: number, total: number) => {
+        progressCalls.push({ current, total });
+      };
+
+      await manager.importBatch([
+        'auth1_t1',  // 成功
+        'auth1_t2',  // 成功（同 apiKey 更新）
+      ].join('\n'), onProgress);
+
+      expect(progressCalls).toHaveLength(2);
+      expect(progressCalls[0]).toEqual({ current: 1, total: 2 });
+      expect(progressCalls[1]).toEqual({ current: 2, total: 2 });
+    });
+  });
+
+  describe('importAuth1Token', () => {
+    let switchToSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      switchToSpy = vi.spyOn(WindsurfAccountManager.prototype, 'switchTo')
+        .mockImplementation(async () => ({ success: true }));
+    });
+
+    afterEach(() => {
+      switchToSpy.mockRestore();
+    });
+
+    it('拒绝非 auth1_ 前缀的 token', async () => {
+      await manager.initialize();
+      const result = await manager.importAuth1Token('invalid-token');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('auth1_');
+    });
+
+    it('成功导入 auth1Token 并创建账号', async () => {
+      await manager.initialize();
+      const result = await manager.importAuth1Token('auth1_uslny66zeboixyinxgly3tzzc5ja7mkg45meyqi4iv27j4lo5jsa');
+
+      expect(result.success).toBe(true);
+      expect(result.account).toBeDefined();
+      expect(result.account!.email).toBe('mock@email.com');
+      expect(result.account!.apiKey).toBe('mock-api-key');
+      // 存储原始 auth1Token（长期凭证），非短期 sessionToken
+      expect(result.account!.password).toBe('auth1_uslny66zeboixyinxgly3tzzc5ja7mkg45meyqi4iv27j4lo5jsa');
+      expect(result.switchResult).toBeDefined();
+    });
+
+    it('重复导入相同 apiKey 的 token 会更新已有账号', async () => {
+      await manager.initialize();
+      // First import
+      const first = await manager.importAuth1Token('auth1_test_token_1');
+      expect(first.success).toBe(true);
+      const firstAccountId = first.account!.id;
+
+      // Second import with same apiKey (mock returns same apiKey)
+      const second = await manager.importAuth1Token('auth1_test_token_2');
+      expect(second.success).toBe(true);
+      // Should update the existing account, not create a new one
+      expect(second.account!.id).toBe(firstAccountId);
     });
   });
 

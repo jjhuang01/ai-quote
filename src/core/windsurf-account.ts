@@ -11,6 +11,7 @@ import type {
   QuotaSnapshot,
   RealQuotaInfo,
   ImportBatchResult,
+  ImportTokenResult,
   ImportSkipReasons,
 } from "./contracts";
 import { DEFAULT_AUTO_SWITCH, DEFAULT_QUOTA } from "./contracts";
@@ -814,7 +815,10 @@ export class WindsurfAccountManager {
     return account;
   }
 
-  public async importBatch(lines: string): Promise<ImportBatchResult> {
+  public async importBatch(
+    lines: string,
+    onProgress?: (current: number, total: number) => void,
+  ): Promise<ImportBatchResult> {
     const traceId = this.createTraceId("import");
     const startedAt = Date.now();
     const reloaded = await this.revalidateBeforeWrite();
@@ -838,6 +842,10 @@ export class WindsurfAccountManager {
 
     let added = 0;
     let skipped = 0;
+    let updated = 0;
+    let failed = 0;
+    const failures: string[] = [];
+    const auth1Tokens: Array<{ token: string; notes: string }> = [];
     const skippedReasons: ImportSkipReasons = {
       invalidFormat: 0,
       invalidEmail: 0,
@@ -846,6 +854,20 @@ export class WindsurfAccountManager {
     };
 
     for (const entry of entries) {
+      // auth1 token 批量导入：整行以 auth1_ 开头时直接路由到 token 解析流程
+      if (entry.startsWith("auth1_")) {
+        const dashMatch = entry.match(/-{4,}/);
+        if (dashMatch) {
+          const idx = entry.indexOf(dashMatch[0]);
+          auth1Tokens.push({
+            token: entry.slice(0, idx).trim(),
+            notes: entry.slice(idx + dashMatch[0].length).trim(),
+          });
+        } else {
+          auth1Tokens.push({ token: entry.trim(), notes: "" });
+        }
+        continue;
+      }
       // 分隔符优先级: 连续4+个连字符 > 冒号 > 空格
       // 贪婪匹配连字符：-------（7个）整体作为分隔符，而非只匹配前4个
       const dashMatch = entry.match(/-{4,}/);
@@ -910,6 +932,130 @@ export class WindsurfAccountManager {
       await this.save();
     }
 
+    // auth1 token 批量导入：逐个解析 token → 真实邮箱 → apiKey（带重试）
+    const tokenTotal = auth1Tokens.length;
+    const existingApiKeys = new Set(this.accounts.map((a) => a.apiKey).filter(Boolean) as string[]);
+    const existingEmails2 = new Set(this.accounts.map((a) => a.email.toLowerCase()));
+    const existingAccountIds = new Set(
+      this.accounts
+        .filter((a) => a.email.endsWith("@windsurf.auth1"))
+        .map((a) => a.email.split("@")[0]),
+    );
+    for (let ti = 0; ti < auth1Tokens.length; ti++) {
+      const { token, notes } = auth1Tokens[ti];
+      const tokenId = token.slice(6, 26); // 跳过 "auth1_" 前缀，取 20 位标识
+      const maxRetries = 3;
+      let resolved: Awaited<ReturnType<typeof this.auth.resolveAuth1Token>> | undefined;
+      let lastErr: Error | undefined;
+
+      // 带重试的 resolveAuth1Token
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          resolved = await this.auth.resolveAuth1Token(token);
+          break;
+        } catch (err) {
+          lastErr = err instanceof Error ? err : new Error(String(err));
+          if (attempt < maxRetries && this.auth.isTransientNetworkError(lastErr)) {
+            this.logger.warn("Token resolve retry.", {
+              tokenId,
+              attempt,
+              error: lastErr.message,
+            });
+            await new Promise((r) => setTimeout(r, 1000 * attempt));
+            continue;
+          }
+          break;
+        }
+      }
+
+      if (!resolved) {
+        failed++;
+        failures.push(
+          `[#${ti + 1}] ${tokenId}...: ${lastErr?.message ?? "未知错误"}`,
+        );
+        onProgress?.(ti + 1, tokenTotal);
+        continue;
+      }
+
+      // 去重检查（apiKey > email > accountId）
+      const dupKey = resolved.apiKey
+        ? existingApiKeys.has(resolved.apiKey)
+        : false;
+      const dupEmail =
+        !dupKey && resolved.email
+          ? existingEmails2.has(resolved.email.toLowerCase())
+          : false;
+      const dupAccountId =
+        !dupKey && !dupEmail && resolved.accountId
+          ? existingAccountIds.has(resolved.accountId)
+          : false;
+
+      if (dupKey || dupEmail || dupAccountId) {
+        let existing: WindsurfAccount | undefined;
+        if (dupKey) {
+          existing = this.accounts.find((a) => a.apiKey === resolved!.apiKey);
+        } else if (dupEmail) {
+          existing = this.accounts.find(
+            (a) => a.email.toLowerCase() === resolved!.email.toLowerCase(),
+          );
+        } else if (dupAccountId) {
+          existing = this.accounts.find(
+            (a) =>
+              a.email.endsWith("@windsurf.auth1") &&
+              a.email.split("@")[0] === resolved!.accountId,
+          );
+        }
+        if (existing) {
+          existing.password = token;
+          existing.notes = notes || undefined;
+          if (resolved.email) {
+            existing.email = resolved.email;
+            existingEmails2.add(resolved.email.toLowerCase());
+          }
+          if (resolved.apiKey) {
+            existing.apiKey = resolved.apiKey;
+            existingApiKeys.add(resolved.apiKey);
+          }
+          updated++;
+          onProgress?.(ti + 1, tokenTotal);
+          continue;
+        }
+      }
+
+      // 邮箱回退：永不用原始 token
+      const displayId =
+        resolved.accountId ||
+        resolved.name ||
+        `user_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      const email = resolved.email || `${displayId}@windsurf.auth1`;
+
+      const account: WindsurfAccount = {
+        id: `ws_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        email,
+        password: token,
+        apiKey: resolved.apiKey,
+        apiServerUrl: "https://server.codeium.com",
+        plan: "Free",
+        creditsUsed: 0,
+        creditsTotal: 0,
+        quota: { ...DEFAULT_QUOTA },
+        expiresAt: "",
+        isActive: false,
+        addedAt: new Date().toISOString(),
+        notes: notes || undefined,
+      };
+      this.accounts.push(account);
+      if (resolved.apiKey) existingApiKeys.add(resolved.apiKey);
+      if (resolved.email) existingEmails2.add(resolved.email.toLowerCase());
+      if (resolved.accountId) existingAccountIds.add(resolved.accountId);
+      added++;
+      onProgress?.(ti + 1, tokenTotal);
+    }
+
+    if (auth1Tokens.length > 0 && (added > 0 || updated > 0)) {
+      await this.save();
+    }
+
     this.logger.info("Batch import done.", {
       traceId,
       operation: "account.import",
@@ -917,11 +1063,117 @@ export class WindsurfAccountManager {
       entryCount: entries.length,
       added,
       skipped,
+      updated,
+      failed,
       skippedReasons,
       activatedAccountId: this.currentAccountId,
       durationMs: Date.now() - startedAt,
     });
-    return { added, skipped, skippedReasons };
+    return { added, skipped, skippedReasons, updated, failed, failures };
+  }
+
+  /**
+   * 导入 auth1Token 直接登录，无需 email/password。
+   * 借鉴 windsurf-account-manager-simple 的 WindsurfPostAuth + RegisterUser 链路。
+   */
+  public async importAuth1Token(token: string): Promise<ImportTokenResult> {
+    const traceId = this.createTraceId("importToken");
+    const startedAt = Date.now();
+    await this.revalidateBeforeWrite();
+
+    if (!token.startsWith("auth1_")) {
+      this.logger.warn("Token import rejected: token must start with auth1_.", { traceId });
+      return { success: false, error: "Token 格式无效：必须以 auth1_ 开头" };
+    }
+
+    this.logger.info("Token import started.", {
+      traceId,
+      operation: "account.importToken",
+      tokenId: token.slice(6, 26) + "...",
+    });
+
+    // 步骤1: 解析 auth1Token → sessionToken + apiKey（同时验证 token 有效性）
+    let resolved: { sessionToken: string; apiKey: string; name: string; email: string; accountId?: string };
+    try {
+      resolved = await this.auth.resolveAuth1Token(token);
+    } catch (err) {
+      const error = String(err);
+      this.logger.warn("Token import: resolveAuth1Token failed.", {
+        traceId,
+        error,
+        durationMs: Date.now() - startedAt,
+      });
+      return { success: false, error: `Token 解析失败: ${error}` };
+    }
+
+    // 步骤2: 构建 account 标识（优先使用 GetCurrentUser 返回的真实邮箱）
+    const displayId =
+      resolved.accountId ||
+      resolved.name ||
+      `user_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+    const email = resolved.email || `${displayId}@windsurf.auth1`;
+
+    // 步骤3: 去重检查（按 apiKey）
+    const existingByApiKey = resolved.apiKey
+      ? this.accounts.find((a) => a.apiKey === resolved.apiKey)
+      : undefined;
+    if (existingByApiKey) {
+      this.logger.info("Token import: account already exists by apiKey, updating token.", {
+        traceId,
+        existingAccountId: existingByApiKey.id,
+        email: existingByApiKey.email,
+      });
+      // 存储原始 auth1Token（长期凭证），后续 switchTo 可通过 signIn 的 auth1Token 检测自动刷新 sessionToken
+      existingByApiKey.password = token;
+      existingByApiKey.apiKey = resolved.apiKey;
+      await this.save();
+      const switchResult = await this.switchTo(existingByApiKey.id);
+      return {
+        success: switchResult.success,
+        account: existingByApiKey,
+        switchResult,
+        error: switchResult.success ? undefined : switchResult.error,
+      };
+    }
+
+    // 步骤4: 创建新账号（password 存原始 auth1Token，非短期 sessionToken）
+    const hadAccounts = this.accounts.length > 0;
+    const account: WindsurfAccount = {
+      id: `ws_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      email,
+      password: token,
+      apiKey: resolved.apiKey || undefined,
+      plan: "Free",
+      creditsUsed: 0,
+      creditsTotal: 0,
+      quota: { ...DEFAULT_QUOTA },
+      expiresAt: "",
+      isActive: !hadAccounts,
+      addedAt: new Date().toISOString(),
+    };
+    this.accounts.push(account);
+    if (account.isActive) {
+      this.currentAccountId = account.id;
+    }
+    await this.save();
+
+    this.logger.info("Token import: account created.", {
+      traceId,
+      accountId: account.id,
+      email,
+      hasApiKey: !!resolved.apiKey,
+      durationMs: Date.now() - startedAt,
+    });
+
+    // 步骤5: 切换到该账号并获取配额
+    const switchResult = await this.switchTo(account.id);
+
+    return {
+      success: switchResult.success,
+      account,
+      switchResult,
+      error: switchResult.success ? undefined : switchResult.error,
+    };
   }
 
   public async update(

@@ -363,6 +363,37 @@ export async function activate(
       sidebarProvider.postBootstrap();
       void vscode.window.showInformationMessage(`工具名已旋转为: ${result.newName}`);
     }),
+    vscode.commands.registerCommand("quote.importToken", async () => {
+      if (!dataManager) {
+        void vscode.window.showErrorMessage("DataManager 未初始化");
+        return;
+      }
+      const token = await vscode.window.showInputBox({
+        prompt: "粘贴 auth1 Token（以 auth1_ 开头）",
+        placeHolder: "auth1_xxxxxxxxxxxxx",
+        validateInput: (value) => {
+          if (!value.trim()) return "Token 不能为空";
+          if (!value.trim().startsWith("auth1_")) return "Token 必须以 auth1_ 开头";
+          return undefined;
+        },
+      });
+      if (!token) return;
+      const result = await dataManager.windsurfAccounts.importAuth1Token(token.trim());
+      if (result.success && result.account) {
+        sidebarProvider.postBootstrap();
+        void updateStatusBar();
+        void vscode.window.showInformationMessage(
+          `Token 导入成功${result.account.email ? `: ${result.account.email}` : ''}`,
+        );
+        if (result.account.id) {
+          void refreshQuotaAfterSwitch(result.account.id, "importToken");
+        }
+      } else {
+        void vscode.window.showErrorMessage(
+          `Token 导入失败: ${result.error ?? "未知错误"}`,
+        );
+      }
+    }),
     vscode.commands.registerCommand("quote.testDialog", () => {
       if (!bridge) return;
       const sessionId = `test_${Date.now()}`;

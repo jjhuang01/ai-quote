@@ -3,7 +3,7 @@
   "displayName": "Quote",
   "icon": "resources/icon.png",
   "description": "VS Code extension: Windsurf account switcher with quota stats, MCP Bridge, and LLM dialog panel",
-  "version": "2.9.85",
+  "version": "2.9.89",
   "publisher": "opensource",
   "license": "MIT",
   "author": "EVILZIXIE",
@@ -72,6 +72,10 @@
       {
         "command": "quote.rotateName",
         "title": "Quote: Rotate MCP Name"
+      },
+      {
+        "command": "quote.importToken",
+        "title": "Quote: Import auth1 Token"
       },
       {
         "command": "quote.testDialog",

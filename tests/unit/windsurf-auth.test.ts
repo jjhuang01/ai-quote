@@ -249,4 +249,75 @@ describe('WindsurfAuth', () => {
     expect(signInWithDevinAuth).not.toHaveBeenCalled();
     expect(httpsPost).toHaveBeenCalledTimes(1);
   });
+
+  it('resolveAuth1Token 通过 GetCurrentUser 获取真实邮箱', async () => {
+    const auth = new WindsurfAuth(logger);
+    (auth as any).windsurfPostAuth = vi.fn(async () => ({
+      sessionToken: 'devin-session-token$xyz',
+      auth1Token: 'auth1_usln...',
+      accountId: 'account-42',
+      primaryOrgId: 'org-1',
+    }));
+    (auth as any).getCurrentUser = vi.fn(async () => ({
+      email: 'real-user@example.com',
+    }));
+    (auth as any).registerUser = vi.fn(async () => ({
+      apiKey: 'ws-api-key-123',
+      name: 'Test User',
+      apiServerUrl: 'https://server.codeium.com',
+    }));
+
+    const result = await auth.resolveAuth1Token('auth1_uslny66zeboixyinxgly3tzzc5ja7mkg45meyqi4iv27j4lo5jsa');
+
+    expect(result.sessionToken).toBe('devin-session-token$xyz');
+    expect(result.apiKey).toBe('ws-api-key-123');
+    expect(result.name).toBe('Test User');
+    expect(result.accountId).toBe('account-42');
+    expect(result.email).toBe('real-user@example.com');
+    expect((auth as any).getCurrentUser).toHaveBeenCalledTimes(1);
+    expect((auth as any).registerUser).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolveAuth1Token survives GetCurrentUser + RegisterUser failure gracefully', async () => {
+    const auth = new WindsurfAuth(logger);
+    (auth as any).windsurfPostAuth = vi.fn(async () => ({
+      sessionToken: 'devin-session-token$xyz',
+      accountId: 'account-42',
+    }));
+    (auth as any).getCurrentUser = vi.fn(async () => {
+      throw new Error('GetCurrentUser 失败');
+    });
+    (auth as any).registerUser = vi.fn(async () => {
+      throw new Error('RegisterUser 失败');
+    });
+
+    const result = await auth.resolveAuth1Token('auth1_test');
+
+    expect(result.sessionToken).toBe('devin-session-token$xyz');
+    expect(result.apiKey).toBe('');
+    expect(result.name).toBe('account-42');
+    expect(result.email).toBe('');
+    expect(result.accountId).toBe('account-42');
+  });
+
+  it('signIn 检测到 auth1_ 密码时直接走 WindsurfPostAuth，跳过邮箱/密码登录', async () => {
+    const auth = new WindsurfAuth(logger);
+    const windsurfPostAuthSpy = vi.fn(async () => ({
+      sessionToken: 'devin-session-token$direct',
+      auth1Token: 'auth1_test',
+      accountId: 'account-direct',
+      primaryOrgId: 'org-direct',
+    }));
+    (auth as any).windsurfPostAuth = windsurfPostAuthSpy;
+
+    const result = await auth.signIn('any@email.com', 'auth1_test_token', 'acc_direct');
+
+    expect(result.idToken).toBe('devin-session-token$direct');
+    expect(result.provider).toBe('devin-auth');
+    expect(result.devinAuth1Token).toBe('auth1_test');
+    expect(result.devinAccountId).toBe('account-direct');
+    expect(result.devinPrimaryOrgId).toBe('org-direct');
+    expect(windsurfPostAuthSpy).toHaveBeenCalledTimes(1);
+    expect(windsurfPostAuthSpy).toHaveBeenCalledWith('auth1_test_token');
+  });
 });

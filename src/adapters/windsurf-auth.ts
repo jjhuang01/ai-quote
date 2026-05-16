@@ -97,6 +97,159 @@ export class WindsurfAuth {
     this.debugRawResponses = enabled;
   }
 
+  /**
+   * 直接用 auth1Token 解析账号信息，无需 email/password。
+   * 借鉴 windsurf-account-manager-simple 的 WindsurfPostAuth + GetCurrentUser + RegisterUser 链路。
+   */
+  public async resolveAuth1Token(auth1Token: string): Promise<{
+    sessionToken: string;
+    apiKey: string;
+    name: string;
+    email: string;
+    accountId?: string;
+  }> {
+    const postAuth = await this.windsurfPostAuth(auth1Token);
+    if (!postAuth.sessionToken) {
+      throw new Error("WindsurfPostAuth 返回空 sessionToken");
+    }
+
+    // GetCurrentUser 获取真实邮箱
+    let email = "";
+    try {
+      const userInfo = await this.getCurrentUser(
+        postAuth.sessionToken,
+        postAuth.accountId,
+        auth1Token,
+        postAuth.primaryOrgId,
+      );
+      email = userInfo.email;
+    } catch (err) {
+      this.logger.warn("GetCurrentUser failed during resolveAuth1Token.", {
+        error: String(err),
+      });
+    }
+
+    let apiKey = "";
+    let name = "";
+    try {
+      const registered = await this.registerUser(postAuth.sessionToken);
+      apiKey = registered.apiKey;
+      name = registered.name;
+    } catch (err) {
+      this.logger.warn("RegisterUser failed during resolveAuth1Token.", {
+        error: String(err),
+      });
+    }
+
+    return {
+      sessionToken: postAuth.sessionToken,
+      apiKey,
+      name: name || postAuth.accountId || "",
+      email: email || "",
+      accountId: postAuth.accountId,
+    };
+  }
+
+  /**
+   * GetCurrentUser API: 用 sessionToken 获取用户信息（含真实邮箱）。
+   * 参考 windsurf-account-manager-simple 的 get_current_user 实现。
+   */
+  private async getCurrentUser(
+    sessionToken: string,
+    accountId?: string,
+    auth1Token?: string,
+    primaryOrgId?: string,
+  ): Promise<{ email: string }> {
+    const tokenBytes = Buffer.from(sessionToken, "utf8");
+    const len = tokenBytes.length;
+    const lenBytes: number[] = [];
+    let remaining = len;
+    while (remaining > 127) {
+      lenBytes.push((remaining & 0x7f) | 0x80);
+      remaining >>= 7;
+    }
+    lenBytes.push(remaining & 0x7f);
+
+    // Body: 0x0a + varint(len) + token + 0x10 0x01 0x18 0x01 0x20 0x01
+    const body = Buffer.concat([
+      Buffer.from([0x0a, ...lenBytes]),
+      tokenBytes,
+      Buffer.from([0x10, 0x01, 0x18, 0x01, 0x20, 0x01]),
+    ]);
+
+    const headers: Record<string, string | number> = {
+      "Content-Type": "application/proto",
+      Accept: "application/proto",
+      "Content-Length": body.length,
+      "User-Agent": "Mozilla/5.0",
+      "x-auth-token": sessionToken,
+      "x-devin-session-token": sessionToken,
+    };
+    if (accountId) headers["x-devin-account-id"] = accountId;
+    if (auth1Token) headers["x-devin-auth1-token"] = auth1Token;
+    if (primaryOrgId) headers["x-devin-primary-org-id"] = primaryOrgId;
+
+    const raw = await this.protoPost(
+      "web-backend.windsurf.com",
+      "/exa.seat_management_pb.SeatManagementService/GetCurrentUser",
+      body,
+      headers,
+    );
+
+    // 解析嵌套 protobuf: field 1 → subMessage → field 3 = email
+    const email = this.decodeNestedProtoString(raw, 1, 3);
+    return { email };
+  }
+
+  /**
+   * 发送 proto 请求（独立于 httpsPost，使用 application/proto content type）
+   */
+  private protoPost(
+    hostname: string,
+    path: string,
+    body: Buffer,
+    headers: Record<string, string | number>,
+  ): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        {
+          hostname,
+          port: 443,
+          path,
+          method: "POST",
+          headers,
+          timeout: 10_000,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (chunk: Buffer) => {
+            chunks.push(chunk);
+          });
+          res.on("end", () => {
+            const raw = Buffer.concat(chunks);
+            if (res.statusCode && res.statusCode >= 400) {
+              reject(
+                new Error(
+                  `GetCurrentUser 请求失败: ${raw.toString("utf8").slice(0, 200)}`,
+                ),
+              );
+              return;
+            }
+            resolve(raw);
+          });
+        },
+      );
+      req.on("error", (err) =>
+        reject(new Error(`GetCurrentUser 网络错误: ${err.message}`)),
+      );
+      req.on("timeout", () => {
+        req.destroy(new Error("GetCurrentUser 请求超时"));
+      });
+      req.write(body);
+      req.end();
+    });
+  }
+
   private logRawResponse(label: string, payload: unknown): void {
     if (!this.debugRawResponses) {
       return;
@@ -127,6 +280,11 @@ export class WindsurfAuth {
           expiresIn: String(Math.floor((cached.expiresAt - Date.now()) / 1000)),
         };
       }
+    }
+
+    // auth1Token 长期凭证：跳过邮箱/密码登录，直接 WindsurfPostAuth
+    if (password.startsWith("auth1_")) {
+      return this.signInWithAuth1Token(email, password, accountId);
     }
 
     if (options?.providerPreference === "firebase") {
@@ -329,6 +487,53 @@ export class WindsurfAuth {
     }
 
     this.logger.info("Devin Auth signIn success.", {
+      email,
+      accountId: postAuth.accountId,
+      primaryOrgId: postAuth.primaryOrgId,
+    });
+    return result;
+  }
+
+  /**
+   * 用 auth1Token 直接认证，跳过邮箱/密码登录。
+   * auth1Token → WindsurfPostAuth → sessionToken
+   */
+  private async signInWithAuth1Token(
+    email: string,
+    auth1Token: string,
+    accountId?: string,
+  ): Promise<FirebaseAuthResult> {
+    this.logger.info("Auth1Token signIn attempt.", { email });
+
+    const postAuth = await this.withNetworkRetry(
+      "WindsurfPostAuth (auth1Token)",
+      () => this.windsurfPostAuthWithDirectFallback(auth1Token),
+    );
+    if (!postAuth.sessionToken) {
+      throw new Error("WindsurfPostAuth 返回空 sessionToken");
+    }
+
+    const result: FirebaseAuthResult = {
+      idToken: postAuth.sessionToken,
+      refreshToken: "",
+      email,
+      localId: postAuth.accountId ?? "",
+      expiresIn: "3600",
+      provider: "devin-auth",
+      devinAuth1Token: postAuth.auth1Token ?? auth1Token,
+      devinAccountId: postAuth.accountId,
+      devinPrimaryOrgId: postAuth.primaryOrgId,
+    };
+
+    if (accountId) {
+      this.tokenCache.set(accountId, {
+        idToken: result.idToken,
+        refreshToken: result.refreshToken,
+        expiresAt: Date.now() + 3600 * 1000,
+      });
+    }
+
+    this.logger.info("Auth1Token signIn success.", {
       email,
       accountId: postAuth.accountId,
       primaryOrgId: postAuth.primaryOrgId,
@@ -606,7 +811,7 @@ export class WindsurfAuth {
     throw lastErr ?? new Error(`${label} failed`);
   }
 
-  private isTransientNetworkError(err: Error): boolean {
+  public isTransientNetworkError(err: Error): boolean {
     const message = err.message.toLowerCase();
     return (
       message.includes("tls") ||
@@ -878,5 +1083,48 @@ export class WindsurfAuth {
       pos += length;
     }
     return fields;
+  }
+
+  /**
+   * 从嵌套 protobuf 中提取指定字段的字符串值。
+   * 先定位 outerField（wire type 2 = length-delimited），解析其子消息，
+   * 再在子消息中定位 innerField 的字符串值。
+   */
+  private decodeNestedProtoString(
+    data: Buffer,
+    outerField: number,
+    innerField: number,
+  ): string {
+    const outerTag = (outerField << 3) | 2; // wire type 2
+    let pos = 0;
+    while (pos < data.length) {
+      const tag = data[pos++];
+      if ((tag & 0x07) !== 2) {
+        // skip non-length-delimited fields
+        if ((tag & 0x07) === 0) { pos++; continue; }
+        break;
+      }
+      const fieldNumber = tag >> 3;
+      let length = 0;
+      let shift = 0;
+      while (pos < data.length) {
+        const byte = data[pos++];
+        length |= (byte & 0x7f) << shift;
+        if ((byte & 0x80) === 0) break;
+        shift += 7;
+      }
+      if (pos + length > data.length) break;
+
+      if (fieldNumber === outerField) {
+        // 在子消息中找 innerField
+        const inner = data.subarray(pos, pos + length);
+        for (const [key, value] of this.decodeProtoStrings(inner)) {
+          if (key === innerField) return value;
+        }
+        return "";
+      }
+      pos += length;
+    }
+    return "";
   }
 }

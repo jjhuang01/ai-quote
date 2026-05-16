@@ -163,6 +163,8 @@ export interface WindsurfAccount {
   lastCheckedAt?: string;
   addedAt: string;
   realQuota?: RealQuotaInfo;
+  // 用户备注（如批量 auth1 token 导入时的标签）
+  notes?: string;
 }
 
 export interface AccountQuota {
@@ -236,6 +238,16 @@ export interface ImportBatchResult {
   added: number;
   skipped: number;
   skippedReasons: ImportSkipReasons;
+  updated: number;
+  failed: number;
+  failures: string[];
+}
+
+export interface ImportTokenResult {
+  success: boolean;
+  account?: WindsurfAccount;
+  switchResult?: { success: boolean; error?: string; pendingRuntimeVerification?: boolean };
+  error?: string;
 }
 
 // Shortcut (快捷短语)

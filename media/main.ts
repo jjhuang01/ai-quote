@@ -258,6 +258,7 @@ const SVG_ICONS: Record<string, string> = {
   xCircle:
     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
   copy: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>',
+  key: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>',
 };
 
 function icon(name: string, cls = ""): string {
@@ -282,7 +283,11 @@ let state = {
   // Account
   showAddAccount: false,
   showImportAccount: false,
+  showImportToken: false,
   importText: "",
+  importTokenText: "",
+  importLoading: false,
+  importProgress: null as { current: number; total: number } | null,
   addEmail: "",
   addPassword: "",
   accountSearchQuery: "",
@@ -761,6 +766,7 @@ function renderAccountTab(bs: Bootstrap): string {
           <h2 id="accountTabTitle">账号 (${availableCount}/${accounts.length})</h2>
           <div class="btn-group">
             <button class="btn-xs btn-icon" data-action="toggleAddAccount">${icon("plus")} 添加</button>
+            <button class="btn-xs btn-icon" data-action="toggleImportToken">${icon("key")} Token</button>
             <button class="btn-xs btn-icon" data-action="toggleImportAccount">${icon("upload")} 批量</button>
             ${accounts.length > 0 ? `<button class="btn-xs btn-icon ${state.selectMode ? "btn-active" : ""}" data-action="toggleSelectMode" title="多选删除">☑ 选择</button>` : ""}
             ${accounts.length > 0 && !state.selectMode ? `<button class="btn-xs btn-danger-xs" data-action="accountClear">清空</button>` : ""}
@@ -799,11 +805,30 @@ function renderAccountTab(bs: Bootstrap): string {
           state.showImportAccount
             ? `
           <div class="inline-form">
-            <p class="hint">${icon("upload")} 批量导入 (每行: 邮箱 密码)</p>
-            <textarea class="text-area" id="importText" rows="5" placeholder="user1@mail.com pass123\nuser2@mail.com pass456">${escapeHtml(state.importText)}</textarea>
+            <p class="hint">${icon("upload")} 批量导入 (每行: 邮箱 密码 或 auth1_token)</p>
+            ${
+              state.importLoading
+                ? `<p class="hint" style="color:#f0a030">${icon("sync")} 正在导入 ${state.importProgress ? `${state.importProgress.current}/${state.importProgress.total}` : "..."} ...</p>`
+                : ""
+            }
+            <textarea class="text-area" id="importText" rows="5" placeholder="user1@mail.com pass123\nuser2@mail.com pass456\nauth1_xxx----已绑卡" ${state.importLoading ? "disabled" : ""}>${escapeHtml(state.importText)}</textarea>
             <div class="btn-group">
-              <button class="btn-grad btn-sm" data-action="accountImport">导入</button>
-              <button class="btn-secondary btn-sm" data-action="toggleImportAccount">取消</button>
+              <button class="btn-grad btn-sm" data-action="accountImport" ${state.importLoading ? "disabled" : ""}>${state.importLoading ? "导入中..." : "导入"}</button>
+              <button class="btn-secondary btn-sm" data-action="toggleImportAccount" ${state.importLoading ? "disabled" : ""}>取消</button>
+            </div>
+          </div>`
+            : ""
+        }
+
+        ${
+          state.showImportToken
+            ? `
+          <div class="inline-form">
+            <p class="hint">${icon("key")} 粘贴 auth1 Token 直接登录（无需邮箱/密码）</p>
+            <input class="text-input" id="importTokenInput" type="text" placeholder="auth1_xxxxxxxxxxxxx" value="${escapeHtml(state.importTokenText)}">
+            <div class="btn-group">
+              <button class="btn-grad btn-sm" data-action="accountImportToken">导入并登录</button>
+              <button class="btn-secondary btn-sm" data-action="toggleImportToken">取消</button>
             </div>
           </div>`
             : ""
@@ -2162,6 +2187,13 @@ function handleAction(el: HTMLElement): void {
     case "toggleImportAccount":
       state.showImportAccount = !state.showImportAccount;
       state.showAddAccount = false;
+      state.showImportToken = false;
+      render();
+      break;
+    case "toggleImportToken":
+      state.showImportToken = !state.showImportToken;
+      state.showAddAccount = false;
+      state.showImportAccount = false;
       render();
       break;
     case "accountAdd": {
@@ -2190,9 +2222,19 @@ function handleAction(el: HTMLElement): void {
         (document.getElementById("importText") as HTMLTextAreaElement)?.value ??
         "";
       if (text.trim()) {
+        state.importLoading = true;
+        state.importProgress = null;
         vscode.postMessage({ type: "accountImport", value: text });
-        state.importText = "";
-        state.showImportAccount = false;
+        // 保持表单打开显示进度，不在此处关闭
+      }
+      break;
+    }
+    case "accountImportToken": {
+      const token =
+        (document.getElementById("importTokenInput") as HTMLInputElement)?.value.trim() ?? "";
+      if (token) {
+        vscode.postMessage({ type: "accountImportToken", value: token });
+        // 不在此处关闭表单——等 tokenImportResult 成功后再关闭；失败时保留已输入文本方便重试
       }
       break;
     }
@@ -2949,8 +2991,56 @@ window.addEventListener("message", (event) => {
   }
 
   if (msg.type === "importResult") {
-    const r = msg.value as { added: number; skipped: number };
-    showToast(`导入完成：${r.added} 个成功，${r.skipped} 个跳过`, "success");
+    state.importLoading = false;
+    state.importProgress = null;
+    state.importText = "";
+    state.showImportAccount = false;
+    const r = msg.value as { added: number; skipped: number; updated: number; failed: number; failures: string[] };
+    const parts: string[] = [];
+    if (r.added > 0) parts.push(`${r.added} 新增`);
+    if (r.updated > 0) parts.push(`${r.updated} 更新`);
+    if (r.failed > 0) parts.push(`${r.failed} 失败`);
+    if (r.skipped > 0) parts.push(`${r.skipped} 跳过`);
+    let msg2 = `导入完成：${parts.join("，")}`;
+    if (r.failed > 0 && r.failures?.length) {
+      msg2 += `\n失败详情：${r.failures.slice(0, 3).join("；")}`;
+      if (r.failures.length > 3) msg2 += ` 等${r.failures.length}项`;
+    }
+    showToast(msg2, r.failed > 0 ? "error" : "success");
+    return;
+  }
+
+  if (msg.type === "importProgress") {
+    state.importProgress = msg.value as { current: number; total: number };
+    render();
+    return;
+  }
+
+  if (msg.type === "importLoading") {
+    state.importLoading = !!msg.value;
+    if (!msg.value) state.importProgress = null;
+    render();
+    return;
+  }
+
+  if (msg.type === "tokenImportLoading") {
+    state.switchLoadingId = "__tokenImport__";
+    render();
+    return;
+  }
+
+  if (msg.type === "tokenImportResult") {
+    state.switchLoadingId = undefined;
+    const r = msg.value as { success: boolean; error?: string };
+    if (r.success) {
+      state.importTokenText = "";
+      state.showImportToken = false;
+      showToast("Token 导入成功，已切换到该账号", "success");
+    } else {
+      // 失败时保留表单和已输入文本，方便用户重试
+      showToast(r.error ?? "Token 导入失败", "error");
+    }
+    render();
     return;
   }
 
