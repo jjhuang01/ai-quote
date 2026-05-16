@@ -18,6 +18,7 @@ let dataManager: DataManager | undefined;
 let activeToolName: string | undefined;
 let secondaryInstance = false;
 let extensionContext: vscode.ExtensionContext | undefined;
+let sidebarProvider: QuoteSidebarProvider | undefined;
 const OWNED_MCP_NAMES_KEY = 'ownedMcpNames';
 
 function sanitizeAccount(account: WindsurfAccount): Omit<WindsurfAccount, "password"> & { password: string } {
@@ -133,7 +134,7 @@ export async function activate(
       const result = await dataManager.windsurfAccounts.switchTo(accountId);
       if (result.success) {
         await refreshQuotaAfterSwitch(accountId, "autopilot.switchAccount");
-        sidebarProvider.postBootstrap();
+        provider.postBootstrap();
       }
       const account = dataManager.windsurfAccounts.getById(accountId);
       return {
@@ -152,7 +153,7 @@ export async function activate(
       if (switched && afterId) {
         await refreshQuotaAfterSwitch(afterId, "autopilot.switchNext");
       }
-      sidebarProvider.postBootstrap();
+      provider.postBootstrap();
       return {
         success: switched,
         switchedTo: afterId && afterId !== beforeId ? sanitizeAccount(dataManager.windsurfAccounts.getById(afterId)!) : undefined,
@@ -170,7 +171,7 @@ export async function activate(
         return { success: 0, failed: 1, errors: ["No current account"] };
       }
       const single = await dataManager.windsurfAccounts.fetchRealQuota(currentId);
-      sidebarProvider.postBootstrap();
+      provider.postBootstrap();
       return single.success
         ? { success: 1, failed: 0, errors: [] }
         : { success: 0, failed: 1, errors: [single.error ?? "Unknown quota refresh error"] };
@@ -193,13 +194,14 @@ export async function activate(
   }
   activeToolName = toolName;
 
-  const sidebarProvider = new QuoteSidebarProvider(
+  const provider = new QuoteSidebarProvider(
     context.extensionUri,
     bridge,
     logger,
     dataManager,
     context,
   );
+  sidebarProvider = provider;
 
   const rotateMcpName = async (): Promise<{ newName: string }> => {
     if (!bridge) {
@@ -214,11 +216,11 @@ export async function activate(
     logger?.info('Rotation completed (MCP and rules side effects disabled).', { newName });
     return { newName };
   };
-  sidebarProvider.setRotateMcpNameCallback(rotateMcpName);
+  provider.setRotateMcpNameCallback(rotateMcpName);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       QuoteSidebarProvider.viewId,
-      sidebarProvider,
+      provider,
       { webviewOptions: { retainContextWhenHidden: true } },
     ),
   );
@@ -249,10 +251,10 @@ export async function activate(
     }
 
     // ── Queue auto-reply: if queue has content, consume first item automatically ──
-    const queueItems = sidebarProvider.getQueueItems();
+    const queueItems = provider.getQueueItems();
     if (queueItems.length > 0) {
       const autoReply = queueItems[0];
-      sidebarProvider.replaceQueue(queueItems.slice(1));
+      provider.replaceQueue(queueItems.slice(1));
       bridge?.resolvePendingDialog(req.sessionId, autoReply);
       logger?.info('Auto-replied from queue.', {
         sessionId: req.sessionId,
@@ -260,14 +262,14 @@ export async function activate(
         queueRemaining: queueItems.length - 1,
       });
       void updateStatusBar();
-      sidebarProvider.postState();
-      QuoteDialogPanel.syncQueueItems(sidebarProvider.getQueueItems());
+      provider.postState();
+      QuoteDialogPanel.syncQueueItems(provider.getQueueItems());
       return;
     }
 
     // ── No queue items — show dialog panel and wait for user input ──
     // Notify sidebar for status display
-    sidebarProvider.postPendingDialog(req);
+    provider.postPendingDialog(req);
     try {
       const settings = dataManager!.settings.get();
       // Load recent conversation history for display in dialog panel
@@ -281,11 +283,11 @@ export async function activate(
           content: JSON.stringify({ summary: req.summary, response, sessionId }),
         });
         void updateStatusBar();
-        sidebarProvider.postState();
+        provider.postState();
       }, {
         enterToSend: settings.enterToSend,
-        queueCount: sidebarProvider.getQueueCount(),
-        queueItems: sidebarProvider.getQueueItems(),
+        queueCount: provider.getQueueCount(),
+        queueItems: provider.getQueueItems(),
         soundAlert: settings.soundAlert ?? 'none',
         recentHistory: recentHistory.map(h => {
           try {
@@ -294,12 +296,12 @@ export async function activate(
           } catch { return null; }
         }).filter((h): h is { summary: string; response: string; time: string } => h !== null),
         onQueueAdd: (items) => {
-          sidebarProvider.addToQueue(items);
-          QuoteDialogPanel.syncQueueItems(sidebarProvider.getQueueItems());
+          provider.addToQueue(items);
+          QuoteDialogPanel.syncQueueItems(provider.getQueueItems());
         },
         onQueueReplace: (items) => {
-          sidebarProvider.replaceQueue(items);
-          QuoteDialogPanel.syncQueueItems(sidebarProvider.getQueueItems());
+          provider.replaceQueue(items);
+          QuoteDialogPanel.syncQueueItems(provider.getQueueItems());
         }
       });
     } catch (err) {
@@ -315,7 +317,7 @@ export async function activate(
   });
   bridge.registerSseClientChangeCallback(() => {
     void updateStatusBar();
-    sidebarProvider.postState();
+    provider.postState();
   });
 
   context.subscriptions.push(
@@ -323,18 +325,18 @@ export async function activate(
       await vscode.commands.executeCommand(
         "workbench.view.extension.quote-sidebar",
       );
-      sidebarProvider.reveal();
-      sidebarProvider.postState();
+      provider.reveal();
+      provider.postState();
     }),
     vscode.commands.registerCommand("quote.refresh", async () => {
-      sidebarProvider.refresh();
-      sidebarProvider.postState();
+      provider.refresh();
+      provider.postState();
       await updateStatusBar();
       vscode.window.showInformationMessage("Quote sidebar refreshed.");
     }),
     vscode.commands.registerCommand("quote.testFeedback", async () => {
       const message = await bridge?.injectTestFeedback();
-      sidebarProvider.postState();
+      provider.postState();
       await updateStatusBar();
       vscode.window.showInformationMessage(
         `Feedback test sent: ${message?.id ?? "n/a"}`,
@@ -360,7 +362,7 @@ export async function activate(
     vscode.commands.registerCommand("quote.rotateName", async () => {
       const result = await rotateMcpName();
       await updateStatusBar();
-      sidebarProvider.postBootstrap();
+      provider.postBootstrap();
       void vscode.window.showInformationMessage(`工具名已旋转为: ${result.newName}`);
     }),
     vscode.commands.registerCommand("quote.importToken", async () => {
@@ -380,7 +382,7 @@ export async function activate(
       if (!token) return;
       const result = await dataManager.windsurfAccounts.importAuth1Token(token.trim());
       if (result.success && result.account) {
-        sidebarProvider.postBootstrap();
+        provider.postBootstrap();
         void updateStatusBar();
         void vscode.window.showInformationMessage(
           `Token 导入成功${result.account.email ? `: ${result.account.email}` : ''}`,
@@ -435,7 +437,7 @@ export async function activate(
     if (Date.now() - lastAutoSwitchCheckAt < intervalMs) return;
     lastAutoSwitchCheckAt = Date.now();
     const switched = await dataManager.windsurfAccounts.autoSwitchIfNeeded();
-    sidebarProvider.postBootstrap();
+    provider.postBootstrap();
     if (switched) {
       logger?.info('Auto-switch triggered by timer.');
     }
@@ -449,11 +451,11 @@ export async function activate(
     const currentId = await dataManager.windsurfAccounts.getDisplayCurrentAccountId();
     if (!currentId) return;
     await dataManager.windsurfAccounts.fetchRealQuota(currentId, { mode: "auto" });
-    sidebarProvider.postBootstrap();
+    provider.postBootstrap();
     const cfg = dataManager.windsurfAccounts.getAutoSwitchConfig();
     if (cfg.enabled) {
       const switched = await dataManager.windsurfAccounts.autoSwitchIfNeeded();
-      sidebarProvider.postBootstrap();
+      provider.postBootstrap();
       if (switched) {
         logger?.info('Auto-switch triggered after quota refresh.');
       }
@@ -464,7 +466,7 @@ export async function activate(
   // 延迟刷新状态：等待 MCP 客户端连接后更新 SSE 计数
   setTimeout(() => {
     void updateStatusBar();
-    sidebarProvider.postBootstrap();
+    provider.postBootstrap();
   }, 3000);
 
   logger.info("Quote activated.", {
@@ -552,6 +554,8 @@ export async function deactivate(): Promise<void> {
     logger?.warn('Deactivate cleanup failed (non-fatal).', { error: String(err) });
   }
   extensionContext = undefined;
+  sidebarProvider?.dispose();
+  sidebarProvider = undefined;
   dataManager?.endSession();
   dataManager?.dispose();
   DataManager.resetInstance();

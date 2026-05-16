@@ -1,4 +1,3 @@
-import "./main.css";
 import {
   compareAccountsByUiState,
   deriveAccountUiState,
@@ -15,6 +14,7 @@ import {
   reconcileQuotaFetchingIds,
   requestQuotaSelfHealOnce,
 } from "./account-webview-state";
+import "./main.css";
 
 declare function acquireVsCodeApi(): {
   postMessage(message: unknown): void;
@@ -318,6 +318,10 @@ let state = {
   maintenanceLoadingAction: undefined as string | undefined,
   // Switch loading
   switchLoadingId: undefined as string | undefined,
+  // Batch refresh
+  batchRefreshing: false,
+  batchRefreshCurrent: 0,
+  batchRefreshTotal: 0,
   accountScrollTop: 0,
   accountViewportHeight: 0,
   // MCP pending dialog
@@ -765,11 +769,14 @@ function renderAccountTab(bs: Bootstrap): string {
         <div class="section-header">
           <h2 id="accountTabTitle">账号 (${availableCount}/${accounts.length})</h2>
           <div class="btn-group">
-            <button class="btn-xs btn-icon" data-action="toggleAddAccount">${icon("plus")} 添加</button>
-            <button class="btn-xs btn-icon" data-action="toggleImportToken">${icon("key")} Token</button>
-            <button class="btn-xs btn-icon" data-action="toggleImportAccount">${icon("upload")} 批量</button>
-            ${accounts.length > 0 ? `<button class="btn-xs btn-icon ${state.selectMode ? "btn-active" : ""}" data-action="toggleSelectMode" title="多选删除">☑ 选择</button>` : ""}
-            ${accounts.length > 0 && !state.selectMode ? `<button class="btn-xs btn-danger-xs" data-action="accountClear">清空</button>` : ""}
+            ${!state.selectMode && !state.showAddAccount && !state.showImportAccount ? `
+            <button class="btn-xs btn-icon" data-action="toggleAddAccount">添加</button>
+            <button class="btn-xs btn-icon" data-action="toggleImportAccount">${icon("upload")} 批量添加</button>
+            ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="toggleSelectMode" title="多选删除">☑ 选择</button>` : ""}
+            ${accounts.length > 0 ? `<button class="btn-xs btn-danger-xs" data-action="accountClear">清空</button>` : ""}
+            ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="batchRefreshQuota">${icon("refresh")} 批量刷新</button>` : ""}
+            ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="accountExport">${icon("upload")} 导出</button>` : ""}
+            ` : ""}
           </div>
           ${
             state.selectMode
@@ -811,7 +818,7 @@ function renderAccountTab(bs: Bootstrap): string {
                 ? `<p class="hint" style="color:#f0a030">${icon("sync")} 正在导入 ${state.importProgress ? `${state.importProgress.current}/${state.importProgress.total}` : "..."} ...</p>`
                 : ""
             }
-            <textarea class="text-area" id="importText" rows="5" placeholder="user1@mail.com pass123\nuser2@mail.com pass456\nauth1_xxx----已绑卡" ${state.importLoading ? "disabled" : ""}>${escapeHtml(state.importText)}</textarea>
+            <textarea class="text-area" id="importText" rows="5" placeholder="每行一个账号，支持格式：&#10;邮箱 密码&#10;auth1_token" ${state.importLoading ? "disabled" : ""}>${escapeHtml(state.importText)}</textarea>
             <div class="btn-group">
               <button class="btn-grad btn-sm" data-action="accountImport" ${state.importLoading ? "disabled" : ""}>${state.importLoading ? "导入中..." : "导入"}</button>
               <button class="btn-secondary btn-sm" data-action="toggleImportAccount" ${state.importLoading ? "disabled" : ""}>取消</button>
@@ -2557,6 +2564,24 @@ function handleAction(el: HTMLElement): void {
       }
       break;
 
+    // Batch refresh
+    case "batchRefreshQuota": {
+      const bs = window.__QUOTE_BOOTSTRAP__;
+      if (bs && bs.accounts.length > 0 && !state.batchRefreshing) {
+        state.batchRefreshing = true;
+        state.batchRefreshCurrent = 0;
+        state.batchRefreshTotal = bs.accounts.length;
+        render();
+        vscode.postMessage({ type: "batchRefreshQuota", value: bs.accounts.map((a) => a.id) });
+      }
+      break;
+    }
+
+    // Export
+    case "accountExport":
+      vscode.postMessage({ type: "accountExport" });
+      break;
+
     // Maintenance
     case "maintenanceClearHistory":
       vscode.postMessage({ type: "maintenanceClearHistory" });
@@ -3112,6 +3137,43 @@ window.addEventListener("message", (event) => {
       `配额刷新完成: ${r.success} 成功, ${r.failed} 失败`,
       r.failed > 0 ? "error" : "success",
     );
+    return;
+  }
+
+  if (msg.type === "batchRefreshProgress") {
+    const r = msg.value as { current: number; total: number };
+    state.batchRefreshCurrent = r.current;
+    state.batchRefreshTotal = r.total;
+    render();
+    return;
+  }
+
+  if (msg.type === "batchRefreshResult") {
+    state.batchRefreshing = false;
+    state.batchRefreshCurrent = 0;
+    state.batchRefreshTotal = 0;
+    const r = msg.value as { success: number; failed: number; errors: string[] };
+    showToast(
+      `批量刷新完成: ${r.success} 成功, ${r.failed} 失败`,
+      r.failed > 0 ? "error" : "success",
+    );
+    return;
+  }
+
+  if (msg.type === "exportResult") {
+    const r = msg.value as { success: boolean; data?: string; error?: string };
+    if (r.success && r.data) {
+      const blob = new Blob([r.data], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `windsurf-accounts-${new Date().toISOString().slice(0, 10)}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("账号已导出", "success");
+    } else {
+      showToast(r.error ?? "导出失败", "error");
+    }
     return;
   }
 

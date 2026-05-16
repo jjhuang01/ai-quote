@@ -1,25 +1,25 @@
-import * as fs from "node:fs/promises";
 import { randomBytes } from "node:crypto";
+import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { safeWriteJson, safeReadJson } from "../utils/safe-json";
+import type { QuotaFetchResult, WindsurfPlanInfo } from "../adapters/quota-fetcher";
+import { WindsurfQuotaFetcher } from "../adapters/quota-fetcher";
+import { WindsurfAuth } from "../adapters/windsurf-auth";
+import { WindsurfPatchService } from "../adapters/windsurf-patch";
+import { safeReadJson, safeWriteJson } from "../utils/safe-json";
 import type {
-  WindsurfAccount,
-  AutoSwitchConfig,
-  AutoSwitchResult,
-  QuotaSnapshot,
-  RealQuotaInfo,
-  ImportBatchResult,
-  ImportTokenResult,
-  ImportSkipReasons,
+    AutoSwitchConfig,
+    AutoSwitchResult,
+    ImportBatchResult,
+    ImportSkipReasons,
+    ImportTokenResult,
+    QuotaSnapshot,
+    RealQuotaInfo,
+    WindsurfAccount,
 } from "./contracts";
 import { DEFAULT_AUTO_SWITCH, DEFAULT_QUOTA } from "./contracts";
 import type { LoggerLike } from "./logger";
-import { WindsurfAuth } from "../adapters/windsurf-auth";
-import { WindsurfPatchService } from "../adapters/windsurf-patch";
-import { WindsurfQuotaFetcher } from "../adapters/quota-fetcher";
-import type { QuotaFetchResult, WindsurfPlanInfo } from "../adapters/quota-fetcher";
 
 const WINDSURF_API_SERVER = "https://server.codeium.com";
 const WINDSURF_COMMAND_DISCOVERY_TIMEOUT_MS = 3000;
@@ -2423,6 +2423,72 @@ export class WindsurfAccountManager {
     }
     this.pendingSwitchId = undefined;
     await this.save();
+  }
+
+  /**
+   * 导出所有账号（含 token/password），格式与批量导入兼容。
+   * - 有 auth1 token 的账号：auth1_token----备注
+   * - 普通账号：邮箱 密码
+   */
+  public exportAccounts(): string {
+    return this.accounts
+      .map((account) => {
+        if (account.password?.startsWith("auth1_")) {
+          const notes = account.notes ?? "";
+          return notes ? `${account.password}----${notes}` : account.password;
+        }
+        return `${account.email} ${account.password}`;
+      })
+      .join("\n");
+  }
+
+  /**
+   * 批量刷新配额：逐个串行刷新，带随机延迟（1-3秒），避免触发风控。
+   * @param accountIds 要刷新的账号 ID 列表
+   * @param onProgress 进度回调 (current, total)
+   */
+  public async batchRefreshQuota(
+    accountIds: string[],
+    onProgress?: (current: number, total: number) => void,
+  ): Promise<{ success: number; failed: number; errors: string[] }> {
+    let success = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    const total = accountIds.length;
+
+    for (let i = 0; i < accountIds.length; i++) {
+      const accountId = accountIds[i];
+      const account = this.accounts.find((a) => a.id === accountId);
+      if (!account) {
+        failed++;
+        errors.push(`[${accountId}]: 账号不存在`);
+        onProgress?.(i + 1, total);
+        continue;
+      }
+
+      try {
+        const result = await this.fetchRealQuota(accountId, { mode: "manual" });
+        if (result.success) {
+          success++;
+        } else {
+          failed++;
+          errors.push(`${account.email}: ${result.error ?? "未知错误"}`);
+        }
+      } catch (err) {
+        failed++;
+        errors.push(`${account.email}: ${String(err)}`);
+      }
+
+      onProgress?.(i + 1, total);
+
+      // 随机延迟 1000-3000ms，避免触发风控
+      if (i < accountIds.length - 1) {
+        const delay = 1000 + Math.floor(Math.random() * 2000);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+
+    return { success, failed, errors };
   }
 
   private async load(): Promise<void> {

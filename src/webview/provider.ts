@@ -2,9 +2,9 @@ import * as vscode from 'vscode';
 import { WindsurfPatchService } from '../adapters/windsurf-patch';
 import type { QuoteBridge } from '../core/bridge';
 import {
-    getSwitchWarmupMode,
-    getSwitchWarmupSuccessMessage,
-    isSwitchWarmupEnabled,
+  getSwitchWarmupMode,
+  getSwitchWarmupSuccessMessage,
+  isSwitchWarmupEnabled,
 } from '../core/config';
 import type { WebviewBootstrap } from '../core/contracts';
 import type { DataManager } from '../core/data-manager';
@@ -29,6 +29,8 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
   private readonly selfHealQuotaQueue: string[] = [];
   private readonly selfHealQuotaQueuedIds = new Set<string>();
   private selfHealQuotaDraining = false;
+  private selfHealTimer?: ReturnType<typeof setTimeout>;
+  private selfHealDisposed = false;
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
@@ -42,6 +44,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     this.dataManager.windsurfAccounts.onDidChangeAccounts(() => {
       void this.postAccountsSync();
     });
+    this.startSelfHealScheduler();
   }
 
   public setRotateMcpNameCallback(cb: RotateMcpNameCallback): void {
@@ -407,6 +410,140 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  public dispose(): void {
+    this.stopSelfHealScheduler();
+  }
+
+  // ── 自愈调度器：每天16:00 + 智能计算下次检查时间 ──
+
+  private startSelfHealScheduler(): void {
+    if (this.selfHealDisposed) return;
+    this.scheduleNextSelfHealCheck();
+  }
+
+  private stopSelfHealScheduler(): void {
+    this.selfHealDisposed = true;
+    if (this.selfHealTimer) {
+      clearTimeout(this.selfHealTimer);
+      this.selfHealTimer = undefined;
+    }
+  }
+
+  /**
+   * 计算下次检查时间 = min(今天/明天16:00, 最早账号reset时间+5分钟缓冲)
+   */
+  private scheduleNextSelfHealCheck(): void {
+    if (this.selfHealDisposed) return;
+    if (this.selfHealTimer) clearTimeout(this.selfHealTimer);
+
+    const now = Date.now();
+    const FOUR_PM_HOUR = 16;
+    const BUFFER_MS = 5 * 60 * 1000; // 5分钟缓冲
+
+    // 计算今天16:00的时间戳
+    const today4pm = new Date();
+    today4pm.setHours(FOUR_PM_HOUR, 0, 0, 0);
+    const today4pmMs = today4pm.getTime();
+
+    // 如果今天16:00已过，用明天16:00
+    const next4pm = today4pmMs > now ? today4pmMs : today4pmMs + 24 * 60 * 60 * 1000;
+
+    let nextCheckMs = next4pm;
+
+    // 遍历所有账号，找最早的reset时间
+    const accounts = this.dataManager.windsurfAccounts.getAll();
+    for (const account of accounts) {
+      const rq = account.realQuota;
+      if (!rq) continue;
+
+      // 跳过已过期的账号
+      if (rq.planEndTimestamp && rq.planEndTimestamp > 0 && rq.planEndTimestamp < now) continue;
+
+      // 检查日重置时间
+      if (rq.dailyResetAtUnix > 0) {
+        const dailyResetMs = rq.dailyResetAtUnix * 1000;
+        // 如果重置时间在未来且在下次检查之前，提前检查
+        const dailyCheckMs = dailyResetMs + BUFFER_MS;
+        if (dailyCheckMs > now && dailyCheckMs < nextCheckMs) {
+          nextCheckMs = dailyCheckMs;
+        }
+      }
+
+      // 检查周重置时间
+      if (rq.weeklyResetAtUnix > 0) {
+        const weeklyResetMs = rq.weeklyResetAtUnix * 1000;
+        const weeklyCheckMs = weeklyResetMs + BUFFER_MS;
+        if (weeklyCheckMs > now && weeklyCheckMs < nextCheckMs) {
+          nextCheckMs = weeklyCheckMs;
+        }
+      }
+    }
+
+    const delay = Math.max(1000, nextCheckMs - now);
+    this.logger.info('Self-heal scheduler: next check scheduled.', {
+      nextCheckMs,
+      nextCheckTime: new Date(nextCheckMs).toISOString(),
+      delayMinutes: Math.round(delay / 60000),
+    });
+
+    this.selfHealTimer = setTimeout(() => {
+      this.selfHealTimer = undefined;
+      void this.runSelfHealCheck();
+    }, delay);
+  }
+
+  /**
+   * 执行自愈检查：遍历账号，找到需要自愈的，逐个放入队列
+   */
+  private async runSelfHealCheck(): Promise<void> {
+    if (this.selfHealDisposed) return;
+
+    const now = Date.now();
+    const accounts = this.dataManager.windsurfAccounts.getAll();
+    const toHeal: string[] = [];
+
+    for (const account of accounts) {
+      const rq = account.realQuota;
+      // 条件1: 有 realQuota 数据
+      if (!rq) continue;
+
+      // 条件2: plan 未到期（planEndTimestamp === 0 表示未知，也允许检查）
+      if (rq.planEndTimestamp && rq.planEndTimestamp > 0 && rq.planEndTimestamp < now) continue;
+
+      // 条件3: 日或周重置时间已过（说明配额应该恢复了）
+      const dailyResetPassed = rq.dailyResetAtUnix > 0 && rq.dailyResetAtUnix * 1000 <= now;
+      const weeklyResetPassed = rq.weeklyResetAtUnix > 0 && rq.weeklyResetAtUnix * 1000 <= now;
+
+      if (!dailyResetPassed && !weeklyResetPassed) continue;
+
+      // 条件4: 当前显示为不可用状态（日或周剩余 < 10% 或耗尽标记）
+      const isUnavailable =
+        (rq.dailyRemainingPercent >= 0 && rq.dailyRemainingPercent < 10) ||
+        (rq.weeklyRemainingPercent >= 0 && rq.weeklyRemainingPercent < 10) ||
+        rq.dailyRemainingPercent < 0 ||
+        rq.weeklyRemainingPercent < 0;
+
+      if (!isUnavailable) continue;
+
+      toHeal.push(account.id);
+    }
+
+    if (toHeal.length > 0) {
+      this.logger.info('Self-heal check: found accounts to heal.', {
+        count: toHeal.length,
+        accountIds: toHeal,
+      });
+      for (const accountId of toHeal) {
+        this.queueSelfHealQuota(accountId);
+      }
+    } else {
+      this.logger.info('Self-heal check: no accounts need healing.');
+    }
+
+    // 调度下一次检查
+    this.scheduleNextSelfHealCheck();
+  }
+
   private async postAccountsSync(options?: { preferFastCurrentId?: boolean }): Promise<void> {
     if (!this.view) return;
     void this.view.webview.postMessage({
@@ -734,6 +871,41 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           await this.postAccountsSync({ preferFastCurrentId: true });
           void this.view?.webview.postMessage({ type: 'opResult', value: { message: '所有账号已清空' } });
         }
+        return true;
+      }
+      case 'batchRefreshQuota':
+        if (Array.isArray(value) && value.length > 0) {
+          const ids = value.filter((id): id is string => typeof id === 'string');
+          if (ids.length > 0) {
+            void this.dataManager.windsurfAccounts.batchRefreshQuota(
+              ids,
+              (current, total) => {
+                void this.view?.webview.postMessage({
+                  type: 'batchRefreshProgress',
+                  value: { current, total },
+                });
+              },
+            ).then((result) => {
+              void this.view?.webview.postMessage({
+                type: 'batchRefreshResult',
+                value: result,
+              });
+              void this.postAccountsSync({ preferFastCurrentId: true });
+            }).catch((err) => {
+              void this.view?.webview.postMessage({
+                type: 'batchRefreshResult',
+                value: { success: 0, failed: ids.length, errors: [String(err)] },
+              });
+            });
+          }
+        }
+        return true;
+      case 'accountExport': {
+        const data = this.dataManager.windsurfAccounts.exportAccounts();
+        void this.view?.webview.postMessage({
+          type: 'exportResult',
+          value: { success: true, data },
+        });
         return true;
       }
       case 'autoSwitchUpdate':
