@@ -818,6 +818,7 @@ export class WindsurfAccountManager {
   public async importBatch(
     lines: string,
     onProgress?: (current: number, total: number) => void,
+    onAccountImported?: (accountId: string) => Promise<void>,
   ): Promise<ImportBatchResult> {
     const traceId = this.createTraceId("import");
     const startedAt = Date.now();
@@ -1018,6 +1019,9 @@ export class WindsurfAccountManager {
           }
           updated++;
           onProgress?.(ti + 1, tokenTotal);
+          if (onAccountImported && existing) {
+            await onAccountImported(existing.id).catch(() => {});
+          }
           continue;
         }
       }
@@ -1050,6 +1054,9 @@ export class WindsurfAccountManager {
       if (resolved.accountId) existingAccountIds.add(resolved.accountId);
       added++;
       onProgress?.(ti + 1, tokenTotal);
+      if (onAccountImported) {
+        await onAccountImported(account.id).catch(() => {});
+      }
     }
 
     if (auth1Tokens.length > 0 && (added > 0 || updated > 0)) {

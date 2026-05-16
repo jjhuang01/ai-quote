@@ -732,6 +732,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         if (typeof value === 'string') {
           void this.view?.webview.postMessage({ type: 'importLoading', value: true });
           try {
+            let importedCount = 0;
             const result = await this.dataManager.windsurfAccounts.importBatch(
               value,
               (current, total) => {
@@ -739,6 +740,15 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
                   type: 'importProgress',
                   value: { current, total },
                 });
+              },
+              async (accountId) => {
+                importedCount++;
+                void this.view?.webview.postMessage({
+                  type: 'importProgress',
+                  value: { current: importedCount, total: 0, phase: 'quota' },
+                });
+                await this.dataManager.windsurfAccounts.fetchRealQuota(accountId, { mode: 'auto' }).catch(() => {});
+                await this.postAccountsSync({ preferFastCurrentId: true });
               },
             );
             void this.view?.webview.postMessage({ type: 'importResult', value: result });

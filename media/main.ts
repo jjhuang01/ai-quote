@@ -1,18 +1,18 @@
 import {
-  compareAccountsByUiState,
-  deriveAccountUiState,
-  formatPlanExpiryLabel,
-  getAvailableAccountCount,
-  shouldRequestQuotaSelfHeal,
-  shouldShowExhaustedNoDataDash,
+    compareAccountsByUiState,
+    deriveAccountUiState,
+    formatPlanExpiryLabel,
+    getAvailableAccountCount,
+    shouldRequestQuotaSelfHeal,
+    shouldShowExhaustedNoDataDash,
 } from "./account-ui-state";
 import {
-  clampAccountScrollTop,
-  filterAccountsForQuery,
-  getFilteredAccountIds,
-  normalizeAccountSelection,
-  reconcileQuotaFetchingIds,
-  requestQuotaSelfHealOnce,
+    clampAccountScrollTop,
+    filterAccountsForQuery,
+    getFilteredAccountIds,
+    normalizeAccountSelection,
+    reconcileQuotaFetchingIds,
+    requestQuotaSelfHealOnce,
 } from "./account-webview-state";
 import "./main.css";
 
@@ -994,8 +994,7 @@ function renderAccountItem(
           <span class="ac-email" title="${escapeHtml(a.email)}">${escapeHtml(a.email)}</span>
           <div class="ac-meta">
             <div class="ac-tags">
-              <span class="plan-badge plan-${a.plan.toLowerCase()}" style="--plan-color:${planColor}">${planIcon(a.plan)} ${a.plan}</span>
-              ${planEndText ? `<span class="ac-end">${planEndText}</span>` : ""}
+              <span class="plan-badge plan-${a.plan.toLowerCase()}" style="--plan-color:${planColor}">${planIcon(a.plan)} ${a.plan}${planEndText ? ` · ${planEndText}` : ""}</span>
               ${ui.isCurrent ? '<span class="badge-active">当前</span>' : ""}
               ${ui.availabilityLabel === "已过期" ? '<span class="badge-expired">已过期</span>' : ui.availabilityLabel === "不可用" ? '<span class="badge-unavailable">不可用</span>' : ""}
             </div>
