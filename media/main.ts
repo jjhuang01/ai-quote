@@ -680,7 +680,7 @@ function renderAccountSearchRow(): string {
       <div class="search-input-wrap">
         ${icon("search")}
         <input class="text-input" id="accountSearch" type="text" placeholder="搜索邮箱或套餐" value="${escapeHtml(state.accountSearchQuery)}">
-        ${state.accountSearchQuery ? `<button class="search-clear-btn" data-action="accountSearchClear" type="button" title="清空搜索">${icon("x")}</button>` : ""}
+        <button class="search-clear-btn${state.accountSearchQuery ? "" : " is-hidden"}" data-action="accountSearchClear" type="button" title="清空搜索">${icon("x")}</button>
       </div>
     </div>`;
 }
@@ -757,10 +757,10 @@ function patchAccountTab(): void {
     searchInput.value = state.accountSearchQuery;
   }
 
-  // 重新渲染搜索行以更新清空按钮的显示/隐藏
-  const searchRow = document.querySelector(".account-search-row");
-  if (searchRow) {
-    searchRow.outerHTML = renderAccountSearchRow();
+  // 更新清空按钮显示/隐藏（不替换 DOM，保持事件绑定）
+  const clearBtn = document.querySelector<HTMLElement>('[data-action="accountSearchClear"]');
+  if (clearBtn) {
+    clearBtn.classList.toggle("is-hidden", !state.accountSearchQuery);
   }
 }
 
@@ -777,7 +777,7 @@ function renderAccountTab(bs: Bootstrap): string {
             ${!state.selectMode && !state.showAddAccount && !state.showImportAccount ? `
             <button class="btn-xs btn-icon" data-action="toggleImportAccount">${icon("upload")} 批量添加</button>
             ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="toggleSelectMode" title="多选删除">${icon("checkSquare")} 选择</button>` : ""}
-            ${accounts.length > 0 ? `<button class="btn-xs btn-danger-xs" data-action="accountClear">${icon("trash")} 清空</button>` : ""}
+            ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="accountClear" title="清空">${icon("trash")}</button>` : ""}
             ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="batchRefreshQuota">${icon("refresh")} 批量刷新</button>` : ""}
             ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="accountExport">${icon("download")} 导出</button>` : ""}
             ` : ""}
@@ -1119,7 +1119,7 @@ function renderHistoryTab(bs: Bootstrap): string {
       <section class="card">
         <div class="section-header">
           <h2>历史记录 (${items.length})</h2>
-          <button class="btn-xs btn-danger-xs" data-action="clearHistory">清空</button>
+          <button class="btn-xs btn-danger-xs" data-action="clearHistory">${icon("trash")} 清空</button>
         </div>
         <div class="history-section">
           ${

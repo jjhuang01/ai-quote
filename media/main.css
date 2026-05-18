@@ -1415,25 +1415,27 @@ button:focus-visible {
 
 .search-clear-btn {
   position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
+  right: 0;
+  top: 0;
+  width: 32px;
+  height: 100%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
   border: none;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  border-radius: var(--radius-xs);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
   padding: 0;
   transition: color var(--t-fast), background var(--t-fast);
 }
 .search-clear-btn:hover {
   color: var(--text);
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 60%, transparent);
+}
+.search-clear-btn.is-hidden {
+  display: none;
 }
 
 .account-search-row .btn-xs {
