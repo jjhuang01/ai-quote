@@ -104,6 +104,32 @@ describe('auto continue', () => {
     expect(resolveDialog).not.toHaveBeenCalled();
   });
 
+  it('does not switch when dialog has continue option but summary is not quota-related', async () => {
+    const refreshCurrentQuotaBeforeSwitch = vi.fn(async () => ({ success: true }));
+    const autoSwitchIfNeeded = vi.fn(async () => true);
+    const getCurrentAccountId = vi.fn(async () => 'account-2');
+    const refreshQuotaAfterSwitch = vi.fn(async () => undefined);
+    const resolveDialog = vi.fn();
+
+    const result = await handleAutoContinueDialog(
+      request('Please choose a refactor strategy', ['Extract function', 'Continue']),
+      {
+        refreshCurrentQuotaBeforeSwitch,
+        autoSwitchIfNeeded,
+        getCurrentAccountId,
+        refreshQuotaAfterSwitch,
+        resolveDialog,
+      },
+    );
+
+    expect(result.handled).toBe(false);
+    expect(refreshCurrentQuotaBeforeSwitch).not.toHaveBeenCalled();
+    expect(autoSwitchIfNeeded).not.toHaveBeenCalled();
+    expect(getCurrentAccountId).not.toHaveBeenCalled();
+    expect(refreshQuotaAfterSwitch).not.toHaveBeenCalled();
+    expect(resolveDialog).not.toHaveBeenCalled();
+  });
+
   it('does not refresh quota or switch when no explicit continue option exists', async () => {
     const refreshCurrentQuotaBeforeSwitch = vi.fn(async () => ({ success: true }));
     const autoSwitchIfNeeded = vi.fn(async () => true);

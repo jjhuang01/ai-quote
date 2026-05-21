@@ -21,6 +21,17 @@ const CONTINUE_OPTION_PATTERNS = [
   /继续|重试|续跑|恢复/i,
 ];
 
+const QUOTA_EXHAUSTED_SUMMARY_PATTERNS = [
+  /quota.*(?:exhausted|exceeded)/i,
+  /usage.*(?:exhausted|exceeded)/i,
+  /(?:exhausted|exceeded).*quota/i,
+  /(?:exhausted|exceeded).*usage/i,
+  /配额.*(?:耗尽|用完|不足|超限)/i,
+  /(?:耗尽|用完|不足|超限).*配额/i,
+  /purchase extra usage/i,
+  /rate limit/i,
+];
+
 export function pickAutoContinueReply(request: McpDialogRequest): string | undefined {
   const option = request.options?.find((candidate) =>
     CONTINUE_OPTION_PATTERNS.some((pattern) => pattern.test(candidate)),
@@ -37,12 +48,18 @@ export async function handleAutoContinueDialog(
     return { handled: false };
   }
 
+  const isQuotaExhausted = QUOTA_EXHAUSTED_SUMMARY_PATTERNS.some((p) =>
+    p.test(request.summary),
+  );
+  if (!isQuotaExhausted) {
+    return { handled: false };
+  }
+
   const currentQuota = await dependencies.refreshCurrentQuotaBeforeSwitch();
   if (!currentQuota.success) {
     return { handled: false };
   }
 
-  // 对话框出现本身即证明当前账号已耗尽，无需依赖可能过期的本地计数器
   const switched = await dependencies.autoSwitchIfNeeded();
   if (!switched) {
     return { handled: false };

@@ -64,6 +64,13 @@
 - 如果 Release 已存在，使用 `gh release upload "v${VERSION}" "./ai-quote-${VERSION}.vsix" --clobber` 覆盖同名 VSIX。
 - 发布后必须用 `gh release view "v${VERSION}" --json tagName,name,url,assets,targetCommitish,isDraft,isPrerelease` 验证 asset 已存在。
 
+## Shell 操作教训
+
+- **多行 `--notes` 必须走脚本文件**：`gh release create ... --notes "多行..."` 在交互式终端里换行会被吃成 `<ffffffff>` 等乱码，发出去的 release notes 也会断裂。统一做法：把命令写到 `/tmp/release_<version>.sh`，正文用 `cat <<'EOF' ... EOF` 包裹，再 `bash /tmp/release_*.sh` 执行。
+- **同理 `python3 - <<'PY' ... PY` 也要小心**：长 heredoc 在终端粘贴时偶发被截断或合并行；遇到复杂解析任务，先写到 `/tmp/scan_*.py`，再 `python3 /tmp/scan_*.py`。
+- **`run_command` 的 `cd` 用 `Cwd` 字段，不要写在 CommandLine 里**。
+- **避免一次性长流水线**：`npm run build && vsce package && git commit && git push && gh release create ...` 任一步报错都难定位；按"打包 / 提交 / 发布"分阶段验证。
+
 ## Delivery Standard
 
 - `npm run check-types`
