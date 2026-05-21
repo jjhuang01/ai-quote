@@ -113,61 +113,36 @@ async function readTranscriptTailWithRetry(transcriptPath: string, attempts = 6,
       const transcriptContent = await fs.readFile(transcriptPath, 'utf-8');
       const lines = transcriptContent.trim().split('\n').filter(Boolean);
       lastText = lines.slice(-20).join('\n');
-      if (lastText.length > 0 && QuotaBlockDetector.detect(lastText).type !== 'none') {
+      if (lastText.length > 0) {
         return lastText;
       }
     } catch {
       lastText = "";
     }
-    await sleep(delayMs);
+    if (attempt < attempts - 1) {
+      await sleep(delayMs);
+    }
   }
   return lastText;
 }
 
-async function triggerCascadeContinue(trajectoryId?: string): Promise<{ success: boolean; command?: string; error?: string }> {
+// Windsurf 当前 (v1.x) 不暴露任何「继续被阻塞的 Cascade 轨迹」公共命令。
+// bundle 实测可注册命令仅有 windsurf.triggerCascade / windsurf.openCascadeInNewGroup
+// (打开新会话) 和 windsurf.sendChatActionMessage (要求结构化 protobuf 入参)。
+// 因此我们只能尽力把 Cascade 面板拉回前台，提示用户一键点击 Continue。
+async function tryFocusCascadePanel(): Promise<{ success: boolean; command?: string; error?: string }> {
   const commands = await vscode.commands.getCommands(true);
-  const commandSet = new Set(commands);
-  const noArgCandidates = [
-    'windsurf.continue',
-    'windsurf.resume',
-    'windsurf.retry',
-    'windsurf.continueCascade',
-    'windsurf.resumeCascade',
-    'windsurf.retryCascade',
-  ];
-  const textCandidates = [
-    'windsurf.sendTextToChat',
-    'windsurf.sendTextToCascade',
-  ];
-
-  for (const command of noArgCandidates) {
-    if (!commandSet.has(command)) {
-      continue;
-    }
-    try {
-      await vscode.commands.executeCommand(command);
-      return { success: true, command };
-    } catch (error) {
-      return { success: false, command, error: String(error) };
-    }
+  const candidate = ['windsurf.openCascadeInNewGroup', 'windsurf.triggerCascade']
+    .find((name) => commands.includes(name));
+  if (!candidate) {
+    return { success: false, error: 'Windsurf bundle 未注册可用的 Cascade focus 命令' };
   }
-
-  for (const command of textCandidates) {
-    if (!commandSet.has(command)) {
-      continue;
-    }
-    try {
-      await vscode.commands.executeCommand(command, 'Continue');
-      return { success: true, command };
-    } catch (error) {
-      return { success: false, command, error: String(error) };
-    }
+  try {
+    await vscode.commands.executeCommand(candidate);
+    return { success: true, command: candidate };
+  } catch (error) {
+    return { success: false, command: candidate, error: String(error) };
   }
-
-  return {
-    success: false,
-    error: `No Cascade continue command found for trajectory ${trajectoryId ?? 'unknown'}`,
-  };
 }
 
 async function wakeBlockedTrajectoryAfterSwitch(trajectoryId?: string): Promise<void> {
@@ -175,16 +150,17 @@ async function wakeBlockedTrajectoryAfterSwitch(trajectoryId?: string): Promise<
     return;
   }
   blockedTrajectoriesManager.updateWakeStatus(trajectoryId, 'waking');
-  const result = await triggerCascadeContinue(trajectoryId);
+  const result = await tryFocusCascadePanel();
   if (result.success) {
+    // 仅代表 Cascade 面板已置前；真正的「继续」仍依赖用户手动确认或 Windsurf 内置 autoContinue 设置。
     blockedTrajectoriesManager.updateWakeStatus(trajectoryId, 'woken');
-    logger?.info('[Cascade Hook] Continue triggered after account switch', {
+    logger?.info('[Cascade Hook] Cascade panel focused after account switch (manual continue still required).', {
       trajectoryId,
       command: result.command,
     });
   } else {
     blockedTrajectoriesManager.updateWakeStatus(trajectoryId, 'failed', result.error);
-    logger?.warn('[Cascade Hook] Continue trigger failed after account switch', {
+    logger?.warn('[Cascade Hook] Failed to focus Cascade panel after account switch.', {
       trajectoryId,
       command: result.command,
       error: result.error,
