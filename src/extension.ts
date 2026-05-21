@@ -102,6 +102,96 @@ async function refreshQuotaAfterSwitch(accountId: string, reason: string): Promi
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function readTranscriptTailWithRetry(transcriptPath: string, attempts = 6, delayMs = 250): Promise<string> {
+  let lastText = "";
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const transcriptContent = await fs.readFile(transcriptPath, 'utf-8');
+      const lines = transcriptContent.trim().split('\n').filter(Boolean);
+      lastText = lines.slice(-20).join('\n');
+      if (lastText.length > 0 && QuotaBlockDetector.detect(lastText).type !== 'none') {
+        return lastText;
+      }
+    } catch {
+      lastText = "";
+    }
+    await sleep(delayMs);
+  }
+  return lastText;
+}
+
+async function triggerCascadeContinue(trajectoryId?: string): Promise<{ success: boolean; command?: string; error?: string }> {
+  const commands = await vscode.commands.getCommands(true);
+  const commandSet = new Set(commands);
+  const noArgCandidates = [
+    'windsurf.continue',
+    'windsurf.resume',
+    'windsurf.retry',
+    'windsurf.continueCascade',
+    'windsurf.resumeCascade',
+    'windsurf.retryCascade',
+  ];
+  const textCandidates = [
+    'windsurf.sendTextToChat',
+    'windsurf.sendTextToCascade',
+  ];
+
+  for (const command of noArgCandidates) {
+    if (!commandSet.has(command)) {
+      continue;
+    }
+    try {
+      await vscode.commands.executeCommand(command);
+      return { success: true, command };
+    } catch (error) {
+      return { success: false, command, error: String(error) };
+    }
+  }
+
+  for (const command of textCandidates) {
+    if (!commandSet.has(command)) {
+      continue;
+    }
+    try {
+      await vscode.commands.executeCommand(command, 'Continue');
+      return { success: true, command };
+    } catch (error) {
+      return { success: false, command, error: String(error) };
+    }
+  }
+
+  return {
+    success: false,
+    error: `No Cascade continue command found for trajectory ${trajectoryId ?? 'unknown'}`,
+  };
+}
+
+async function wakeBlockedTrajectoryAfterSwitch(trajectoryId?: string): Promise<void> {
+  if (!trajectoryId || !blockedTrajectoriesManager) {
+    return;
+  }
+  blockedTrajectoriesManager.updateWakeStatus(trajectoryId, 'waking');
+  const result = await triggerCascadeContinue(trajectoryId);
+  if (result.success) {
+    blockedTrajectoriesManager.updateWakeStatus(trajectoryId, 'woken');
+    logger?.info('[Cascade Hook] Continue triggered after account switch', {
+      trajectoryId,
+      command: result.command,
+    });
+  } else {
+    blockedTrajectoriesManager.updateWakeStatus(trajectoryId, 'failed', result.error);
+    logger?.warn('[Cascade Hook] Continue trigger failed after account switch', {
+      trajectoryId,
+      command: result.command,
+      error: result.error,
+    });
+  }
+}
+
 /**
  * Handle Cascade Hook events for quota/rate limit detection
  */
@@ -122,27 +212,16 @@ async function handleCascadeHook(request: Record<string, unknown>): Promise<Reco
       timestamp: new Date().toISOString(),
     });
 
-    // Get text to analyze: prefer response text, but also read transcript for error blocks
     let textToAnalyze = tool_info.response ?? '';
     const transcriptPath = tool_info.transcript_path;
     const trajectoryId = QuotaBlockDetector.extractTrajectoryId(transcriptPath);
 
-    // When post_cascade_response_with_transcript fires with empty response,
-    // the actual error text (e.g. quota exhausted) may only exist in the transcript file
     if (!textToAnalyze && transcriptPath) {
-      try {
-        const transcriptContent = await fs.readFile(transcriptPath, 'utf-8');
-        // Take the last 5 lines of the transcript — error blocks are appended at the end
-        const lines = transcriptContent.trim().split('\n');
-        textToAnalyze = lines.slice(-5).join('\n');
-        logger?.debug('[Cascade Hook] Read transcript for error text', {
-          trajectoryId,
-          transcriptLines: lines.length,
-          sampleLength: textToAnalyze.length,
-        });
-      } catch {
-        logger?.debug('[Cascade Hook] Failed to read transcript file', { transcriptPath });
-      }
+      textToAnalyze = await readTranscriptTailWithRetry(transcriptPath);
+      logger?.debug('[Cascade Hook] Read transcript for error text', {
+        trajectoryId,
+        sampleLength: textToAnalyze.length,
+      });
     }
 
     logger?.debug('[Cascade Hook] Extracted data', {
@@ -210,6 +289,7 @@ async function handleCascadeHook(request: Record<string, unknown>): Promise<Reco
         if (switched) {
           metrics.recordAutoSwitchSuccess();
           const newAccountId = dataManager.windsurfAccounts.getCurrentAccount()?.id;
+          await wakeBlockedTrajectoryAfterSwitch(trajectoryId);
           logger?.info('[Cascade Hook] Auto switch successful', {
             oldAccountId,
             newAccountId,
@@ -267,6 +347,7 @@ async function handleCascadeHook(request: Record<string, unknown>): Promise<Reco
         
         if (switched) {
           metrics.recordAutoSwitchSuccess();
+          await wakeBlockedTrajectoryAfterSwitch(trajectoryId);
           logger?.info('[Cascade Hook] Auto switch successful (long rate limit)', {
             oldAccountId,
             newAccountId: dataManager.windsurfAccounts.getCurrentAccount()?.id,
