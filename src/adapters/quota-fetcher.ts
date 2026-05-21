@@ -451,10 +451,20 @@ export class WindsurfQuotaFetcher {
       const planInfoSub = _protoSub(planStatus, 1);
       const planName = planInfoSub ? (_protoStr(planInfoSub, 2) ?? 'Unknown') : 'Unknown';
 
-      const dailyRemainingPercent  = _protoInt(planStatus, 14) ?? 100;
-      const weeklyRemainingPercent = _protoInt(planStatus, 15) ?? 100;
       const dailyResetAtUnix       = _protoInt(planStatus, 17) ?? 0;
       const weeklyResetAtUnix      = _protoInt(planStatus, 18) ?? 0;
+
+      // proto3 default value (0) omission: if a limit reset timestamp is present and valid, the limit exists.
+      // If the remaining percent field is omitted in that case, it is exactly 0% (exhausted)!
+      let dailyRemainingPercent  = _protoInt(planStatus, 14);
+      if (dailyRemainingPercent === undefined) {
+        dailyRemainingPercent = dailyResetAtUnix > 0 ? 0 : 100;
+      }
+      let weeklyRemainingPercent = _protoInt(planStatus, 15);
+      if (weeklyRemainingPercent === undefined) {
+        weeklyRemainingPercent = weeklyResetAtUnix > 0 ? 0 : 100;
+      }
+
       const messagesTotal          = _protoInt(planStatus, 8)  ?? 0;
       const flowActionsTotal       = _protoInt(planStatus, 9)  ?? 0;
 
