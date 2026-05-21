@@ -1,8 +1,8 @@
+import hljs from 'highlight.js/lib/common';
+import katex from 'katex';
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
-import katex from 'katex';
-import hljs from 'highlight.js/lib/common';
-import type { McpDialogRequest, ImageAttachment } from '../core/contracts';
+import type { ImageAttachment, McpDialogRequest } from '../core/contracts';
 
 export type DialogSubmitHandler = (sessionId: string, response: string, images?: ImageAttachment[]) => void;
 
@@ -180,7 +180,7 @@ export class QuoteDialogPanel {
     this.onSubmit = onSubmit;
     this.panel = vscode.window.createWebviewPanel(
       'quoteDialog',
-      '⏸ Quote — 等待回复',
+      '⏸ Windsurf Quote — 等待回复',
       vscode.ViewColumn.One,
       {
         enableScripts: true,
@@ -316,7 +316,7 @@ export class QuoteDialogPanel {
   public static showSentState(): void {
     if (!QuoteDialogPanel.instance) return;
     const inst = QuoteDialogPanel.instance;
-    inst.panel.title = '✓ Quote — 已发送';
+    inst.panel.title = '✓ Windsurf Quote — 已发送';
     try {
       void inst.panel.webview.postMessage({ type: 'dialogResolved' });
     } catch { /* panel may be disposed */ }
@@ -431,7 +431,7 @@ export class QuoteDialogPanel {
   private update(req: McpDialogRequest): void {
     this.submitted = false;
     this.currentReq = req;
-    this.panel.title = '⏸ Quote — 等待回复';
+    this.panel.title = '⏸ Windsurf Quote — 等待回复';
     this.panel.webview.html = this.buildHtml(req);
     QuoteDialogPanel.reopenCount = 0; // Reset guard for new dialog
   }
@@ -465,7 +465,7 @@ export class QuoteDialogPanel {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.panel.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'unsafe-eval'; img-src ${this.panel.webview.cspSource} data: blob:; font-src ${this.panel.webview.cspSource} data:;">
-<title>Quote Dialog</title>
+<title>Windsurf Quote Dialog</title>
 <style>
   :root {
     --bg: var(--vscode-sideBar-background, var(--vscode-editor-background, #1a1a1a));

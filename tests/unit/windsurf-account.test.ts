@@ -1,7 +1,7 @@
-import * as vscode from 'vscode';
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as vscode from 'vscode';
 import { WindsurfPatchService } from '../../src/adapters/windsurf-patch';
 import type { RealQuotaInfo } from '../../src/core/contracts';
 
@@ -743,7 +743,7 @@ describe('WindsurfAccountManager', () => {
       expect(result.success).toBe(false);
     });
 
-    it('切换后若本地运行时仍是旧账号，则返回失败且不污染 currentAccountId', async () => {
+    it('切换后若本地运行时仍是旧账号，则返回 pending 且不误报完整成功', async () => {
       vi.useFakeTimers();
       await manager.initialize();
       const a1 = await manager.add('a@test.com', 'p');
@@ -760,10 +760,11 @@ describe('WindsurfAccountManager', () => {
       await vi.advanceTimersByTimeAsync(11_000);
       const result = await resultPromise;
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('等待 Windsurf 运行时同步');
       expect(result.pendingRuntimeVerification).toBe(true);
       expect(manager.getCurrentAccountId()).toBe(a1.id);
-      expect(manager.getImmediateCurrentAccountId()).toBe(a2.id);
+      expect(manager.getImmediateCurrentAccountId()).toBe(a1.id);
       expect(mockLogger.warn).toHaveBeenCalledWith(
         'Windsurf runtime account verification pending after switch.',
         expect.objectContaining({
@@ -850,7 +851,7 @@ describe('WindsurfAccountManager', () => {
       expect(manager.getById(a2.id)?.isActive).toBe(true);
     });
 
-    it('注入成功但运行时信号仍是旧账号时标记 pending，不误报失败', async () => {
+    it('注入成功但运行时信号仍是旧账号时标记 pending，不误报完整成功', async () => {
       vi.useFakeTimers();
       await manager.initialize();
       const a1 = await manager.add('a@test.com', 'p');
@@ -874,10 +875,11 @@ describe('WindsurfAccountManager', () => {
       await vi.advanceTimersByTimeAsync(11_000);
       const result = await resultPromise;
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('等待 Windsurf 运行时同步');
       expect(result.pendingRuntimeVerification).toBe(true);
       expect(manager.getCurrentAccountId()).toBe(a1.id);
-      expect(manager.getImmediateCurrentAccountId()).toBe(a2.id);
+      expect(manager.getImmediateCurrentAccountId()).toBe(a1.id);
       expect(mockLogger.warn).toHaveBeenCalledWith(
         'Windsurf runtime account verification pending after switch.',
         expect.objectContaining({
@@ -1753,9 +1755,150 @@ describe('WindsurfAccountManager', () => {
       expect(switched).toBe(true);
       expect(manager.getCurrentAccountId()).toBe(a2.id);
     });
+
+    it('candidate with remaining credits can be auto-switched even when percent is low', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a1@test.com', 'p');
+      const a2 = await manager.add('a2@test.com', 'p');
+      const fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a2@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      fetchFromLocalProto.mockImplementationOnce(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a1@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      replaceQuotaProtoFetcher(manager, fetchFromLocalProto);
+      await manager.updateAutoSwitch({ enabled: true, switchOnDaily: true, switchOnWeekly: true, threshold: 10 });
+      a1.realQuota = makeRealQuota({
+        dailyRemainingPercent: 0,
+        weeklyRemainingPercent: 50,
+        remainingMessages: 0,
+      });
+      a2.realQuota = makeRealQuota({
+        dailyRemainingPercent: 1,
+        weeklyRemainingPercent: 1,
+        remainingMessages: 146,
+      });
+
+      const switched = await manager.autoSwitchIfNeeded();
+
+      expect(switched).toBe(false);
+      expect(manager.getCurrentAccountId()).toBe(a1.id);
+    });
+
+    it('uses configured percent threshold for real quota exhaustion checks', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a1@test.com', 'p');
+      const a2 = await manager.add('a2@test.com', 'p');
+      const fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a2@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      fetchFromLocalProto.mockImplementationOnce(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a1@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      replaceQuotaProtoFetcher(manager, fetchFromLocalProto);
+      await manager.updateAutoSwitch({ enabled: true, switchOnDaily: true, switchOnWeekly: false, threshold: 20 });
+      a1.realQuota = makeRealQuota({
+        dailyRemainingPercent: 10,
+        weeklyRemainingPercent: 80,
+        remainingMessages: 100,
+      });
+      a2.realQuota = makeRealQuota({
+        dailyRemainingPercent: 50,
+        weeklyRemainingPercent: 80,
+        remainingMessages: 100,
+      });
+
+      const switched = await manager.autoSwitchIfNeeded();
+
+      expect(switched).toBe(true);
+      expect(manager.getCurrentAccountId()).toBe(a2.id);
+    });
+
+    it('does not reject fallback candidates on disabled weekly quota checks', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a1@test.com', 'p');
+      const a2 = await manager.add('a2@test.com', 'p');
+      const fetchFromLocalProto = vi.fn(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a2@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      fetchFromLocalProto.mockImplementationOnce(async () => ({
+        success: true,
+        source: 'proto',
+        userEmail: 'a1@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      replaceQuotaProtoFetcher(manager, fetchFromLocalProto);
+      await manager.updateAutoSwitch({ enabled: true, switchOnDaily: true, switchOnWeekly: false, threshold: 5 });
+      await manager.setQuotaLimits(a1.id, 5, 100);
+      await manager.setQuotaLimits(a2.id, 100, 5);
+      for (let i = 0; i < 5; i++) {
+        await manager.recordPrompt(a1.id);
+      }
+      for (let i = 0; i < 5; i++) {
+        await manager.recordPrompt(a2.id);
+      }
+
+      const switched = await manager.autoSwitchIfNeeded();
+
+      expect(switched).toBe(true);
+      expect(manager.getCurrentAccountId()).toBe(a2.id);
+    });
   });
 
   describe('resetMachineId', () => {
+    it('重置 VS Code 扁平 telemetry 键并生成匹配格式的机器标识', async () => {
+      const storagePath = path.join(
+        '/Users/os/Library/Application Support/Cursor/User/globalStorage',
+        'storage.json',
+      );
+      (fs.access as any).mockImplementation(async (target: string) => {
+        if (target === storagePath) return undefined;
+        throw new Error('ENOENT');
+      });
+      (fs.readFile as any).mockImplementation(async (target: string) => {
+        if (target === storagePath) {
+          return JSON.stringify({
+            'telemetry.machineId': 'old-machine',
+            'telemetry.macMachineId': 'old-mac',
+            'telemetry.sqmId': 'old-sqm',
+            'telemetry.devDeviceId': 'old-device',
+          });
+        }
+        throw new Error('ENOENT');
+      });
+
+      await manager.initialize();
+      const result = await manager.resetMachineId();
+
+      expect(result.success).toBe(true);
+      const writeCall = (fs.writeFile as any).mock.calls.find(
+        ([filePath]: [string]) => filePath === storagePath,
+      );
+      expect(writeCall).toBeTruthy();
+      const updated = JSON.parse(writeCall[1]);
+      expect(updated['telemetry.machineId']).toMatch(/^[0-9a-f]{64}$/);
+      expect(updated['telemetry.macMachineId']).toMatch(/^[0-9a-f]{32}$/);
+      expect(updated['telemetry.sqmId']).toMatch(/^[0-9A-F-]{36}$/);
+      expect(updated['telemetry.devDeviceId']).toMatch(/^[0-9a-f-]{36}$/);
+      expect(updated['telemetry.machineId']).not.toBe('old-machine');
+      expect(updated['telemetry.devDeviceId']).not.toBe('old-device');
+    });
+
     it('优先重置 storage.json telemetry 机器标识', async () => {
       const storagePath = path.join(
         '/Users/os/Library/Application Support/Cursor/User/globalStorage',
@@ -1837,6 +1980,149 @@ describe('WindsurfAccountManager', () => {
       expect((fs.writeFile as any).mock.calls.some(
         ([filePath, content]: [string, string]) => filePath === fallbackPath && /^[0-9a-f]{32}$/.test(content)
       )).toBe(true);
+    });
+
+    it('重置 telemetry 成功后仍继续重置已存在的 machineid 文件', async () => {
+      const storagePath = path.join(
+        '/Users/os/Library/Application Support/Cursor/User/globalStorage',
+        'storage.json',
+      );
+      const machineIdPath = path.join('/Users/os', '.windsurf', 'machineid');
+      (fs.access as any).mockImplementation(async (target: string) => {
+        if (target === storagePath || target === machineIdPath) return undefined;
+        throw new Error('ENOENT');
+      });
+      (fs.readFile as any).mockImplementation(async (target: string) => {
+        if (target === storagePath) {
+          return JSON.stringify({
+            'telemetry.machineId': 'old-machine',
+            'telemetry.macMachineId': 'old-mac',
+            'telemetry.sqmId': 'old-sqm',
+            'telemetry.devDeviceId': 'old-device',
+          });
+        }
+        throw new Error('ENOENT');
+      });
+
+      await manager.initialize();
+      const result = await manager.resetMachineId();
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('telemetry');
+      expect(result.message).toContain('machineid');
+      const machineIdWrite = (fs.writeFile as any).mock.calls.find(
+        ([filePath]: [string]) => filePath === machineIdPath,
+      );
+      expect(machineIdWrite).toBeTruthy();
+      expect(machineIdWrite[1]).toMatch(/^[0-9a-f]{32}$/);
+    });
+  });
+
+  describe('闲时刷新 & 批量刷新跳过优化', () => {
+    let manager: WindsurfAccountManager;
+
+    beforeEach(async () => {
+      vi.useFakeTimers();
+      vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({ accounts: [] }));
+      manager = new WindsurfAccountManager(mockContext, mockLogger);
+      await manager.initialize();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('添加账号后应该触发闲时配额刷新', async () => {
+      const spyFetch = vi.spyOn(manager, 'fetchRealQuota').mockResolvedValue({ success: true });
+      
+      const acc = await manager.add('new-test-user@gmail.com', 'pwd123');
+      expect(acc).toBeDefined();
+      
+      // 添加后 5 秒内不应该执行
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(spyFetch).not.toHaveBeenCalled();
+
+      // 满 5 秒闲置后执行
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(spyFetch).toHaveBeenCalledWith(acc.id, { mode: 'auto' });
+    });
+
+    it('5h内已经批量刷新过的账号应该跳过批量刷新', async () => {
+      const fetchQuotaSpy = vi.spyOn((manager as any).quotaFetcher, 'fetchQuota');
+      const fetchFromGetPlanStatusSpy = vi.spyOn((manager as any).quotaFetcher, 'fetchFromGetPlanStatus');
+
+      // 导入两个测试账号，一个有密码一个无密码
+      await manager.add('acc1@gmail.com', 'password123'); // 有密码，会走 Channel B
+      await manager.add('acc2@gmail.com', ''); // 无密码，会走 Fallback Channels
+
+      // 模拟 1 小时前才刷新过（在 5 小时冷却范围内）
+      const oneHourAgo = new Date(Date.now() - 3600 * 1000).toISOString();
+      manager.getAll()[0].lastCheckedAt = oneHourAgo;
+      manager.getAll()[1].lastCheckedAt = oneHourAgo;
+
+      const res = await manager.fetchAllRealQuotas();
+      
+      // 两个账号都应该成功跳过刷新，不发出任何网络请求
+      expect(res.success).toBe(2);
+      expect(fetchFromGetPlanStatusSpy).not.toHaveBeenCalled();
+      expect(fetchQuotaSpy).not.toHaveBeenCalled();
+    });
+
+    it('当配额耗尽且重置时间在未来时应该跳过批量刷新', async () => {
+      const fetchQuotaSpy = vi.spyOn((manager as any).quotaFetcher, 'fetchQuota');
+      const fetchFromGetPlanStatusSpy = vi.spyOn((manager as any).quotaFetcher, 'fetchFromGetPlanStatus');
+
+      await manager.add('acc1@gmail.com', 'password123');
+
+      // 模拟该账号已配额耗尽（dailyRemainingPercent = 0），且日重置时间在 1 小时后（未来）
+      manager.getAll()[0].realQuota = {
+        planName: 'Trial',
+        billingStrategy: 'BILLING_STRATEGY_QUOTA',
+        dailyRemainingPercent: 0,
+        weeklyRemainingPercent: -1,
+        dailyResetAtUnix: Math.floor((Date.now() + 3600 * 1000) / 1000),
+        weeklyResetAtUnix: 0,
+        messages: 0,
+        usedMessages: 0,
+        remainingMessages: 0,
+        flowActions: 0,
+        usedFlowActions: 0,
+        remainingFlowActions: 0,
+        overageBalanceMicros: 0,
+        planEndTimestamp: 0,
+        fetchedAt: new Date().toISOString(),
+        source: 'api',
+      };
+
+      const res = await manager.fetchAllRealQuotas();
+
+      // 应该优雅地跳过该账号刷新
+      expect(res.success).toBe(1);
+      expect(fetchFromGetPlanStatusSpy).not.toHaveBeenCalled();
+    });
+
+    it('批量刷新传入 force 时应该强行刷新，忽略 5h 冷却和耗尽跳过机制', async () => {
+      const fetchFromGetPlanStatusSpy = vi.spyOn((manager as any).quotaFetcher, 'fetchFromGetPlanStatus').mockResolvedValue({
+        success: true,
+        source: 'api',
+        planInfo: {
+          planName: 'Trial',
+          billingStrategy: 'BILLING_STRATEGY_QUOTA',
+          quotaUsage: { dailyRemainingPercent: 100, weeklyRemainingPercent: 100, dailyResetAtUnix: 0, weeklyResetAtUnix: 0 }
+        },
+        fetchedAt: new Date().toISOString(),
+      });
+
+      await manager.add('acc1@gmail.com', 'password123');
+      
+      // 1 小时前才刷新过（原本应该被 5h 冷却跳过）
+      manager.getAll()[0].lastCheckedAt = new Date(Date.now() - 3600 * 1000).toISOString();
+
+      // 传入 force: true 强行刷新
+      const res = await manager.fetchAllRealQuotas({ force: true });
+
+      expect(res.success).toBe(1);
+      expect(fetchFromGetPlanStatusSpy).toHaveBeenCalled();
     });
   });
 });

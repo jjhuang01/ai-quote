@@ -124,6 +124,7 @@ interface PluginSettings {
   historyLimit: number;
   soundAlert: "none" | "tada" | "ding" | "pop" | "chime";
   firebaseApiKey: string;
+  quotaAutoContinueEnabled: boolean;
   mcpWhitelist: string[];
 }
 
@@ -765,7 +766,7 @@ function patchAccountTab(): void {
 }
 
 function renderAccountTab(bs: Bootstrap): string {
-  const { accounts, autoSwitch, lastAutoSwitchResult } = bs;
+  const { accounts, autoSwitch, lastAutoSwitchResult, settings } = bs;
   const { availableCount } = getAccountTabData(bs);
 
   return `
@@ -898,19 +899,20 @@ function renderAccountTab(bs: Bootstrap): string {
             <span class="setting-label">配额预警值</span>
             <input class="num-input" id="autoSwitchCreditWarning" type="number" value="${autoSwitch.creditWarning}" min="0" max="999">
           </div>
+          <div class="setting-row">
+            <span class="setting-label">额度耗尽切号后自动继续</span>
+            <label class="toggle">
+              <input type="checkbox" id="quotaAutoContinueEnabled" ${settings.quotaAutoContinueEnabled ? "checked" : ""}>
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <p class="hint">需要同时启用自动切换。检测到继续/重试类对话时，切号成功后才自动继续。</p>
         </div>
         <div class="actions">
           <button class="btn-grad btn-sm" data-action="autoSwitchSave">保存设置</button>
         </div>
       </section>
 
-      <section class="card">
-        <div class="section-header"><h2>高级操作</h2></div>
-        <div class="actions">
-          <button class="btn-secondary" data-action="resetMachineId">重置机器 ID</button>
-        </div>
-        <p class="hint">重置 Windsurf 机器标识，用于解除设备绑定限制</p>
-      </section>
     </div>`;
 }
 
@@ -1396,6 +1398,8 @@ function renderSettingsTab(bs: Bootstrap): string {
           <p class="hint">重新写入AI反馈规则到工作区</p>
           ${renderMaintenanceBtn("maintenanceClearCache", `${icon("database")} 清理插件缓存`, "clearCache")}
           <p class="hint">清理历史记录、日志等缓存数据</p>
+          <button class="btn-maintenance" data-action="resetMachineId">${icon("reset")} 重置机器 ID</button>
+          <p class="hint">重置 Windsurf/Cursor 本地机器标识，用于解除设备绑定限制</p>
           ${renderMaintenanceBtn("maintenanceDiagnose", `${icon("wrench")} 诊断并修复`, "diagnose", true)}
           <p class="hint">检测服务器状态、MCP配置并自动修复</p>
           ${state.diagnoseResult ? renderDiagnoseCard(state.diagnoseResult) : ""}
@@ -2328,6 +2332,9 @@ function handleAction(el: HTMLElement): void {
           ?.value ?? "3",
         10,
       );
+      const quotaAutoContinueEnabled =
+        (document.getElementById("quotaAutoContinueEnabled") as HTMLInputElement)
+          ?.checked ?? false;
       vscode.postMessage({
         type: "autoSwitchUpdate",
         payload: {
@@ -2336,6 +2343,12 @@ function handleAction(el: HTMLElement): void {
           switchOnWeekly,
           threshold,
           creditWarning,
+        },
+      });
+      vscode.postMessage({
+        type: "settingsUpdate",
+        payload: {
+          quotaAutoContinueEnabled,
         },
       });
       showToast("自动切换设置已保存");

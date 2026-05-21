@@ -46,6 +46,9 @@ AI_FEEDBACK_RULES.md
 
 # Reverse-engineering evidence (legally sensitive)
 _evidence/
+docs/research/competitor-vsix/
+docs/research/wf-dialog-mcp-*.md
+scripts/research/analyze-wf-dialog-vsix.mjs
 
 # Internal AI dev notes (legacy lowercase duplicate; keep AGENTS.md as canonical)
 /agents.md

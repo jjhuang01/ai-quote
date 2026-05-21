@@ -2,9 +2,9 @@ import * as vscode from 'vscode';
 import { WindsurfPatchService } from '../adapters/windsurf-patch';
 import type { QuoteBridge } from '../core/bridge';
 import {
-  getSwitchWarmupMode,
-  getSwitchWarmupSuccessMessage,
-  isSwitchWarmupEnabled,
+    getSwitchWarmupMode,
+    getSwitchWarmupSuccessMessage,
+    isSwitchWarmupEnabled,
 } from '../core/config';
 import type { WebviewBootstrap } from '../core/contracts';
 import type { DataManager } from '../core/data-manager';
@@ -239,7 +239,7 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
 
     const task = accountId
       ? this.dataManager.windsurfAccounts.fetchRealQuota(accountId, { mode })
-      : this.dataManager.windsurfAccounts.fetchAllRealQuotas();
+      : this.dataManager.windsurfAccounts.fetchAllRealQuotas({ force: reason === 'manual-refresh' });
 
     void Promise.resolve(task)
       .then(async (result) => {

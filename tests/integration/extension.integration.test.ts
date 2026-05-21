@@ -1,10 +1,10 @@
+import { suite, test } from 'mocha';
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import { suite, test } from 'mocha';
 
-suite('Quote Integration', () => {
+suite('Windsurf Quote Integration', () => {
   test('commands are contributed', async () => {
-    const extension = vscode.extensions.getExtension('opensource.ai-quote');
+    const extension = vscode.extensions.getExtension('opensource.windsurf-quote');
     assert.ok(extension, 'Extension should be discoverable by identifier.');
     await extension.activate();
 

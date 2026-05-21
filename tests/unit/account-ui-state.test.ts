@@ -15,6 +15,8 @@ type RealQuotaInfo = {
   dailyResetAtUnix?: number;
   weeklyResetAtUnix?: number;
   planEndTimestamp?: number;
+  remainingMessages?: number;
+  remainingFlowActions?: number;
 };
 
 type QuotaSnapshot = {
@@ -103,6 +105,22 @@ describe('deriveAccountUiState', () => {
 
     expect(ui.isUnavailable).toBe(true);
     expect(ui.availabilityLabel).toBe('不可用');
+  });
+
+  it('keeps percent exhaustion authoritative even when remaining credits exist', () => {
+    const ui = deriveAccountUiState(
+      makeAccount('a', 'a@test.com'),
+      undefined,
+      makeSnapshot('a', {
+        dailyRemainingPercent: 1,
+        weeklyRemainingPercent: 1,
+        remainingMessages: 146,
+      })
+    );
+
+    expect(ui.isUnavailable).toBe(true);
+    expect(ui.availabilityLabel).toBe('不可用');
+    expect(ui.sortBucket).toBe('unavailable');
   });
 
   it('does not mark account unavailable at exactly 10 percent', () => {
@@ -258,8 +276,13 @@ describe('quota stale reset semantics', () => {
 
 describe('formatPlanExpiryLabel', () => {
   it('formats future plan end from existing planEndTimestamp with remaining days', () => {
+    const label = formatPlanExpiryLabel(Date.UTC(2026, 4, 7, 9, 30, 0), Date.UTC(2026, 4, 5, 12, 0, 0));
+    expect(label).toBe('剩余 1 天');
+  });
+
+  it('formats plan end within the next 24 hours as today instead of one extra day', () => {
     const label = formatPlanExpiryLabel(Date.UTC(2026, 4, 6, 9, 30, 0), Date.UTC(2026, 4, 5, 12, 0, 0));
-    expect(label).toMatch(/^剩余 \d+ 天$/);
+    expect(label).toBe('今日到期');
   });
 
   it('formats past plan end from existing planEndTimestamp with expired label', () => {

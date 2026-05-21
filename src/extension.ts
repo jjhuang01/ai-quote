@@ -1,11 +1,20 @@
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import * as vscode from "vscode";
 import { detectCurrentIde, removeMcpConfigEntries } from "./adapters/mcp-config";
+import { handleAutoContinueDialog } from "./core/auto-continue";
+import { BlockedTrajectoriesManager } from "./core/blocked-trajectories-manager";
 import type { DialogCallback } from "./core/bridge";
 import { QuoteBridge } from "./core/bridge";
 import { getExtensionConfig, isSwitchWarmupEnabled } from "./core/config";
-import type { WindsurfAccount } from "./core/contracts";
+import type { BlockedTrajectory, CascadeHookRequest, WindsurfAccount } from "./core/contracts";
 import { DataManager } from "./core/data-manager";
+import { getGlobalMetrics } from "./core/hook-metrics";
+import { InstanceManager } from "./core/instance-manager";
 import { QuoteLogger } from "./core/logger";
+import { QuotaBlockDetector } from "./core/quota-block-detector";
+import { QuotaPoller } from "./core/quota-poller";
+import { WindsurfHooksManager } from "./core/windsurf-hooks";
 import { loadOrCreateToolName, rotateToolName } from "./utils/tool-name";
 import { QuoteDialogPanel } from "./webview/dialog-panel";
 import { QuoteSidebarProvider } from "./webview/provider";
@@ -19,7 +28,34 @@ let activeToolName: string | undefined;
 let secondaryInstance = false;
 let extensionContext: vscode.ExtensionContext | undefined;
 let sidebarProvider: QuoteSidebarProvider | undefined;
+let blockedTrajectoriesManager: BlockedTrajectoriesManager | undefined;
 const OWNED_MCP_NAMES_KEY = 'ownedMcpNames';
+const LEGACY_EXTENSION_ID = 'opensource.ai-quote';
+
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await fs.access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function migrateLegacyGlobalStorage(context: vscode.ExtensionContext): Promise<void> {
+  const currentStorage = context.globalStorageUri.fsPath;
+  const parent = path.dirname(currentStorage);
+  const legacyStorage = path.join(parent, LEGACY_EXTENSION_ID);
+  if (legacyStorage === currentStorage) return;
+  if (!(await pathExists(legacyStorage))) return;
+  await fs.mkdir(currentStorage, { recursive: true });
+  const names = await fs.readdir(legacyStorage);
+  for (const name of names) {
+    const source = path.join(legacyStorage, name);
+    const target = path.join(currentStorage, name);
+    if (await pathExists(target)) continue;
+    await fs.cp(source, target, { recursive: true, errorOnExist: false });
+  }
+}
 
 function sanitizeAccount(account: WindsurfAccount): Omit<WindsurfAccount, "password"> & { password: string } {
   return {
@@ -66,6 +102,223 @@ async function refreshQuotaAfterSwitch(accountId: string, reason: string): Promi
   }
 }
 
+/**
+ * Handle Cascade Hook events for quota/rate limit detection
+ */
+async function handleCascadeHook(request: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const metrics = getGlobalMetrics();
+  const startTime = Date.now();
+  
+  try {
+    metrics.recordCall();
+    
+    const hookRequest = request as unknown as CascadeHookRequest;
+    const { agent_action_name, tool_info } = hookRequest;
+
+    logger?.info('[Cascade Hook] Received', {
+      agent_action_name,
+      hasResponse: !!tool_info.response,
+      hasTranscript: !!tool_info.transcript_path,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Get text to analyze: prefer response text, but also read transcript for error blocks
+    let textToAnalyze = tool_info.response ?? '';
+    const transcriptPath = tool_info.transcript_path;
+    const trajectoryId = QuotaBlockDetector.extractTrajectoryId(transcriptPath);
+
+    // When post_cascade_response_with_transcript fires with empty response,
+    // the actual error text (e.g. quota exhausted) may only exist in the transcript file
+    if (!textToAnalyze && transcriptPath) {
+      try {
+        const transcriptContent = await fs.readFile(transcriptPath, 'utf-8');
+        // Take the last 5 lines of the transcript — error blocks are appended at the end
+        const lines = transcriptContent.trim().split('\n');
+        textToAnalyze = lines.slice(-5).join('\n');
+        logger?.debug('[Cascade Hook] Read transcript for error text', {
+          trajectoryId,
+          transcriptLines: lines.length,
+          sampleLength: textToAnalyze.length,
+        });
+      } catch {
+        logger?.debug('[Cascade Hook] Failed to read transcript file', { transcriptPath });
+      }
+    }
+
+    logger?.debug('[Cascade Hook] Extracted data', {
+      trajectoryId,
+      textLength: textToAnalyze.length,
+      transcriptPath,
+    });
+
+    // Detect quota block
+    const detection = QuotaBlockDetector.detect(textToAnalyze);
+
+    logger?.info('[Cascade Hook] Detection result', {
+      trajectoryId,
+      detectionType: detection.type,
+      matchedText: detection.matchedText,
+      resetAt: detection.resetAt,
+      retryDelayMs: detection.retryDelayMs,
+      textSample: textToAnalyze.slice(0, 200),
+    });
+
+    if (detection.type === 'quota_exhausted') {
+      metrics.recordDetection('quota_exhausted');
+      metrics.recordAutoSwitchTrigger();
+      
+      logger?.warn('[Cascade Hook] Quota exhausted detected', {
+        trajectoryId,
+        matchedText: detection.matchedText,
+        resetAt: detection.resetAt,
+        detection,
+      });
+
+      // Mark trajectory as blocked
+      if (trajectoryId && blockedTrajectoriesManager) {
+        const currentAccount = dataManager?.windsurfAccounts.getCurrentAccount();
+        const currentAccountId = currentAccount?.id;
+        const blocked: BlockedTrajectory = {
+          trajectoryId,
+          transcriptPath,
+          blockerType: detection.type,
+          resetAt: detection.resetAt,
+          accountIdAtBlock: currentAccountId,
+          detectedAt: new Date().toISOString(),
+          wakeStatus: 'pending',
+        };
+        blockedTrajectoriesManager.add(blocked);
+        metrics.recordTrajectoryBlockAdded();
+        
+        logger?.info('[Cascade Hook] Trajectory marked as blocked', {
+          trajectoryId,
+          accountIdAtBlock: currentAccountId,
+          blockedCount: blockedTrajectoriesManager.count(),
+        });
+      }
+
+      // Trigger auto switch
+      if (dataManager) {
+        const oldAccountId = dataManager.windsurfAccounts.getCurrentAccount()?.id;
+        logger?.info('[Cascade Hook] Attempting auto switch', {
+          trigger: 'quota_exhausted',
+          currentAccountId: oldAccountId,
+        });
+        
+        const switched = await dataManager.windsurfAccounts.autoSwitchIfNeeded({ forceCurrentExhausted: true });
+        
+        if (switched) {
+          metrics.recordAutoSwitchSuccess();
+          const newAccountId = dataManager.windsurfAccounts.getCurrentAccount()?.id;
+          logger?.info('[Cascade Hook] Auto switch successful', {
+            oldAccountId,
+            newAccountId,
+            blockedTrajectories: blockedTrajectoriesManager?.count(),
+          });
+        } else {
+          metrics.recordAutoSwitchFailure();
+          logger?.warn('[Cascade Hook] Auto switch failed', {
+            reason: 'no suitable account or switch failed',
+            accountCount: dataManager.windsurfAccounts.getAll().length,
+          });
+        }
+      }
+    } else if (detection.type === 'rate_limited_long') {
+      metrics.recordDetection('rate_limited_long');
+      metrics.recordAutoSwitchTrigger();
+      
+      logger?.warn('[Cascade Hook] Long rate limit detected, treating as quota block', {
+        trajectoryId,
+        matchedText: detection.matchedText,
+        resetAt: detection.resetAt,
+        detection,
+      });
+
+      // Similar to quota exhausted, mark as blocked and trigger switch
+      if (trajectoryId && blockedTrajectoriesManager) {
+        const currentAccount = dataManager?.windsurfAccounts.getCurrentAccount();
+        const currentAccountId = currentAccount?.id;
+        const blocked: BlockedTrajectory = {
+          trajectoryId,
+          transcriptPath,
+          blockerType: detection.type,
+          resetAt: detection.resetAt,
+          accountIdAtBlock: currentAccountId,
+          detectedAt: new Date().toISOString(),
+          wakeStatus: 'pending',
+        };
+        blockedTrajectoriesManager.add(blocked);
+        metrics.recordTrajectoryBlockAdded();
+        
+        logger?.info('[Cascade Hook] Trajectory marked as blocked (long rate limit)', {
+          trajectoryId,
+          accountIdAtBlock: currentAccountId,
+        });
+      }
+
+      if (dataManager) {
+        const oldAccountId = dataManager.windsurfAccounts.getCurrentAccount()?.id;
+        logger?.info('[Cascade Hook] Attempting auto switch (long rate limit)', {
+          trigger: 'rate_limited_long',
+          currentAccountId: oldAccountId,
+        });
+        
+        const switched = await dataManager.windsurfAccounts.autoSwitchIfNeeded({ forceCurrentExhausted: true });
+        
+        if (switched) {
+          metrics.recordAutoSwitchSuccess();
+          logger?.info('[Cascade Hook] Auto switch successful (long rate limit)', {
+            oldAccountId,
+            newAccountId: dataManager.windsurfAccounts.getCurrentAccount()?.id,
+          });
+        } else {
+          metrics.recordAutoSwitchFailure();
+          logger?.warn('[Cascade Hook] Auto switch failed (long rate limit)');
+        }
+      }
+    } else if (detection.type === 'rate_limited_short') {
+      metrics.recordDetection('rate_limited_short');
+      
+      logger?.info('[Cascade Hook] Short rate limit detected, will retry', {
+        trajectoryId,
+        matchedText: detection.matchedText,
+        retryDelayMs: detection.retryDelayMs,
+        detection,
+      });
+      // For short rate limits, we don't switch account, just let it retry
+    }
+
+    const duration = Date.now() - startTime;
+    logger?.info('[Cascade Hook] Completed', {
+      trajectoryId,
+      detectionType: detection.type,
+      durationMs: duration,
+    });
+
+    return {
+      success: true,
+      detection,
+      trajectoryId,
+      durationMs: duration,
+    };
+  } catch (error) {
+    metrics.recordError();
+    const duration = Date.now() - startTime;
+    logger?.error('[Cascade Hook] Failed', {
+      error: String(error),
+      errorStack: error instanceof Error ? error.stack : undefined,
+      durationMs: duration,
+      requestKeys: Object.keys(request),
+    });
+    
+    return {
+      success: false,
+      error: String(error),
+      durationMs: duration,
+    };
+  }
+}
+
 async function updateStatusBar(): Promise<void> {
   if (!statusBarItem || !bridge) {
     return;
@@ -76,7 +329,7 @@ async function updateStatusBar(): Promise<void> {
   statusBarItem.text = `${waitingIcon}$(comment) Windsurf Quote`;
   const queuedText = status.queuedDialogCount > 0 ? `  \n队列中: ${status.queuedDialogCount}` : '';
   const toolTipMd = new vscode.MarkdownString(
-    `**Quote 已激活 (${onlineText})**  \n` +
+    `**Windsurf Quote 已激活 (${onlineText})**  \n` +
     `工具名: \`${status.toolName}\`  \n` +
     `IDE: ${status.currentIde}  \n` +
     `SSE 客户端: ${status.sseClientCount}` +
@@ -92,6 +345,7 @@ export async function activate(
 ): Promise<void> {
   extensionContext = context;
   logger = new QuoteLogger(context);
+  await migrateLegacyGlobalStorage(context);
   const config = getExtensionConfig();
   const currentIde = detectCurrentIde();
   let toolName = await loadOrCreateToolName(context.globalStorageUri.fsPath);
@@ -178,6 +432,27 @@ export async function activate(
     },
   });
 
+  // Initialize blocked trajectories manager
+  blockedTrajectoriesManager = new BlockedTrajectoriesManager();
+
+  // Register cascade hook handler
+  bridge.registerCascadeHookHandler(handleCascadeHook);
+
+  // Auto-inject Windsurf hooks on startup
+  try {
+    const hookResult = await WindsurfHooksManager.injectHook(runningPort, logger);
+    logger?.info('Windsurf hook injection result', hookResult);
+    if (hookResult.success && hookResult.message === 'Hook injected successfully') {
+      void vscode.window.showInformationMessage(
+        `Windsurf Hook 已注入，路径: ${WindsurfHooksManager.getHooksFilePath()}`
+      );
+    } else if (!hookResult.success) {
+      void vscode.window.showWarningMessage(`Windsurf Hook 注入失败: ${hookResult.message}`);
+    }
+  } catch (error) {
+    logger?.error('Failed to auto-inject Windsurf hook', { error: String(error) });
+  }
+
   // Multi-window isolation: if port fell back, another instance owns the primary toolName.
   // Generate a session-scoped toolName so each window keeps an independent MCP entry.
   secondaryInstance = runningPort !== config.serverPort;
@@ -245,69 +520,116 @@ export async function activate(
 
   // Register MCP dialog callback: open QuoteDialogPanel (editor tab) on LLM call
   const dialogHandler: DialogCallback = (req) => {
-    if (statusBarItem) {
-      statusBarItem.text = `$(pause-circle) $(comment) Windsurf Quote`;
-      statusBarItem.tooltip = '⏸ LLM 等待用户响应...';
-    }
+    void (async () => {
+      if (statusBarItem) {
+        statusBarItem.text = `$(pause-circle) $(comment) Windsurf Quote`;
+        statusBarItem.tooltip = '⏸ LLM 等待用户响应...';
+      }
 
-    // ── Queue auto-reply: if queue has content, consume first item automatically ──
-    const queueItems = provider.getQueueItems();
-    if (queueItems.length > 0) {
-      const autoReply = queueItems[0];
-      provider.replaceQueue(queueItems.slice(1));
-      bridge?.resolvePendingDialog(req.sessionId, autoReply);
-      logger?.info('Auto-replied from queue.', {
-        sessionId: req.sessionId,
-        responseLen: autoReply.length,
-        queueRemaining: queueItems.length - 1,
-      });
-      void updateStatusBar();
-      provider.postState();
-      QuoteDialogPanel.syncQueueItems(provider.getQueueItems());
-      return;
-    }
+      try {
+        const quotaAutoContinueEnabled =
+          dataManager?.settings.get().quotaAutoContinueEnabled ?? false;
+        if (quotaAutoContinueEnabled) {
+          const autoContinue = await handleAutoContinueDialog(req, {
+            refreshCurrentQuotaBeforeSwitch: async () => {
+              const currentId = await dataManager?.windsurfAccounts.getDisplayCurrentAccountId();
+              if (!currentId) {
+                return { success: false, error: "No current account" };
+              }
+              // 多窗口场景下 save() 可能因版本冲突抛出；配额刷新是尽力而为，不阻塞切换
+              try {
+                return await dataManager?.windsurfAccounts.fetchRealQuota(
+                  currentId,
+                  { mode: "auto" },
+                ) ?? { success: false, error: "DataManager unavailable" };
+              } catch {
+                return { success: true };
+              }
+            },
+            // 对话框出现 = 当前账号已确认耗尽，跳过本地计数器的不可靠判断
+            autoSwitchIfNeeded: async () => dataManager?.windsurfAccounts.autoSwitchIfNeeded({ forceCurrentExhausted: true }) ?? false,
+            getCurrentAccountId: async () => dataManager?.windsurfAccounts.getDisplayCurrentAccountId(),
+            refreshQuotaAfterSwitch,
+            resolveDialog: (sessionId, response) => bridge?.resolvePendingDialog(sessionId, response),
+          });
+          if (autoContinue.handled) {
+            logger?.info('Auto-continued exhausted dialog.', {
+              sessionId: req.sessionId,
+              switched: autoContinue.switched,
+              accountId: autoContinue.accountId,
+              reply: autoContinue.reply,
+            });
+            provider.postBootstrap();
+            void updateStatusBar();
+            return;
+          }
+        }
+      } catch (error) {
+        logger?.warn('Auto-continue failed, falling back to manual dialog.', {
+          sessionId: req.sessionId,
+          error: String(error),
+        });
+      }
 
-    // ── No queue items — show dialog panel and wait for user input ──
-    // Notify sidebar for status display
-    provider.postPendingDialog(req);
-    try {
-      const settings = dataManager!.settings.get();
-      // Load recent conversation history for display in dialog panel
-      const recentHistory = dataManager!.history.getByType('conversation').slice(0, 20);
-      QuoteDialogPanel.show(context.extensionUri, req, (sessionId, response, images) => {
-        bridge?.resolvePendingDialog(sessionId, response, images);
-        // Save this exchange to history
-        void dataManager!.history.add({
-          type: 'conversation',
-          title: req.summary.slice(0, 80),
-          content: JSON.stringify({ summary: req.summary, response, sessionId }),
+      // ── Queue auto-reply: if queue has content, consume first item automatically ──
+      const queueItems = provider.getQueueItems();
+      if (queueItems.length > 0) {
+        const autoReply = queueItems[0];
+        provider.replaceQueue(queueItems.slice(1));
+        bridge?.resolvePendingDialog(req.sessionId, autoReply);
+        logger?.info('Auto-replied from queue.', {
+          sessionId: req.sessionId,
+          responseLen: autoReply.length,
+          queueRemaining: queueItems.length - 1,
         });
         void updateStatusBar();
         provider.postState();
-      }, {
-        enterToSend: settings.enterToSend,
-        queueCount: provider.getQueueCount(),
-        queueItems: provider.getQueueItems(),
-        soundAlert: settings.soundAlert ?? 'none',
-        recentHistory: recentHistory.map(h => {
-          try {
-            const data = JSON.parse(h.content) as { summary: string; response: string };
-            return { summary: data.summary, response: data.response, time: h.createdAt };
-          } catch { return null; }
-        }).filter((h): h is { summary: string; response: string; time: string } => h !== null),
-        onQueueAdd: (items) => {
-          provider.addToQueue(items);
-          QuoteDialogPanel.syncQueueItems(provider.getQueueItems());
-        },
-        onQueueReplace: (items) => {
-          provider.replaceQueue(items);
-          QuoteDialogPanel.syncQueueItems(provider.getQueueItems());
-        }
-      });
-    } catch (err) {
-      logger?.error('Failed to open QuoteDialogPanel.', { error: String(err) });
-      // Sidebar dialog card is the fallback — user can still respond from there
-    }
+        QuoteDialogPanel.syncQueueItems(provider.getQueueItems());
+        return;
+      }
+
+      // ── No queue items — show dialog panel and wait for user input ──
+      // Notify sidebar for status display
+      provider.postPendingDialog(req);
+      try {
+        const settings = dataManager!.settings.get();
+        // Load recent conversation history for display in dialog panel
+        const recentHistory = dataManager!.history.getByType('conversation').slice(0, 20);
+        QuoteDialogPanel.show(context.extensionUri, req, (sessionId, response, images) => {
+          bridge?.resolvePendingDialog(sessionId, response, images);
+          // Save this exchange to history
+          void dataManager!.history.add({
+            type: 'conversation',
+            title: req.summary.slice(0, 80),
+            content: JSON.stringify({ summary: req.summary, response, sessionId }),
+          });
+          void updateStatusBar();
+          provider.postState();
+        }, {
+          enterToSend: settings.enterToSend,
+          queueCount: provider.getQueueCount(),
+          queueItems: provider.getQueueItems(),
+          soundAlert: settings.soundAlert ?? 'none',
+          recentHistory: recentHistory.map(h => {
+            try {
+              const data = JSON.parse(h.content) as { summary: string; response: string };
+              return { summary: data.summary, response: data.response, time: h.createdAt };
+            } catch { return null; }
+          }).filter((h): h is { summary: string; response: string; time: string } => h !== null),
+          onQueueAdd: (items) => {
+            provider.addToQueue(items);
+            QuoteDialogPanel.syncQueueItems(provider.getQueueItems());
+          },
+          onQueueReplace: (items) => {
+            provider.replaceQueue(items);
+            QuoteDialogPanel.syncQueueItems(provider.getQueueItems());
+          }
+        });
+      } catch (err) {
+        logger?.error('Failed to open QuoteDialogPanel.', { error: String(err) });
+        // Sidebar dialog card is the fallback — user can still respond from there
+      }
+    })();
   };
   bridge.registerDialogCallback(dialogHandler);
   bridge.registerDialogResolvedCallback(() => {
@@ -332,7 +654,7 @@ export async function activate(
       provider.refresh();
       provider.postState();
       await updateStatusBar();
-      vscode.window.showInformationMessage("Quote sidebar refreshed.");
+      vscode.window.showInformationMessage("Windsurf Quote sidebar refreshed.");
     }),
     vscode.commands.registerCommand("quote.testFeedback", async () => {
       const message = await bridge?.injectTestFeedback();
@@ -349,7 +671,7 @@ export async function activate(
       const status = bridge.getStatus();
       await updateStatusBar();
       void vscode.window.showInformationMessage(
-        `Quote bridge ${status.running ? "running" : "stopped"} · port ${status.port} · IDE ${status.currentIde}`,
+        `Windsurf Quote bridge ${status.running ? "running" : "stopped"} · port ${status.port} · IDE ${status.currentIde}`,
       );
     }),
     vscode.commands.registerCommand("quote.copyPort", () => {
@@ -364,6 +686,65 @@ export async function activate(
       await updateStatusBar();
       provider.postBootstrap();
       void vscode.window.showInformationMessage(`工具名已旋转为: ${result.newName}`);
+    }),
+    vscode.commands.registerCommand("quote.debugListWindsurfCommands", async () => {
+      const allCommands = await vscode.commands.getCommands(true);
+      const windsurfCommands = allCommands.filter(cmd =>
+        cmd.includes('windsurf') || cmd.includes('cascade') || cmd.includes('continue') || cmd.includes('resume')
+      ).sort();
+      const output = windsurfCommands.join('\n');
+      const channel = vscode.window.createOutputChannel('Windsurf Commands');
+      channel.appendLine(`Found ${windsurfCommands.length} Windsurf-related commands:\n`);
+      channel.appendLine(output);
+      channel.show();
+      logger?.info('Windsurf commands listed', { count: windsurfCommands.length });
+    }),
+    vscode.commands.registerCommand("quote.debugHookStatus", async () => {
+      const status = await WindsurfHooksManager.checkHookStatus(logger);
+      const channel = vscode.window.createOutputChannel('Hook Status');
+      channel.appendLine('=== Windsurf Hook Status ===\n');
+      channel.appendLine(`Installed: ${status.installed}`);
+      channel.appendLine(`Enabled: ${status.enabled}`);
+      if (status.url) {
+        channel.appendLine(`URL: ${status.url}`);
+      }
+      channel.appendLine(`\nConfig file: ${WindsurfHooksManager.getHooksFilePath()}`);
+      channel.show();
+      logger?.info('Hook status checked', status);
+    }),
+    vscode.commands.registerCommand("quote.debugHookMetrics", async () => {
+      const metrics = getGlobalMetrics().getMetrics();
+      const channel = vscode.window.createOutputChannel('Hook Metrics');
+      channel.appendLine('=== Cascade Hook Metrics ===\n');
+      channel.appendLine(`Total Calls: ${metrics.totalCalls}`);
+      channel.appendLine(`Quota Exhausted Detections: ${metrics.quotaExhaustedDetections}`);
+      channel.appendLine(`Rate Limit Short Detections: ${metrics.rateLimitShortDetections}`);
+      channel.appendLine(`Rate Limit Long Detections: ${metrics.rateLimitLongDetections}`);
+      channel.appendLine(`Auto Switch Triggers: ${metrics.autoSwitchTriggers}`);
+      channel.appendLine(`Auto Switch Successes: ${metrics.autoSwitchSuccesses}`);
+      channel.appendLine(`Auto Switch Failures: ${metrics.autoSwitchFailures}`);
+      channel.appendLine(`Trajectory Blocks Added: ${metrics.trajectoryBlocksAdded}`);
+      channel.appendLine(`Errors: ${metrics.errors}`);
+      
+      if (blockedTrajectoriesManager) {
+        channel.appendLine(`\n=== Blocked Trajectories ===\n`);
+        channel.appendLine(`Count: ${blockedTrajectoriesManager.count()}`);
+        const blocked = blockedTrajectoriesManager.getAll();
+        blocked.forEach(t => {
+          channel.appendLine(`  - ${t.trajectoryId}: ${t.blockerType} (${t.wakeStatus})`);
+        });
+      }
+      
+      channel.show();
+      logger?.info('Hook metrics displayed', metrics);
+    }),
+    vscode.commands.registerCommand("quote.debugResetHookMetrics", async () => {
+      getGlobalMetrics().reset();
+      if (blockedTrajectoriesManager) {
+        blockedTrajectoriesManager.clear();
+      }
+      void vscode.window.showInformationMessage('Hook metrics reset');
+      logger?.info('Hook metrics reset');
     }),
     vscode.commands.registerCommand("quote.importToken", async () => {
       if (!dataManager) {
@@ -396,13 +777,40 @@ export async function activate(
         );
       }
     }),
+    vscode.commands.registerCommand("quote.createClone", async () => {
+      if (!dataManager) {
+        void vscode.window.showErrorMessage("DataManager 未初始化");
+        return;
+      }
+      const label = await vscode.window.showInputBox({
+        prompt: "输入分身名称",
+        placeHolder: "例如：分身 1",
+        validateInput: (value) => value.trim() ? undefined : "分身名称不能为空",
+      });
+      if (!label) return;
+      const choice = await vscode.window.showWarningMessage(
+        "将启动一个隔离 user-data-dir 的新窗口。不会复制或修改主实例数据库，分身内账号状态需要单独初始化。",
+        { modal: true },
+        "创建分身",
+      );
+      if (choice !== "创建分身") return;
+
+      try {
+        const manager = new InstanceManager(dataManager.globalStoragePath);
+        const clone = await manager.createClone({ label: label.trim() });
+        void vscode.window.showInformationMessage(`已启动分身: ${clone.label}`);
+      } catch (error) {
+        logger?.error("Create clone failed.", { error: String(error) });
+        void vscode.window.showErrorMessage(`创建分身失败: ${String(error)}`);
+      }
+    }),
     vscode.commands.registerCommand("quote.testDialog", () => {
       if (!bridge) return;
       const sessionId = `test_${Date.now()}`;
       const req: import('./core/contracts').McpDialogRequest = {
         id: `test_${Date.now()}`,
         sessionId,
-        summary: '## 对话框测试\n\n这是一条来自 **Quote 插件**的测试对话框请求。\n\n请选择一个选项或输入自定义回复：',
+        summary: '## 对话框测试\n\n这是一条来自 **Windsurf Quote 插件**的测试对话框请求。\n\n请选择一个选项或输入自定义回复：',
         options: ['✅ 确认', '❌ 取消', '🔄 重试'],
         isMarkdown: true,
         receivedAt: new Date().toISOString(),
@@ -428,7 +836,8 @@ export async function activate(
 
   // ── autoSwitch 定时器：按 checkInterval 轮询，动态读取最新配置 ─────────
   // 使用固定10s轮询判断是否到达下次检查时间，避免配置变化后需要重建定时器
-  let lastAutoSwitchCheckAt = 0;
+  // 初始化为当前时间，避免启动后立即触发换号（冷启动宽限期）
+  let lastAutoSwitchCheckAt = Date.now();
   const autoSwitchPollInterval = setInterval(async () => {
     if (!dataManager) return;
     const cfg = dataManager.windsurfAccounts.getAutoSwitchConfig();
@@ -444,24 +853,12 @@ export async function activate(
   }, 10_000);
   context.subscriptions.push({ dispose: () => clearInterval(autoSwitchPollInterval) });
 
-  // ── 配额自动刷新（每5分钟）：只刷新当前账号，避免批量登录触发上游风控 ──
-  const QUOTA_AUTO_REFRESH_MS = 5 * 60_000;
-  const quotaRefreshInterval = setInterval(async () => {
-    if (!dataManager) return;
-    const currentId = await dataManager.windsurfAccounts.getDisplayCurrentAccountId();
-    if (!currentId) return;
-    await dataManager.windsurfAccounts.fetchRealQuota(currentId, { mode: "auto" });
+  // ── 配额自动刷新（10秒定时器）：高度健壮，支持窗口聚焦优化、并发控制、自动清理 ──
+  const quotaPoller = new QuotaPoller(dataManager, logger!, () => {
     provider.postBootstrap();
-    const cfg = dataManager.windsurfAccounts.getAutoSwitchConfig();
-    if (cfg.enabled) {
-      const switched = await dataManager.windsurfAccounts.autoSwitchIfNeeded();
-      provider.postBootstrap();
-      if (switched) {
-        logger?.info('Auto-switch triggered after quota refresh.');
-      }
-    }
-  }, QUOTA_AUTO_REFRESH_MS);
-  context.subscriptions.push({ dispose: () => clearInterval(quotaRefreshInterval) });
+  });
+  quotaPoller.start();
+  context.subscriptions.push(quotaPoller);
 
   // 延迟刷新状态：等待 MCP 客户端连接后更新 SSE 计数
   setTimeout(() => {
@@ -469,7 +866,7 @@ export async function activate(
     provider.postBootstrap();
   }, 3000);
 
-  logger.info("Quote activated.", {
+  logger.info("Windsurf Quote activated.", {
     currentIde: currentIde.name,
     requestedPort: config.serverPort,
     runningPort,

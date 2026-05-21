@@ -10,6 +10,8 @@ export interface RealQuotaInfoLike {
   dailyResetAtUnix?: number;
   weeklyResetAtUnix?: number;
   planEndTimestamp?: number;
+  remainingMessages?: number;
+  remainingFlowActions?: number;
 }
 
 export interface QuotaSnapshotLike {
@@ -86,7 +88,7 @@ export function formatPlanExpiryLabel(planEndTimestamp: number | undefined, nowM
   if (typeof planEndTimestamp !== 'number' || planEndTimestamp <= 0) return '';
   if (planEndTimestamp < nowMs) return '已到期';
   const remainingMs = planEndTimestamp - nowMs;
-  const days = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+  const days = Math.floor(remainingMs / (24 * 60 * 60 * 1000));
   if (days <= 0) return '今日到期';
   if (days === 1) return '剩余 1 天';
   return `剩余 ${days} 天`;

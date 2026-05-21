@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock vscode
 vi.mock('vscode', () => ({
@@ -855,6 +855,19 @@ describe('QuoteSidebarProvider - handleMessage', () => {
         debugRawResponses: true,
       });
       expect(ctx.dataManager.windsurfAccounts.setDebugRawResponses).toHaveBeenCalledWith(true);
+    });
+
+    it('保存耗尽续跑开关到 settings', async () => {
+      await ctx.send({
+        type: 'settingsUpdate',
+        payload: {
+          quotaAutoContinueEnabled: true,
+        },
+      });
+
+      expect(ctx.dataManager.settings.update).toHaveBeenCalledWith({
+        quotaAutoContinueEnabled: true,
+      });
     });
   });
 

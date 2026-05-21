@@ -1,9 +1,9 @@
 {
-  "name": "ai-quote",
-  "displayName": "Quote",
+  "name": "windsurf-quote",
+  "displayName": "Windsurf Quote",
   "icon": "resources/icon.png",
-  "description": "VS Code extension: Windsurf account switcher with quota stats, MCP Bridge, and LLM dialog panel",
-  "version": "2.9.97",
+  "description": "VS Code extension: Windsurf Quote account switcher with quota stats, MCP Bridge, and LLM dialog panel",
+  "version": "2.9.106",
   "publisher": "opensource",
   "license": "MIT",
   "author": "EVILZIXIE",
@@ -31,7 +31,7 @@
       "activitybar": [
         {
           "id": "quote-sidebar",
-          "title": "Quote",
+          "title": "Windsurf Quote",
           "icon": "resources/icon.svg"
         }
       ]
@@ -41,7 +41,7 @@
         {
           "type": "webview",
           "id": "quoteView",
-          "name": "Quote",
+          "name": "Windsurf Quote",
           "icon": "resources/icon.svg"
         }
       ]
@@ -49,37 +49,57 @@
     "commands": [
       {
         "command": "quote.openPanel",
-        "title": "Quote: Open Panel",
+        "title": "Windsurf Quote: Open Panel",
         "icon": "$(window)"
       },
       {
         "command": "quote.refresh",
-        "title": "Quote: Refresh",
+        "title": "Windsurf Quote: Refresh",
         "icon": "$(refresh)"
       },
       {
         "command": "quote.testFeedback",
-        "title": "Quote: Test Feedback"
+        "title": "Windsurf Quote: Test Feedback"
       },
       {
         "command": "quote.showStatus",
-        "title": "Quote: Show Status"
+        "title": "Windsurf Quote: Show Status"
       },
       {
         "command": "quote.copyPort",
-        "title": "Quote: Copy Port"
+        "title": "Windsurf Quote: Copy Port"
       },
       {
         "command": "quote.rotateName",
-        "title": "Quote: Rotate MCP Name"
+        "title": "Windsurf Quote: Rotate MCP Name"
+      },
+      {
+        "command": "quote.debugListWindsurfCommands",
+        "title": "Windsurf Quote: Debug List Windsurf Commands"
+      },
+      {
+        "command": "quote.debugHookStatus",
+        "title": "Windsurf Quote: Debug Hook Status"
+      },
+      {
+        "command": "quote.debugHookMetrics",
+        "title": "Windsurf Quote: Debug Hook Metrics"
+      },
+      {
+        "command": "quote.debugResetHookMetrics",
+        "title": "Windsurf Quote: Debug Reset Hook Metrics"
       },
       {
         "command": "quote.importToken",
-        "title": "Quote: Import auth1 Token"
+        "title": "Windsurf Quote: Import auth1 Token"
+      },
+      {
+        "command": "quote.createClone",
+        "title": "Windsurf Quote: Create Clone Window"
       },
       {
         "command": "quote.testDialog",
-        "title": "Quote: Test Dialog (Simulate LLM Call)"
+        "title": "Windsurf Quote: Test Dialog (Simulate LLM Call)"
       }
     ],
     "menus": {
@@ -97,7 +117,7 @@
       ]
     },
     "configuration": {
-      "title": "Quote",
+      "title": "Windsurf Quote",
       "properties": {
         "quote.serverPort": {
           "type": "number",
@@ -140,6 +160,7 @@
   "scripts": {
     "check-types": "tsc --noEmit -p tsconfig.json",
     "build": "npm run check-types && node esbuild.mjs",
+    "build:production": "npm run check-types && node esbuild.mjs --production",
     "compile-tests": "tsc -p tsconfig.tests.json",
     "test:unit": "vitest run tests/unit",
     "test:e2e": "vitest run tests/e2e",
@@ -148,10 +169,10 @@
     "dev:debug": "npm run build && /Applications/vscode.app/Contents/Resources/app/bin/code --extensionDevelopmentPath=\"$PWD\" --disable-extensions",
     "test:integration": "npm run build && npm run compile-tests && vscode-test",
     "verify": "npm run check-types && npm run build && npm run test && npm run test:integration",
-    "vscode:prepublish": "npm run build",
+    "vscode:prepublish": "npm run build:production",
     "release": "node scripts/archive-builds.mjs release",
-    "release:minor": "node scripts/archive-builds.mjs archive && npm version minor --no-git-tag-version && vsce package --no-dependencies",
-    "release:major": "node scripts/archive-builds.mjs archive && npm version major --no-git-tag-version && vsce package --no-dependencies",
+    "release:minor": "node scripts/archive-builds.mjs archive && npm version minor --no-git-tag-version && npm run build:production && vsce package --no-dependencies",
+    "release:major": "node scripts/archive-builds.mjs archive && npm version major --no-git-tag-version && npm run build:production && vsce package --no-dependencies",
     "archive": "node scripts/archive-builds.mjs archive",
     "archive:cleanup": "node scripts/archive-builds.mjs cleanup"
   },

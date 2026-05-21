@@ -1,23 +1,23 @@
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
+import {
+    fetchRemoteVersion,
+    loginWithFirebase,
+    verifyRemoteCode,
+} from "../adapters/remote-api";
 import { createId } from "../utils/tool-name";
 import type {
-  QuoteEvent,
-  QuoteMessage,
-  QuoteStatus,
-  McpDialogRequest,
-  ImageAttachment,
-  FirebaseLoginRequest,
-  RemoteApiResponse,
-  VerifyRequest,
-  VersionInfo,
+    FirebaseLoginRequest,
+    ImageAttachment,
+    McpDialogRequest,
+    QuoteEvent,
+    QuoteMessage,
+    QuoteStatus,
+    RemoteApiResponse,
+    VerifyRequest,
+    VersionInfo,
 } from "./contracts";
 import type { LoggerLike } from "./logger";
-import {
-  fetchRemoteVersion,
-  loginWithFirebase,
-  verifyRemoteCode,
-} from "../adapters/remote-api";
 
 async function readJsonBody<T>(request: http.IncomingMessage): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -72,6 +72,8 @@ export interface AutopilotBridgeHandlers {
   refreshQuotas: () => Promise<unknown>;
 }
 
+export type CascadeHookHandler = (request: Record<string, unknown>) => Promise<unknown>;
+
 interface PendingDialogTask {
   request: McpDialogRequest;
   sessionId: string;
@@ -93,6 +95,7 @@ export class QuoteBridge {
   private dialogResolvedCallback?: () => void;
   private sseClientChangeCallback?: () => void;
   private autopilotHandlers?: AutopilotBridgeHandlers;
+  private cascadeHookHandler?: CascadeHookHandler;
   // Key = dialogReq.id (stable across SSE reconnections), NOT sessionId
   private pendingDialogResolvers = new Map<
     string | number,
@@ -219,6 +222,10 @@ export class QuoteBridge {
 
   public registerAutopilotHandlers(handlers: AutopilotBridgeHandlers): void {
     this.autopilotHandlers = handlers;
+  }
+
+  public registerCascadeHookHandler(handler: CascadeHookHandler): void {
+    this.cascadeHookHandler = handler;
   }
 
   public resolvePendingDialog(
@@ -685,6 +692,16 @@ export class QuoteBridge {
         return;
       }
       writeJson(response, 200, await this.autopilotHandlers.refreshQuotas());
+      return;
+    }
+
+    if (pathname === "/api/ap/cascade-hook" && request.method === "POST") {
+      if (!this.cascadeHookHandler) {
+        writeJson(response, 501, { success: false, message: "Cascade hook handler unavailable" });
+        return;
+      }
+      const payload = await readJsonBody<Record<string, unknown>>(request);
+      writeJson(response, 200, await this.cascadeHookHandler(payload));
       return;
     }
 

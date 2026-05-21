@@ -93,6 +93,39 @@ export interface RuleWriteResult {
   reason?: string;
 }
 
+// Cascade Hook types
+export type CascadeHookEventType = 'post_cascade_response' | 'post_cascade_response_with_transcript';
+
+export interface CascadeHookRequest {
+  agent_action_name: CascadeHookEventType;
+  tool_info: {
+    response?: string; // for post_cascade_response
+    transcript_path?: string; // for post_cascade_response_with_transcript
+  };
+}
+
+export type QuotaBlockType = 'quota_exhausted' | 'rate_limited_short' | 'rate_limited_long' | 'none';
+
+export interface QuotaBlockDetection {
+  type: QuotaBlockType;
+  matchedText: string;
+  resetAt?: string; // parsed from response text
+  retryDelayMs?: number; // parsed from rate limit info
+  trajectoryId?: string; // from transcript path
+}
+
+export interface BlockedTrajectory {
+  trajectoryId: string;
+  transcriptPath?: string;
+  blockerType: QuotaBlockType;
+  resetAt?: string;
+  accountIdAtBlock?: string;
+  detectedAt: string;
+  wakeStatus: 'pending' | 'waking' | 'woken' | 'failed';
+  wakeAttemptedAt?: string;
+  wakeError?: string;
+}
+
 // History types
 export interface HistoryItem {
   id: string;
@@ -206,6 +239,7 @@ export interface PluginSettings {
   // 配额获取
   firebaseApiKey: string;          // Codeium Firebase Web API Key (用于通道B)
   debugRawResponses: boolean;      // 调试模式下记录脱敏原始响应
+  quotaAutoContinueEnabled: boolean;
   // MCP 清理白名单：这些名称的 MCP 服务不会被清理工具移除
   mcpWhitelist: string[];
 }
@@ -224,6 +258,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   soundAlert: 'tada',
   firebaseApiKey: '',
   debugRawResponses: false,
+  quotaAutoContinueEnabled: false,
   mcpWhitelist: ['qdrant', 'pencil', 'fetch', 'context7', 'playwright', 'repomix', 'toon']
 };
 
@@ -298,7 +333,7 @@ export interface AutoSwitchResult {
 
 export const DEFAULT_AUTO_SWITCH: AutoSwitchConfig = {
   enabled: false,
-  threshold: 10,
+  threshold: 0,
   checkInterval: 60,
   creditWarning: 20,
   switchOnDaily: true,

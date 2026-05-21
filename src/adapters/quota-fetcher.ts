@@ -1,10 +1,10 @@
-import * as https from 'node:https';
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
+import * as https from 'node:https';
 import * as os from 'node:os';
-import { WindsurfAuth } from './windsurf-auth';
+import * as path from 'node:path';
 import type { LoggerLike } from '../core/logger';
 import { redactSensitivePayload } from '../utils/redact-sensitive-payload';
+import { WindsurfAuth } from './windsurf-auth';
 
 const RELAXED_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 
@@ -968,15 +968,28 @@ export class WindsurfQuotaFetcher {
               if (!ps) { resolve(null); return; }
 
               // NOTE: 使用 undefined 表示「API 未返回此字段」，不要默认为 100（否则误导用户）
-              const dailyRemainingPercent  = parseOptionalPercent(ps.dailyQuotaRemainingPercent);   // undefined = no data
-              const weeklyRemainingPercent = parseOptionalPercent(ps.weeklyQuotaRemainingPercent);  // undefined = no data
+              let dailyRemainingPercent  = parseOptionalPercent(ps.dailyQuotaRemainingPercent);   // undefined = no data
+              let weeklyRemainingPercent = parseOptionalPercent(ps.weeklyQuotaRemainingPercent);  // undefined = no data
+
+              const dailyResetAtUnix  = parseUnixSeconds(ps.dailyQuotaResetAtUnix);
+              const weeklyResetAtUnix = parseUnixSeconds(ps.weeklyQuotaResetAtUnix);
+
+              // gRPC JSON default value (0) omission: if a limit reset timestamp is present and valid, the limit exists.
+              // If the remaining percent field is omitted in that case, it is exactly 0% (exhausted)!
+              if (dailyRemainingPercent === undefined && dailyResetAtUnix > 0) {
+                dailyRemainingPercent = 0;
+              }
+              if (weeklyRemainingPercent === undefined && weeklyResetAtUnix > 0) {
+                weeklyRemainingPercent = 0;
+              }
+
               this.logger.debug('GetPlanStatus raw quota fields.', {
                 dailyRemainingPercent: ps.dailyQuotaRemainingPercent,
                 weeklyRemainingPercent: ps.weeklyQuotaRemainingPercent,
+                calculatedDaily: dailyRemainingPercent,
+                calculatedWeekly: weeklyRemainingPercent,
                 planName: ps.planInfo?.planName
               });
-              const dailyResetAtUnix  = parseUnixSeconds(ps.dailyQuotaResetAtUnix);
-              const weeklyResetAtUnix = parseUnixSeconds(ps.weeklyQuotaResetAtUnix);
               // NOTE: availablePromptCredits 在旧 credit 制下为 centi-credits（需 /100），
               //       在新 quota 制下语义不同（可能是 token 预算）。
               //       当前 remainingMessages 仅用于 credits 制 Enterprise 判断，quota 制下以百分比为准。

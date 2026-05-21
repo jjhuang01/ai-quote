@@ -1,4 +1,4 @@
-# Quote
+# Windsurf Quote
 
 > VS Code extension for Windsurf account management — multi-account switching, quota stats, local MCP Bridge, and LLM dialog panel.
 
@@ -20,7 +20,7 @@ Windsurf 账号管理 VS Code 扩展。支持多账号切换、配额统计、�
 
 在扩展面板右上角点击 `···` → **从 VSIX 安装** → 选择最新的 `.vsix` 文件（见 [Releases](../../releases)）。
 
-安装后重新加载窗口，Activity Bar 会自动出现 Quote 图标。若未出现，右键单击 Activity Bar 空白处 → 勾选 **Quote**。
+安装后重新加载窗口，Activity Bar 会自动出现 Windsurf Quote 图标。若未出现，右键单击 Activity Bar 空白处 → 勾选 **Windsurf Quote**。
 
 **从源码构建：**
 
@@ -47,23 +47,23 @@ npx vsce package --no-dependencies
 
 ## 命令 / Commands
 
-`Cmd+Shift+P` 输入 `Quote` 可找到以下命令：
+`Cmd+Shift+P` 输入 `Windsurf Quote` 可找到以下命令：
 
 | 命令                     | 说明                        |
 | ------------------------ | --------------------------- |
-| `Quote: Open Panel`      | 打开侧边栏面板              |
-| `Quote: Refresh`         | 刷新状态                    |
-| `Quote: Show Status`     | 查看 Bridge 运行状态        |
-| `Quote: Copy Port`       | 复制当前端口号              |
-| `Quote: Rotate MCP Name` | 轮换 MCP 工具名             |
-| `Quote: Test Dialog`     | 模拟 LLM 调用，测试对话面板 |
-| `Quote: Test Feedback`   | 发送测试反馈消息            |
+| `Windsurf Quote: Open Panel`      | 打开侧边栏面板              |
+| `Windsurf Quote: Refresh`         | 刷新状态                    |
+| `Windsurf Quote: Show Status`     | 查看 Bridge 运行状态        |
+| `Windsurf Quote: Copy Port`       | 复制当前端口号              |
+| `Windsurf Quote: Rotate MCP Name` | 轮换 MCP 工具名             |
+| `Windsurf Quote: Test Dialog`     | 模拟 LLM 调用，测试对话面板 |
+| `Windsurf Quote: Test Feedback`   | 发送测试反馈消息            |
 
 ---
 
 ## 设置 / Settings
 
-在 VS Code / Cursor 设置中搜索 `Quote`：
+在 VS Code / Cursor 设置中搜索 `Windsurf Quote`：
 
 | 设置项                       | 默认值  | 说明                                           |
 | ---------------------------- | ------- | ---------------------------------------------- |
@@ -76,7 +76,7 @@ npx vsce package --no-dependencies
 ## 常见问题 / FAQ
 
 **侧边栏图标不显示**
-右键单击 Activity Bar → 找到 **Quote** → 勾选。
+右键单击 Activity Bar → 找到 **Windsurf Quote** → 勾选。
 
 **端口冲突**
 在设置中将 `quote.serverPort` 改为其他端口（如 `3457`），重新加载窗口。

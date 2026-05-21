@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -144,6 +144,8 @@ export class WindsurfAccountManager {
   private _quotaFetchingAll = false;
   private readonly quotaFetchingCounts = new Map<string, number>();
   private lastAutoSwitchResult?: AutoSwitchResult;
+  private readonly pendingIdleRefreshes = new Set<string>();
+  private idleRefreshTimeout: ReturnType<typeof setTimeout> | undefined;
 
   public readonly onDidChangeAccounts = this.onDidChangeAccountsEmitter.event;
 
@@ -268,7 +270,7 @@ export class WindsurfAccountManager {
   }
 
   public getImmediateCurrentAccountId(): string | undefined {
-    return this.pendingSwitchId ?? this.currentAccountId;
+    return this.currentAccountId;
   }
 
   public async getDisplayCurrentAccountId(): Promise<string | undefined> {
@@ -280,17 +282,15 @@ export class WindsurfAccountManager {
   }): Promise<string | undefined> {
     if (this.pendingSwitchId) {
       const pendingId = this.pendingSwitchId;
-      void this.getRealCurrentAccountId()
-        .then(async (realId) => {
-          if (realId === pendingId) {
-            await this.finalizePendingSwitch(
-              realId,
-              options?.persistRealMatch ?? false,
-            );
-          }
-        })
-        .catch(() => undefined);
-      return pendingId;
+      const realId = await this.getRealCurrentAccountId();
+      if (realId === pendingId) {
+        await this.finalizePendingSwitch(
+          realId,
+          options?.persistRealMatch ?? false,
+        );
+        return realId;
+      }
+      return this.currentAccountId;
     }
 
     const realId = await this.getRealCurrentAccountId();
@@ -812,6 +812,7 @@ export class WindsurfAccountManager {
     }
     await this.save();
     this.logger.info("WindsurfAccount added.", { id: account.id, email });
+    this.triggerIdleQuotaRefreshSoon([account.id]);
     return account;
   }
 
@@ -840,6 +841,7 @@ export class WindsurfAccountManager {
     // Build email lookup Set for O(1) dedup
     const existingEmails = new Set(this.accounts.map((a) => a.email));
     const hadAccounts = this.accounts.length > 0;
+    const importedAccountIds: string[] = [];
 
     let added = 0;
     let skipped = 0;
@@ -926,6 +928,7 @@ export class WindsurfAccountManager {
       if (account.isActive) {
         this.currentAccountId = account.id;
       }
+      importedAccountIds.push(account.id);
       added++;
     }
 
@@ -1052,6 +1055,7 @@ export class WindsurfAccountManager {
       if (resolved.apiKey) existingApiKeys.add(resolved.apiKey);
       if (resolved.email) existingEmails2.add(resolved.email.toLowerCase());
       if (resolved.accountId) existingAccountIds.add(resolved.accountId);
+      importedAccountIds.push(account.id);
       added++;
       onProgress?.(ti + 1, tokenTotal);
       if (onAccountImported) {
@@ -1061,6 +1065,10 @@ export class WindsurfAccountManager {
 
     if (auth1Tokens.length > 0 && (added > 0 || updated > 0)) {
       await this.save();
+    }
+
+    if (importedAccountIds.length > 0) {
+      this.triggerIdleQuotaRefreshSoon(importedAccountIds);
     }
 
     this.logger.info("Batch import done.", {
@@ -1601,7 +1609,11 @@ export class WindsurfAccountManager {
         },
       );
       await this.markPendingSwitch(id, injectedApiKey);
-      return { success: true, pendingRuntimeVerification: true };
+      return {
+        success: false,
+        pendingRuntimeVerification: true,
+        error: `已注入账号 ${account.email}，但仍在等待 Windsurf 运行时同步；请以 Windsurf 底部栏账号为准。`,
+      };
     }
 
     // ── 步骤5: 更新内部状态 ──────────────────────────────────────────────
@@ -1622,7 +1634,13 @@ export class WindsurfAccountManager {
     return { success: true };
   }
 
-  public async autoSwitchIfNeeded(): Promise<boolean> {
+  public async autoSwitchIfNeeded(options?: {
+    /**
+     * 调用方已确认当前账号配额耗尽（如配额耗尽对话框出现），跳过本地计数器的不可靠判断。
+     * 用于多窗口场景下 realQuota 过期或 dailyLimit=0 时仍能正确触发切换。
+     */
+    forceCurrentExhausted?: boolean;
+  }): Promise<boolean> {
     if (!this.autoSwitch.enabled) return false;
 
     const currentId = await this.resolveCurrentAccountId({
@@ -1632,7 +1650,7 @@ export class WindsurfAccountManager {
     if (!current) return false;
 
     // ── 判断当前账号是否需要切换 ──────────────────────────────────────────
-    const needSwitch = this._accountNeedsSwitch(current);
+    const needSwitch = options?.forceCurrentExhausted || this._accountNeedsSwitch(current);
     if (!needSwitch) {
       this.lastAutoSwitchResult = {
         triggeredAt: new Date().toISOString(),
@@ -1714,13 +1732,13 @@ export class WindsurfAccountManager {
         this.autoSwitch.switchOnDaily &&
         (dailyExhaustedNoData ||
           (hasDailyPct
-            ? rq.dailyRemainingPercent <= 5
+            ? rq.dailyRemainingPercent <= threshold
             : rq.billingStrategy === "credits" &&
               rq.remainingMessages <= threshold));
       const weeklyExhausted =
         this.autoSwitch.switchOnWeekly &&
         (weeklyExhaustedNoData ||
-          (hasWeeklyPct && rq.weeklyRemainingPercent <= 5));
+          (hasWeeklyPct && rq.weeklyRemainingPercent <= threshold));
       return dailyExhausted || weeklyExhausted;
     }
 
@@ -1763,7 +1781,7 @@ export class WindsurfAccountManager {
         !this.autoSwitch.switchOnDaily ||
         (!dailyExhaustedNoData &&
           (hasDailyPct
-            ? rq.dailyRemainingPercent > 5
+            ? rq.dailyRemainingPercent > threshold
             : rq.billingStrategy === "credits"
               ? rq.remainingMessages > threshold
               : true)); // 无百分比且非 credits 制且无 reset 时间，默认允许切入
@@ -1771,7 +1789,7 @@ export class WindsurfAccountManager {
         !this.autoSwitch.switchOnWeekly ||
         (!weeklyExhaustedNoData &&
           (!hasWeeklyPct || // -1 without reset time = 真的无数据，不阻止切入
-            rq.weeklyRemainingPercent > 5));
+            rq.weeklyRemainingPercent > threshold));
       return dailyOk && weeklyOk;
     }
 
@@ -1779,7 +1797,9 @@ export class WindsurfAccountManager {
     const aq = account.quota;
     const dr = aq.dailyLimit > 0 ? aq.dailyLimit - aq.dailyUsed : Infinity;
     const wr = aq.weeklyLimit > 0 ? aq.weeklyLimit - aq.weeklyUsed : Infinity;
-    return dr > threshold && wr > threshold;
+    const dailyOk = !this.autoSwitch.switchOnDaily || dr > threshold;
+    const weeklyOk = !this.autoSwitch.switchOnWeekly || wr > threshold;
+    return dailyOk && weeklyOk;
   }
 
   public async updateAutoSwitch(
@@ -2053,11 +2073,12 @@ export class WindsurfAccountManager {
    * 优先级: Channel B (GetPlanStatus API, 实时) > Channel E/A (本地缓存, 可能过期)
    * Channel E/A 仅用于无密码账号的兜底
    */
-  public async fetchAllRealQuotas(): Promise<{
+  public async fetchAllRealQuotas(options?: { force?: boolean }): Promise<{
     success: number;
     failed: number;
     errors: string[];
   }> {
+    const force = options?.force ?? false;
     const accountIds = this.accounts.map((account) => account.id);
     const endQuotaFetch = this.beginQuotaFetch(accountIds, true);
     let success = 0;
@@ -2065,10 +2086,31 @@ export class WindsurfAccountManager {
     const errors: string[] = [];
     const updatedIds = new Set<string>();
 
+    // 收集配额更新到独立 Map，避免直接修改 this.accounts 元素（防止文件监听器
+    // mid-loop 触发 applyDiskState 替换 this.accounts 后，就地修改 of 的旧对象被丢弃）
+    type QuotaUpdate = {
+      realQuota: RealQuotaInfo;
+      planUpdate?: WindsurfAccount["plan"];
+      lastCheckedAt: string;
+    };
+    const quotaUpdateMap = new Map<string, QuotaUpdate>();
+
     try {
       // 步骤1: Channel B —— 有密码账号串行走 GetPlanStatus；一旦遇到登录限流立即停止，避免扩大风控。
       for (const account of this.accounts) {
         if (!account.password) continue;
+
+        // 闲置/已耗尽跳过机制检查
+        const skipCheck = this.shouldSkipBatchRefresh(account, force);
+        if (skipCheck.skip) {
+          this.logger.info("Batch refresh skipped for account in Channel B.", {
+            email: account.email,
+            reason: skipCheck.reason,
+          });
+          updatedIds.add(account.id);
+          success++;
+          continue;
+        }
 
         const result = await this.quotaFetcher.fetchFromGetPlanStatus(
           account.id,
@@ -2077,19 +2119,41 @@ export class WindsurfAccountManager {
         );
 
         if (result.success && result.planInfo) {
-          account.realQuota = this.planInfoToRealQuota(
-            result.planInfo,
-            result.source,
-            result.fetchedAt,
+          // 与单账号刷新对齐：Channel B 同样需要来源校验，防止 cache/proto 通道返回其他账号数据
+          const quotaGuard = this.isQuotaResultAssignableToAccount(
+            account,
+            result,
           );
-          // Channel B source = 'api'，可信更新 plan
-          if (result.source === "api" || result.source === "apikey") {
-            account.plan = this.validPlan(
-              result.planInfo.planName,
-              account.plan,
+          if (!quotaGuard.allowed) {
+            failed++;
+            errors.push(
+              `${account.email}: ${quotaGuard.reason ?? "额度来源与账号不匹配"}`,
             );
+            this.logger.warn(
+              "Rejected quota write for mismatched account in Channel B.",
+              {
+                email: account.email,
+                source: result.source,
+                observedEmail: result.userEmail,
+                reason: quotaGuard.reason,
+              },
+            );
+            continue;
           }
-          account.lastCheckedAt = result.fetchedAt;
+          // 存入 Map 而非直接改 account，防止并发 reload 覆盖
+          const planUpdate =
+            result.source === "api" || result.source === "apikey"
+              ? this.validPlan(result.planInfo.planName, account.plan)
+              : undefined;
+          quotaUpdateMap.set(account.id, {
+            realQuota: this.planInfoToRealQuota(
+              result.planInfo,
+              result.source,
+              result.fetchedAt,
+            ),
+            planUpdate,
+            lastCheckedAt: result.fetchedAt,
+          });
           updatedIds.add(account.id);
           success++;
           this.logger.info("Channel B quota applied.", {
@@ -2120,6 +2184,18 @@ export class WindsurfAccountManager {
         if (updatedIds.has(account.id)) continue;
         if (account.password) continue;
 
+        // 闲置/已耗尽跳过机制检查
+        const skipCheck = this.shouldSkipBatchRefresh(account, force);
+        if (skipCheck.skip) {
+          this.logger.info("Batch refresh skipped for account in Fallback Channels.", {
+            email: account.email,
+            reason: skipCheck.reason,
+          });
+          updatedIds.add(account.id);
+          success++;
+          continue;
+        }
+
         // Channel E (proto) → Channel D (apikey) → Channel A (cachedPlanInfo)
         const result = await this.quotaFetcher.fetchQuota(
           account.id,
@@ -2146,19 +2222,19 @@ export class WindsurfAccountManager {
             });
             continue;
           }
-          account.realQuota = this.planInfoToRealQuota(
-            result.planInfo,
-            result.source,
-            result.fetchedAt,
-          );
-          // cache/proto 数据可能属于其他账号，不更新 plan
-          if (result.source === "api" || result.source === "apikey") {
-            account.plan = this.validPlan(
-              result.planInfo.planName,
-              account.plan,
-            );
-          }
-          account.lastCheckedAt = result.fetchedAt;
+          const planUpdate =
+            result.source === "api" || result.source === "apikey"
+              ? this.validPlan(result.planInfo.planName, account.plan)
+              : undefined;
+          quotaUpdateMap.set(account.id, {
+            realQuota: this.planInfoToRealQuota(
+              result.planInfo,
+              result.source,
+              result.fetchedAt,
+            ),
+            planUpdate,
+            lastCheckedAt: result.fetchedAt,
+          });
           updatedIds.add(account.id);
           success++;
           this.logger.info("Fallback quota applied.", {
@@ -2172,6 +2248,19 @@ export class WindsurfAccountManager {
       }
 
       if (success > 0) {
+        // 先与磁盘同步（多窗口场景下其他窗口可能在批量拉取期间写入了更新的版本号），
+        // 再将收集到的配额更新合并回（可能已被重载的）this.accounts，最后统一保存。
+        await this.revalidateBeforeWrite();
+        for (const account of this.accounts) {
+          const update = quotaUpdateMap.get(account.id);
+          if (update) {
+            account.realQuota = update.realQuota;
+            if (update.planUpdate !== undefined) {
+              account.plan = update.planUpdate;
+            }
+            account.lastCheckedAt = update.lastCheckedAt;
+          }
+        }
         await this.save();
       }
 
@@ -2225,6 +2314,129 @@ export class WindsurfAccountManager {
       fetchedAt,
       source,
     };
+  }
+
+  /**
+   * 触发新添加/导入账号的闲时配额刷新。
+   * 采用防抖 5 秒（以防批量导入期间重复刷新），并控制并发，2秒间隔串行拉取，防止触犯 API 限流与风控。
+   */
+  private triggerIdleQuotaRefreshSoon(accountIds: string[]): void {
+    for (const id of accountIds) {
+      this.pendingIdleRefreshes.add(id);
+    }
+    if (this.idleRefreshTimeout) {
+      clearTimeout(this.idleRefreshTimeout);
+    }
+    this.idleRefreshTimeout = setTimeout(() => {
+      void this.processIdleRefreshes();
+    }, 5000);
+  }
+
+  private async processIdleRefreshes(): Promise<void> {
+    const ids = [...this.pendingIdleRefreshes];
+    this.pendingIdleRefreshes.clear();
+    if (ids.length === 0) return;
+
+    this.logger.info("Starting idle quota refresh for new accounts.", {
+      count: ids.length,
+      accountIds: ids,
+    });
+
+    for (const id of ids) {
+      const account = this.getById(id);
+      if (!account) continue;
+
+      // 仅对未成功刷新过（默认 Free 且无 realQuota）的账号进行闲时初始化刷新
+      if (account.realQuota) {
+        continue;
+      }
+
+      try {
+        this.logger.info("Idle refreshing quota for uninitialized account.", {
+          accountId: id,
+          email: account.email,
+        });
+        await this.fetchRealQuota(id, { mode: "auto" });
+      } catch (err) {
+        this.logger.warn("Idle quota refresh failed for account.", {
+          accountId: id,
+          email: account.email,
+          error: String(err),
+        });
+      }
+
+      if (ids.indexOf(id) < ids.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+  }
+
+  /**
+   * 判断账号在批量刷新（fetchAllRealQuotas）时是否可以优雅地跳过。
+   * 条件 1: 已批量刷新过，在 5h 冷却时间内不重复刷新。
+   * 条件 2: 依据官方返回真实字段确认日周配额均已耗尽，且尚未到对应的重置时间（状态绝不可能自行恢复），安全跳过。
+   */
+  private shouldSkipBatchRefresh(
+    account: WindsurfAccount,
+    force = false,
+  ): { skip: boolean; reason?: string } {
+    if (force) {
+      return { skip: false };
+    }
+
+    const now = Date.now();
+
+    // 1. 5小时冷却限制
+    if (account.lastCheckedAt) {
+      const lastCheckedMs = new Date(account.lastCheckedAt).getTime();
+      const fiveHoursMs = 5 * 3600 * 1000;
+      if (now - lastCheckedMs < fiveHoursMs) {
+        return {
+          skip: true,
+          reason: `5h内已刷新过 (上次刷新: ${new Date(account.lastCheckedAt).toLocaleString()})`,
+        };
+      }
+    }
+
+    // 2. 配额已耗尽且未到对应的重置时间
+    const rq = account.realQuota;
+    if (rq) {
+      const threshold = this.autoSwitch.threshold;
+      const hasDailyPct = rq.dailyRemainingPercent >= 0;
+      const hasWeeklyPct = rq.weeklyRemainingPercent >= 0;
+
+      const dailyExhausted = hasDailyPct
+        ? rq.dailyRemainingPercent <= threshold
+        : rq.billingStrategy === "credits" && rq.remainingMessages <= threshold;
+
+      const weeklyExhausted = hasWeeklyPct
+        ? rq.weeklyRemainingPercent <= threshold
+        : false;
+
+      const dailyResetInFuture =
+        rq.dailyResetAtUnix > 0 && rq.dailyResetAtUnix * 1000 > now;
+      const weeklyResetInFuture =
+        rq.weeklyResetAtUnix > 0 && rq.weeklyResetAtUnix * 1000 > now;
+
+      const dailySkipActive =
+        this.autoSwitch.switchOnDaily && dailyExhausted && dailyResetInFuture;
+      const weeklySkipActive =
+        this.autoSwitch.switchOnWeekly &&
+        weeklyExhausted &&
+        weeklyResetInFuture;
+
+      if (dailySkipActive || weeklySkipActive) {
+        const resetDesc = dailySkipActive
+          ? `日重置时间: ${new Date(rq.dailyResetAtUnix * 1000).toLocaleString()}`
+          : `周重置时间: ${new Date(rq.weeklyResetAtUnix * 1000).toLocaleString()}`;
+        return {
+          skip: true,
+          reason: `校验配额已耗尽且尚未重置 (${resetDesc})`,
+        };
+      }
+    }
+
+    return { skip: false };
   }
 
   private humanCountdownUnix(unixSeconds: number): string {
@@ -2287,21 +2499,36 @@ export class WindsurfAccountManager {
     message: string;
   }> {
     const telemetryPaths = await this.findTelemetryStoragePaths();
-    const newId = randomBytes(16).toString("hex");
+    const newMachineId = randomBytes(32).toString("hex");
+    const newMacMachineId = randomBytes(16).toString("hex");
+    const newSqmId = randomUUID().toUpperCase();
+    const newDeviceId = randomUUID().toLowerCase();
     const updatedTelemetryPaths: string[] = [];
+    const updatedMachineIdPaths: string[] = [];
 
     for (const storagePath of telemetryPaths) {
       try {
         const raw = await fs.readFile(storagePath, "utf8");
         const parsed = JSON.parse(raw) as Record<string, unknown>;
         const telemetry = this.asObject(parsed.telemetry);
-        if (!telemetry) continue;
+        const hasFlatTelemetry =
+          "telemetry.machineId" in parsed ||
+          "telemetry.macMachineId" in parsed ||
+          "telemetry.sqmId" in parsed ||
+          "telemetry.devDeviceId" in parsed;
+        if (!telemetry && !hasFlatTelemetry) continue;
 
-        telemetry.machineId = newId;
-        telemetry.macMachineId = newId;
-        telemetry.sqmId = newId;
-        telemetry.devDeviceId = newId;
-        parsed.telemetry = telemetry;
+        parsed["telemetry.machineId"] = newMachineId;
+        parsed["telemetry.macMachineId"] = newMacMachineId;
+        parsed["telemetry.sqmId"] = newSqmId;
+        parsed["telemetry.devDeviceId"] = newDeviceId;
+        if (telemetry) {
+          telemetry.machineId = newMachineId;
+          telemetry.macMachineId = newMacMachineId;
+          telemetry.sqmId = newSqmId;
+          telemetry.devDeviceId = newDeviceId;
+          parsed.telemetry = telemetry;
+        }
 
         const backupPath = `${storagePath}.bak-${Date.now()}`;
         await fs.writeFile(backupPath, raw, "utf8");
@@ -2323,16 +2550,6 @@ export class WindsurfAccountManager {
       }
     }
 
-    if (updatedTelemetryPaths.length > 0) {
-      const targets = updatedTelemetryPaths.map((storagePath) =>
-        path.dirname(storagePath),
-      );
-      return {
-        success: true,
-        message: `已重置 telemetry 机器标识 (${updatedTelemetryPaths.length} 个): ${targets.join(", ")}`,
-      };
-    }
-
     const machineIdPaths = [
       path.join(os.homedir(), ".windsurf", "machineid"),
       path.join(os.homedir(), ".config", "windsurf", "machineid"),
@@ -2342,15 +2559,34 @@ export class WindsurfAccountManager {
     for (const p of machineIdPaths) {
       try {
         await fs.access(p);
-        await fs.writeFile(p, newId, "utf8");
+        await fs.writeFile(p, newMacMachineId, "utf8");
         this.logger.info("Machine ID reset.", { path: p });
-        return { success: true, message: `已重置: ${p}` };
+        updatedMachineIdPaths.push(p);
       } catch {
         // file doesn't exist at this path, try next
       }
     }
 
-    return { success: false, message: "未找到 Windsurf machineId 文件" };
+    const summaryParts: string[] = [];
+    if (updatedTelemetryPaths.length > 0) {
+      const targets = updatedTelemetryPaths.map((storagePath) =>
+        path.dirname(storagePath),
+      );
+      summaryParts.push(
+        `telemetry 机器标识 (${updatedTelemetryPaths.length} 个): ${targets.join(", ")}`,
+      );
+    }
+    if (updatedMachineIdPaths.length > 0) {
+      summaryParts.push(
+        `machineid 文件 (${updatedMachineIdPaths.length} 个): ${updatedMachineIdPaths.join(", ")}`,
+      );
+    }
+
+    if (summaryParts.length > 0) {
+      return { success: true, message: `已重置 ${summaryParts.join("；")}` };
+    }
+
+    return { success: false, message: "未找到 Windsurf/Cursor telemetry 或 machineId 文件" };
   }
 
   private async findTelemetryStoragePaths(): Promise<string[]> {

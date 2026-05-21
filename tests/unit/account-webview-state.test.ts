@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  clampAccountScrollTop,
-  filterAccountsForQuery,
-  getFilteredAccountIds,
-  normalizeAccountSelection,
-  reconcileQuotaFetchingIds,
-  requestQuotaSelfHealOnce,
+    clampAccountScrollTop,
+    filterAccountsForQuery,
+    getFilteredAccountIds,
+    normalizeAccountSelection,
+    reconcileQuotaFetchingIds,
+    requestQuotaSelfHealOnce,
 } from '../../media/account-webview-state';
 
 describe('account-webview-state', () => {
@@ -107,4 +107,24 @@ describe('account-webview-state', () => {
     expect(handlerSource).toContain("accountViewport.contains(actionEl)");
   });
 
+  it('places reset machine id action in settings instead of account tab', () => {
+    const source = readFileSync('media/main.ts', 'utf8');
+    const accountTab = source.match(/function renderAccountTab[\s\S]*?function renderAccountItem/)?.[0] ?? '';
+    const settingsTab = source.match(/function renderSettingsTab[\s\S]*?function renderMaintenanceBtn/)?.[0] ?? '';
+
+    expect(accountTab).not.toContain('data-action="resetMachineId"');
+    expect(settingsTab).toContain('data-action="resetMachineId"');
+  });
+
+  it('exposes quota auto-continue as an account-tab switch setting', () => {
+    const source = readFileSync('media/main.ts', 'utf8');
+    const accountTab = source.match(/function renderAccountTab[\s\S]*?function renderAccountItem/)?.[0] ?? '';
+    const autoSwitchSave = source.match(/case "autoSwitchSave": \{[\s\S]*?break;\n\s*\}/)?.[0] ?? '';
+
+    expect(accountTab).toContain('id="quotaAutoContinueEnabled"');
+    expect(accountTab).toContain('额度耗尽切号后自动继续');
+    expect(accountTab).toContain('需要同时启用自动切换');
+    expect(autoSwitchSave).toContain('type: "settingsUpdate"');
+    expect(autoSwitchSave).toContain('quotaAutoContinueEnabled');
+  });
 });
