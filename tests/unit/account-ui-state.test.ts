@@ -18,6 +18,7 @@ type RealQuotaInfo = {
   planEndTimestamp?: number;
   remainingMessages?: number;
   remainingFlowActions?: number;
+  overageBalanceMicros?: number;
 };
 
 type QuotaSnapshot = {
@@ -122,6 +123,23 @@ describe('deriveAccountUiState', () => {
     expect(ui.isUnavailable).toBe(true);
     expect(ui.availabilityLabel).toBe('不可用');
     expect(ui.sortBucket).toBe('unavailable');
+  });
+
+  it('does not mark account unavailable when overage balance is positive', () => {
+    const ui = deriveAccountUiState(
+      makeAccount('a', 'a@test.com'),
+      undefined,
+      makeSnapshot('a', {
+        billingStrategy: 'BILLING_STRATEGY_QUOTA',
+        dailyRemainingPercent: 0,
+        weeklyRemainingPercent: 48,
+        overageBalanceMicros: 102_797_402,
+      })
+    );
+
+    expect(ui.isUnavailable).toBe(false);
+    expect(ui.availabilityLabel).toBeUndefined();
+    expect(ui.sortBucket).toBe('healthy');
   });
 
   it('does not mark account unavailable at exactly 10 percent', () => {

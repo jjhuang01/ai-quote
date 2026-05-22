@@ -13,6 +13,7 @@ export interface RealQuotaInfoLike {
   planEndTimestamp?: number;
   remainingMessages?: number;
   remainingFlowActions?: number;
+  overageBalanceMicros?: number;
 }
 
 export interface QuotaSnapshotLike {
@@ -116,7 +117,8 @@ export function deriveAccountUiState(
   const weeklyExhaustedNoData = shouldShowExhaustedNoDataDash(rq?.weeklyRemainingPercent, rq?.weeklyResetAtUnix);
   // credits 制账号（pay-as-you-go）无日/周配额概念，不能用百分比判断不可用
   const isCreditsAccount = rq?.billingStrategy === 'credits';
-  const isUnavailable = !isExpired && !isCreditsAccount && (
+  const hasPositiveOverageBalance = (rq?.overageBalanceMicros ?? 0) > 0;
+  const isUnavailable = !isExpired && !isCreditsAccount && !hasPositiveOverageBalance && (
     dailyExhaustedNoData ||
     weeklyExhaustedNoData ||
     (typeof weeklyRemainingPercent === 'number' && weeklyRemainingPercent < 10) ||

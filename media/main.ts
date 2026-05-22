@@ -1,10 +1,9 @@
 import {
     compareAccountsByUiState,
     deriveAccountUiState,
-    formatPlanExpiryLabel,
     getAvailableAccountCount,
     shouldRequestQuotaSelfHeal,
-    shouldShowExhaustedNoDataDash,
+    shouldShowExhaustedNoDataDash
 } from "./account-ui-state";
 import {
     clampAccountScrollTop,
@@ -125,6 +124,7 @@ interface PluginSettings {
   soundAlert: "none" | "tada" | "ding" | "pop" | "chime";
   firebaseApiKey: string;
   quotaAutoContinueEnabled: boolean;
+  showAccountBalance: boolean;
   mcpWhitelist: string[];
 }
 
@@ -964,7 +964,7 @@ function renderAccountItem(
       dailyResetText = formatResetDateTime(rq.dailyResetAtUnix * 1000);
     if (rq.weeklyResetAtUnix)
       weeklyResetText = formatResetDateTime(rq.weeklyResetAtUnix * 1000);
-    planEndText = formatPlanExpiryLabel(rq.planEndTimestamp);
+    planEndText = formatPlanExpiryCompact(rq.planEndTimestamp);
   } else if (q && q.dailyLimit > 0) {
     dailyFillPct = pct(q.dailyUsed, q.dailyLimit);
     weeklyFillPct = q.weeklyLimit > 0 ? pct(q.weeklyUsed, q.weeklyLimit) : null;
@@ -1000,9 +1000,16 @@ function renderAccountItem(
           <span class="ac-email" title="${escapeHtml(a.email)}">${escapeHtml(a.email)}</span>
           <div class="ac-meta">
             <div class="ac-tags">
-              <span class="plan-badge plan-${a.plan.toLowerCase()}" style="--plan-color:${planColor}">${planIcon(a.plan)} ${a.plan}${planEndText ? ` · ${planEndText}` : ""}</span>
+              <span class="plan-badge plan-${a.plan.toLowerCase()}" style="--plan-color:${planColor}" title="${escapeHtml(`${a.plan}${planEndText ? ` · 剩余 ${planEndText}` : ""}`)}">${planIcon(a.plan)} ${a.plan}${planEndText ? ` · ${planEndText}` : ""}</span>
+              ${(() => {
+                if (!bs.settings.showAccountBalance) return "";
+                const balanceText = formatOverageBalance(rq?.overageBalanceMicros);
+                return balanceText
+                  ? `<span class="badge-balance" title="额外用量余额: ${balanceText}">${balanceText}</span>`
+                  : "";
+              })()}
               ${ui.isCurrent ? '<span class="badge-active">当前</span>' : ""}
-              ${ui.availabilityLabel === "已过期" ? '<span class="badge-expired">已过期</span>' : ui.availabilityLabel === "不可用" ? '<span class="badge-unavailable">不可用</span>' : ""}
+              ${ui.availabilityLabel === "已过期" ? `<span class="badge-icon badge-icon-expired" title="已过期" aria-label="已过期">${icon("alertCircle")}</span>` : ui.availabilityLabel === "不可用" ? `<span class="badge-icon badge-icon-unavailable" title="不可用" aria-label="不可用">${icon("alertCircle")}</span>` : ""}
             </div>
             <div class="ac-acts">
               <button
@@ -1099,6 +1106,26 @@ function formatResetDateTime(ms: number): string {
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
   return `${M}/${D} ${hh}:${mm}`;
+}
+
+/** Plan endTimestamp → 紧凑标签 (不带"剩余"前缀，节省横向空间)。Hover 详情通过 title 给出。 */
+function formatPlanExpiryCompact(planEndTimestamp: number | undefined): string {
+  if (typeof planEndTimestamp !== "number" || planEndTimestamp <= 0) return "";
+  const remainingMs = planEndTimestamp - Date.now();
+  if (remainingMs <= 0) return "已到期";
+  const days = Math.floor(remainingMs / (24 * 60 * 60 * 1000));
+  if (days <= 0) return "今日";
+  return `${days}天`;
+}
+
+/**
+ * Windsurf overage balance 单位为 micro-USD：1_000_000 micros = 1 USD。
+ * 实测来自 GetPlanStatus.planStatus.overageBalanceMicros，例如 102_797_402 ≈ $102.80。
+ */
+function formatOverageBalance(overageBalanceMicros: number | undefined): string {
+  if (typeof overageBalanceMicros !== "number" || overageBalanceMicros <= 0) return "";
+  const dollars = overageBalanceMicros / 1_000_000;
+  return `$${dollars.toFixed(2)}`;
 }
 
 // ---- History Tab ----
@@ -1320,6 +1347,13 @@ function renderSettingsTab(bs: Bootstrap): string {
             <span class="setting-label">显示用户 Prompt</span>
             <label class="toggle">
               <input type="checkbox" id="settingShowUserPrompt" ${settings.showUserPrompt ? "checked" : ""}>
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">账号列表显示余额</span>
+            <label class="toggle">
+              <input type="checkbox" id="settingShowAccountBalance" ${settings.showAccountBalance ? "checked" : ""}>
               <span class="toggle-track"></span>
             </label>
           </div>
@@ -2507,6 +2541,9 @@ function handleAction(el: HTMLElement): void {
       const showUserPrompt =
         (document.getElementById("settingShowUserPrompt") as HTMLInputElement)
           ?.checked ?? false;
+      const showAccountBalance =
+        (document.getElementById("settingShowAccountBalance") as HTMLInputElement)
+          ?.checked ?? false;
       const soundAlert =
         (document.getElementById("settingSoundAlert") as HTMLSelectElement)
           ?.value ?? "none";
@@ -2528,6 +2565,7 @@ function handleAction(el: HTMLElement): void {
           breathingLightColor,
           enterToSend,
           showUserPrompt,
+          showAccountBalance,
           soundAlert,
           historyLimit,
           firebaseApiKey,

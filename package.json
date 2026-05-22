@@ -3,7 +3,7 @@
   "displayName": "Windsurf Quote",
   "icon": "resources/icon.png",
   "description": "VS Code extension: Windsurf Quote account switcher with quota stats, MCP Bridge, and LLM dialog panel",
-  "version": "2.9.112",
+  "version": "2.9.113",
   "publisher": "opensource",
   "license": "MIT",
   "author": "EVILZIXIE",

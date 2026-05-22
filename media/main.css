@@ -2000,6 +2000,40 @@ button:focus-visible {
   font-weight: 700;
   letter-spacing: 0.03em;
 }
+/* Icon-only availability badge — saves horizontal space; tooltip via title */
+.badge-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  color: color-mix(in srgb, var(--muted) 85%, transparent);
+}
+.badge-icon svg {
+  width: 11px;
+  height: 11px;
+}
+.badge-icon-unavailable {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: color-mix(in srgb, var(--danger) 90%, transparent);
+}
+.badge-icon-expired {
+  background: color-mix(in srgb, #b45309 22%, transparent);
+  color: color-mix(in srgb, #b45309 95%, transparent);
+}
+/* Optional balance pill (settings.showAccountBalance) */
+.badge-balance {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: color-mix(in srgb, var(--success) 90%, var(--text));
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
 .plan-end {
   font-size: var(--fs-xs);
   color: color-mix(in srgb, var(--muted) 70%, transparent);

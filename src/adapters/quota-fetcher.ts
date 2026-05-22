@@ -91,6 +91,7 @@ interface GetPlanStatusResponse {
     weeklyQuotaRemainingPercent?: number;
     dailyQuotaResetAtUnix?: string | number;   // 注意: 服务器返回字符串
     weeklyQuotaResetAtUnix?: string | number;  // 注意: 服务器返回字符串
+    overageBalanceMicros?: string | number;    // gRPC JSON 把 int64 序列化为字符串
   };
 }
 
@@ -1039,6 +1040,14 @@ export class WindsurfQuotaFetcher {
               // credits 制账号没有日/周配额概念，跳过此推断，避免将「无数据」误判为「耗尽」。
               const billingStrategyFromApi = ps.planInfo?.billingStrategy;
               const isCreditsAccount = billingStrategyFromApi === 'credits';
+              // overageBalanceMicros 来自 int64，gRPC JSON 序列化为字符串。
+              // 实测: planStatus.overageBalanceMicros = "102797402" (≈ $102.80)
+              const overageBalanceMicros = (() => {
+                const raw = ps.overageBalanceMicros;
+                if (raw === undefined || raw === null) return 0;
+                const num = typeof raw === 'number' ? raw : Number(raw);
+                return Number.isFinite(num) && num > 0 ? num : 0;
+              })();
               if (!isCreditsAccount) {
                 if (dailyRemainingPercent === undefined && dailyResetAtUnix > 0) {
                   dailyRemainingPercent = 0;
@@ -1090,7 +1099,7 @@ export class WindsurfQuotaFetcher {
                 quotaUsage: {
                   dailyRemainingPercent,
                   weeklyRemainingPercent,
-                  overageBalanceMicros: 0,
+                  overageBalanceMicros,
                   dailyResetAtUnix,
                   weeklyResetAtUnix
                 }
