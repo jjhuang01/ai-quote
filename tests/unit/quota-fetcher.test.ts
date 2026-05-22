@@ -1,8 +1,55 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import * as https from 'node:https';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WindsurfPlanInfo } from '../../src/adapters/quota-fetcher';
-import { WindsurfQuotaFetcher } from '../../src/adapters/quota-fetcher';
+import { WindsurfQuotaFetcher, _huntBillingStrategyForTest } from '../../src/adapters/quota-fetcher';
+
+// proto wire encoding helpers for hunt tests
+function _writeVarint(n: number): Buffer {
+  const out: number[] = [];
+  let v = n >>> 0;
+  while (v > 0x7f) { out.push((v & 0x7f) | 0x80); v >>>= 7; }
+  out.push(v);
+  return Buffer.from(out);
+}
+function _writeBytesField(fieldNum: number, payload: Buffer): Buffer {
+  const tag = (fieldNum << 3) | 2;
+  return Buffer.concat([_writeVarint(tag), _writeVarint(payload.length), payload]);
+}
+function _writeStringField(fieldNum: number, s: string): Buffer {
+  return _writeBytesField(fieldNum, Buffer.from(s, 'utf8'));
+}
+
+describe('_huntBillingStrategy', () => {
+  it("finds 'credits' at top level", () => {
+    const proto = _writeStringField(5, 'credits');
+    expect(_huntBillingStrategyForTest(proto)).toBe('credits');
+  });
+
+  it("finds 'quota' inside nested sub-message", () => {
+    const inner = _writeStringField(3, 'quota');
+    const outer = _writeBytesField(1, inner);
+    expect(_huntBillingStrategyForTest(outer)).toBe('quota');
+  });
+
+  it('returns undefined when neither literal is present', () => {
+    const proto = Buffer.concat([
+      _writeStringField(2, 'Pro'),
+      _writeStringField(4, 'some-other-string'),
+    ]);
+    expect(_huntBillingStrategyForTest(proto)).toBeUndefined();
+  });
+
+  it('ignores varint and irrelevant string lengths', () => {
+    // varint field + string of wrong length
+    const proto = Buffer.concat([
+      Buffer.from([0x08, 0x05]), // field 1 varint = 5
+      _writeStringField(2, 'verylongplanname'),
+    ]);
+    expect(_huntBillingStrategyForTest(proto)).toBeUndefined();
+  });
+});
+
 
 vi.mock('node:https', () => ({
   request: vi.fn(),

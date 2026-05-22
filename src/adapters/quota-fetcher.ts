@@ -227,6 +227,47 @@ function _protoSub(fields: ProtoFields, n: number): ProtoFields | undefined {
 }
 
 /**
+ * 递归扫描 proto fields 所有 string/bytes 字段，查找 billingStrategy 字面量值。
+ * Windsurf proto schema 未公开 billingStrategy 字段号，但其值是固定字符串 'credits' / 'quota'。
+ * 启发式扫描不依赖字段号，运行时可靠。深度限制 4 层防递归爆栈。
+ */
+export function _huntBillingStrategyForTest(buf: Buffer): 'quota' | 'credits' | undefined {
+  try {
+    return _huntBillingStrategy(_decodeProto(buf));
+  } catch {
+    return undefined;
+  }
+}
+
+function _huntBillingStrategy(
+  fields: ProtoFields | undefined,
+  depth = 0,
+): 'quota' | 'credits' | undefined {
+  if (!fields || depth > 4) return undefined;
+  for (const arr of fields.values()) {
+    for (const e of arr) {
+      if (e.type !== 'bytes') continue;
+      const buf = e.val as Buffer;
+      if (buf.length === 'credits'.length || buf.length === 'quota'.length) {
+        try {
+          const s = buf.toString('utf8');
+          if (s === 'credits' || s === 'quota') return s;
+        } catch { /* skip */ }
+      }
+      // 同时尝试解为子 message 递归（bytes wire type 可能是嵌套 proto）
+      try {
+        const sub = _decodeProto(buf);
+        if (sub.size > 0) {
+          const found = _huntBillingStrategy(sub, depth + 1);
+          if (found) return found;
+        }
+      } catch { /* skip */ }
+    }
+  }
+  return undefined;
+}
+
+/**
  * 多通道配额获取器
  *
  * 通道 E: 读取 windsurfAuthStatus.userStatusProtoBinaryBase64 (protobuf)
@@ -454,15 +495,23 @@ export class WindsurfQuotaFetcher {
       const dailyResetAtUnix       = _protoInt(planStatus, 17) ?? 0;
       const weeklyResetAtUnix      = _protoInt(planStatus, 18) ?? 0;
 
-      // proto3 default value (0) omission: if a limit reset timestamp is present and valid, the limit exists.
-      // If the remaining percent field is omitted in that case, it is exactly 0% (exhausted)!
+      // 解析 billingStrategy：proto schema 未公开该字段编号，但其值是字面量 'credits' / 'quota'。
+      // 扫描 planInfoSub 所有 string 字段，匹配字面量 → 唯一可靠识别 credits 账号的方式。
+      const billingStrategy: 'quota' | 'credits' =
+        _huntBillingStrategy(planInfoSub) ?? _huntBillingStrategy(planStatus) ?? 'quota';
+
+      // proto3 default value (0) omission: quota 制下，如果 reset 时间存在但百分比缺失，
+      // 说明 proto 序列化时省略了 0 值 → 视为 0%（耗尽）。
+      // credits 制账号没有日/周配额概念，保持 undefined（UI 不应基于百分比置灰）。
       let dailyRemainingPercent  = _protoInt(planStatus, 14);
-      if (dailyRemainingPercent === undefined) {
-        dailyRemainingPercent = dailyResetAtUnix > 0 ? 0 : 100;
-      }
       let weeklyRemainingPercent = _protoInt(planStatus, 15);
-      if (weeklyRemainingPercent === undefined) {
-        weeklyRemainingPercent = weeklyResetAtUnix > 0 ? 0 : 100;
+      if (billingStrategy !== 'credits') {
+        if (dailyRemainingPercent === undefined) {
+          dailyRemainingPercent = dailyResetAtUnix > 0 ? 0 : 100;
+        }
+        if (weeklyRemainingPercent === undefined) {
+          weeklyRemainingPercent = weeklyResetAtUnix > 0 ? 0 : 100;
+        }
       }
 
       const messagesTotal          = _protoInt(planStatus, 8)  ?? 0;
@@ -474,8 +523,9 @@ export class WindsurfQuotaFetcher {
       const startMs  = ((_protoInt(startSub ?? new Map(), 1) ?? 0)) * 1000;
       const endMs    = ((_protoInt(endSub   ?? new Map(), 1) ?? 0)) * 1000;
 
-      const dailyUsedPercent  = 100 - dailyRemainingPercent;
-      const weeklyUsedPercent = 100 - weeklyRemainingPercent;
+      const dailyUsedPercent  = dailyRemainingPercent !== undefined  ? 100 - dailyRemainingPercent  : 0;
+      const weeklyUsedPercent = weeklyRemainingPercent !== undefined ? 100 - weeklyRemainingPercent : 0;
+      void weeklyUsedPercent; // 尚未使用但保留以便后续扩展
       const usedMessages      = Math.round(messagesTotal * dailyUsedPercent / 100);
       const usedFlowActions   = Math.round(flowActionsTotal * dailyUsedPercent / 100);
 
@@ -497,7 +547,7 @@ export class WindsurfQuotaFetcher {
         },
         hasBillingWritePermissions: false,
         gracePeriodStatus: 0,
-        billingStrategy: 'quota',
+        billingStrategy,
         quotaUsage: {
           dailyRemainingPercent,
           weeklyRemainingPercent,
