@@ -984,13 +984,18 @@ export class WindsurfQuotaFetcher {
               const dailyResetAtUnix  = parseUnixSeconds(ps.dailyQuotaResetAtUnix);
               const weeklyResetAtUnix = parseUnixSeconds(ps.weeklyQuotaResetAtUnix);
 
-              // gRPC JSON default value (0) omission: if a limit reset timestamp is present and valid, the limit exists.
-              // If the remaining percent field is omitted in that case, it is exactly 0% (exhausted)!
-              if (dailyRemainingPercent === undefined && dailyResetAtUnix > 0) {
-                dailyRemainingPercent = 0;
-              }
-              if (weeklyRemainingPercent === undefined && weeklyResetAtUnix > 0) {
-                weeklyRemainingPercent = 0;
+              // gRPC JSON default value (0) omission: quota制下，如果 reset 时间存在但百分比缺失，
+              // 说明服务端以 gRPC JSON 省略了 0 值 → 视为 0%（耗尽）。
+              // credits 制账号没有日/周配额概念，跳过此推断，避免将「无数据」误判为「耗尽」。
+              const billingStrategyFromApi = ps.planInfo?.billingStrategy;
+              const isCreditsAccount = billingStrategyFromApi === 'credits';
+              if (!isCreditsAccount) {
+                if (dailyRemainingPercent === undefined && dailyResetAtUnix > 0) {
+                  dailyRemainingPercent = 0;
+                }
+                if (weeklyRemainingPercent === undefined && weeklyResetAtUnix > 0) {
+                  weeklyRemainingPercent = 0;
+                }
               }
 
               this.logger.debug('GetPlanStatus raw quota fields.', {

@@ -10,6 +10,7 @@ import {
 } from '../../media/account-ui-state';
 
 type RealQuotaInfo = {
+  billingStrategy?: string;
   dailyRemainingPercent: number;
   weeklyRemainingPercent: number;
   dailyResetAtUnix?: number;
@@ -140,6 +141,40 @@ describe('deriveAccountUiState', () => {
     expect(ui.isUnavailable).toBe(false);
     expect(ui.isExpired).toBe(false);
     expect(ui.sortBucket).toBe('unknown');
+  });
+
+  it('does not mark credits account unavailable even when percent is 0', () => {
+    const ui = deriveAccountUiState(
+      makeAccount('a', 'a@test.com'),
+      undefined,
+      makeSnapshot('a', {
+        billingStrategy: 'credits',
+        dailyRemainingPercent: 0,
+        weeklyRemainingPercent: 0,
+      })
+    );
+
+    expect(ui.isUnavailable).toBe(false);
+    expect(ui.availabilityLabel).toBeUndefined();
+    expect(ui.sortBucket).not.toBe('unavailable');
+  });
+
+  it('does not mark credits account unavailable when percent is undefined and reset time exists', () => {
+    const futureReset = Math.floor(Date.now() / 1000) + 3600;
+    const ui = deriveAccountUiState(
+      makeAccount('a', 'a@test.com'),
+      undefined,
+      makeSnapshot('a', {
+        billingStrategy: 'credits',
+        dailyRemainingPercent: -1,
+        weeklyRemainingPercent: -1,
+        dailyResetAtUnix: futureReset,
+        weeklyResetAtUnix: futureReset,
+      })
+    );
+
+    expect(ui.isUnavailable).toBe(false);
+    expect(ui.availabilityLabel).toBeUndefined();
   });
 
   it('marks daily exhausted-no-data (negative% + reset time) as unavailable', () => {

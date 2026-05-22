@@ -5,6 +5,7 @@ export interface WindsurfAccountLike {
 }
 
 export interface RealQuotaInfoLike {
+  billingStrategy?: string;
   dailyRemainingPercent: number;
   weeklyRemainingPercent: number;
   dailyResetAtUnix?: number;
@@ -113,7 +114,9 @@ export function deriveAccountUiState(
   // -1 with a future reset time = API didn't return %, but quota IS tracked → treat as exhausted
   const dailyExhaustedNoData = shouldShowExhaustedNoDataDash(rq?.dailyRemainingPercent, rq?.dailyResetAtUnix);
   const weeklyExhaustedNoData = shouldShowExhaustedNoDataDash(rq?.weeklyRemainingPercent, rq?.weeklyResetAtUnix);
-  const isUnavailable = !isExpired && (
+  // credits 制账号（pay-as-you-go）无日/周配额概念，不能用百分比判断不可用
+  const isCreditsAccount = rq?.billingStrategy === 'credits';
+  const isUnavailable = !isExpired && !isCreditsAccount && (
     dailyExhaustedNoData ||
     weeklyExhaustedNoData ||
     (typeof weeklyRemainingPercent === 'number' && weeklyRemainingPercent < 10) ||
