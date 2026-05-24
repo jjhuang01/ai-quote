@@ -1940,12 +1940,19 @@ function bindAccountTabEvents(): void {
         e.preventDefault();
         e.stopPropagation();
         state.accountMoreOpen = false;
-        // 锚定到右键位置；渲染后再用 adjustAccountContextMenuPosition() 矫正溢出，
-        // 避免硬编码菜单尺寸（header + 分隔线 + 按钮高度会动态变化）。
+        // 锚定到卡片：X 取卡片左边缘 + 内边距（视觉上"从卡片里弹出"，
+        // 不受光标横向位置抖动影响）；Y 默认在光标下方，靠近视口底部时
+        // 自动翻转到光标上方，避免遮挡下方账号卡片。
+        const cardRect = card.getBoundingClientRect();
+        const estMenuH = 160;
+        const spaceBelow = window.innerHeight - e.clientY;
+        const flipUp = spaceBelow < estMenuH + 16;
         state.accountContextMenu = {
           id,
-          x: Math.max(8, e.clientX),
-          y: Math.max(8, e.clientY),
+          x: Math.max(8, cardRect.left + 12),
+          y: flipUp
+            ? Math.max(8, e.clientY - estMenuH - 4)
+            : e.clientY + 4,
         };
         render();
         window.requestAnimationFrame(() => adjustAccountContextMenuPosition());
