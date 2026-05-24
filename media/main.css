@@ -1912,6 +1912,19 @@ button:focus-visible {
 .ac-head:has(.ac-checkbox) {
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
+.ac-id {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ac-id .ac-email {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.ac-id .badge-balance {
+  flex-shrink: 0;
+}
 .ac-email {
   min-width: 0;
   font-size: var(--fs-base);
@@ -2056,12 +2069,37 @@ button:focus-visible {
 .account-context-menu {
   position: fixed;
   z-index: 80;
-  min-width: 148px;
+  min-width: 168px;
+  max-width: 240px;
   padding: 6px;
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--card) 94%, var(--bg));
   box-shadow: var(--shadow-pop);
+}
+
+.account-context-header {
+  padding: 4px 8px 6px;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+.account-context-email {
+  display: block;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-context-divider {
+  height: 1px;
+  margin: 2px 4px 4px;
+  background: color-mix(in srgb, var(--border) 60%, transparent);
 }
 
 .account-context-item {

@@ -1,17 +1,17 @@
 import {
-    compareAccountsByUiState,
-    deriveAccountUiState,
-    getAvailableAccountCount,
-    shouldRequestQuotaSelfHeal,
-    shouldShowExhaustedNoDataDash
+  compareAccountsByUiState,
+  deriveAccountUiState,
+  getAvailableAccountCount,
+  shouldRequestQuotaSelfHeal,
+  shouldShowExhaustedNoDataDash
 } from "./account-ui-state";
 import {
-    clampAccountScrollTop,
-    filterAccountsForQuery,
-    getFilteredAccountIds,
-    normalizeAccountSelection,
-    reconcileQuotaFetchingIds,
-    requestQuotaSelfHealOnce,
+  clampAccountScrollTop,
+  filterAccountsForQuery,
+  getFilteredAccountIds,
+  normalizeAccountSelection,
+  reconcileQuotaFetchingIds,
+  requestQuotaSelfHealOnce,
 } from "./account-webview-state";
 import "./main.css";
 
@@ -859,10 +859,29 @@ function renderAccountContextMenu(bs: Bootstrap): string {
   const email = escapeHtml(account.email);
   return `
     <div class="account-context-menu" style="left:${menu.x}px; top:${menu.y}px" role="menu" aria-label="账号操作">
+      <div class="account-context-header" title="${email}"><span class="account-context-email">${email}</span></div>
+      <div class="account-context-divider" role="separator"></div>
       <button class="account-context-item" data-action="accountCopyEmail" data-id="${account.id}" data-email="${email}" type="button" role="menuitem">${icon("copy")} 复制账号</button>
       <button class="account-context-item" data-action="fetchQuota" data-id="${account.id}" type="button" role="menuitem" ${quotaRefreshing ? "disabled" : ""}>${icon("refresh")} ${quotaRefreshing ? "刷新中" : "刷新额度"}</button>
       <button class="account-context-item account-context-danger" data-action="accountDelete" data-id="${account.id}" type="button" role="menuitem">${icon("trash")} 删除账号</button>
     </div>`;
+}
+
+function adjustAccountContextMenuPosition(): void {
+  const menuEl = document.querySelector<HTMLElement>(".account-context-menu");
+  if (!menuEl || !state.accountContextMenu) return;
+  const rect = menuEl.getBoundingClientRect();
+  const margin = 8;
+  let { x, y } = state.accountContextMenu;
+  const overflowRight = rect.right - (window.innerWidth - margin);
+  if (overflowRight > 0) x = Math.max(margin, x - overflowRight);
+  const overflowBottom = rect.bottom - (window.innerHeight - margin);
+  if (overflowBottom > 0) y = Math.max(margin, y - overflowBottom);
+  if (x !== state.accountContextMenu.x || y !== state.accountContextMenu.y) {
+    state.accountContextMenu = { ...state.accountContextMenu, x, y };
+    menuEl.style.left = `${x}px`;
+    menuEl.style.top = `${y}px`;
+  }
 }
 
 function patchAccountTab(): void {
@@ -1115,18 +1134,19 @@ function renderAccountItem(
       <div class="ac-card ${ui.isCurrent ? "ac-active" : ""} ${ui.isExpired ? "ac-expired" : ui.isUnavailable ? "ac-unavailable" : ""} ${q?.warningLevel === "critical" && !isDisabled ? "ac-crit" : q?.warningLevel === "warn" && !isDisabled ? "ac-warn" : ""} ${isSelected ? "ac-selected" : ""} ${switching ? "ac-switching" : ""}" data-id="${a.id}">
         <div class="ac-head">
           ${state.selectMode ? `<input type="checkbox" class="ac-checkbox" data-action="toggleSelect" data-id="${a.id}" ${isSelected ? "checked" : ""}>` : ""}
-          <span class="ac-email" title="${escapeHtml(a.email)}">${escapeHtml(a.email)}</span>
+          <div class="ac-id">
+            <span class="ac-email" title="${escapeHtml(a.email)}">${escapeHtml(a.email)}</span>
+            ${(() => {
+              if (!bs.settings.showAccountBalance) return "";
+              const balanceText = formatOverageBalance(rq);
+              return balanceText
+                ? `<span class="badge-balance" title="额外用量余额: ${balanceText}">${balanceText}</span>`
+                : "";
+            })()}
+          </div>
           <div class="ac-meta">
             <div class="ac-tags">
               <span class="plan-badge plan-${a.plan.toLowerCase()}" style="--plan-color:${planColor}" title="${escapeHtml(`${a.plan}${planEndText ? ` · 剩余 ${planEndText}` : ""}`)}">${planIcon(a.plan)} ${a.plan}${planEndText ? ` · ${planEndText}` : ""}</span>
-              ${(() => {
-                if (!bs.settings.showAccountBalance) return "";
-                const balanceText = formatOverageBalance(rq);
-                return balanceText
-                  ? `<span class="badge-balance" title="额外用量余额: ${balanceText}">${balanceText}</span>`
-                  : "";
-              })()}
-              ${ui.isCurrent ? '<span class="badge-active">当前</span>' : ""}
               ${ui.availabilityLabel === "已过期" ? `<span class="badge-icon badge-icon-expired" title="已过期" aria-label="已过期">${icon("alertCircle")}</span>` : ui.availabilityLabel === "不可用" ? `<span class="badge-icon badge-icon-unavailable" title="不可用" aria-label="不可用">${icon("alertCircle")}</span>` : ""}
             </div>
           </div>
@@ -1909,7 +1929,10 @@ function bindAccountTabEvents(): void {
         const target = e.target as HTMLElement;
         const card = target.closest<HTMLElement>(".ac-card[data-id]");
         if (!card || !accountViewport.contains(card)) {
-          state.accountContextMenu = undefined;
+          if (state.accountContextMenu) {
+            state.accountContextMenu = undefined;
+            patchAccountTab();
+          }
           return;
         }
         const id = card.dataset.id;
@@ -1917,12 +1940,15 @@ function bindAccountTabEvents(): void {
         e.preventDefault();
         e.stopPropagation();
         state.accountMoreOpen = false;
+        // 锚定到右键位置；渲染后再用 adjustAccountContextMenuPosition() 矫正溢出，
+        // 避免硬编码菜单尺寸（header + 分隔线 + 按钮高度会动态变化）。
         state.accountContextMenu = {
           id,
-          x: Math.max(8, Math.min(e.clientX, window.innerWidth - 168)),
-          y: Math.max(8, Math.min(e.clientY, window.innerHeight - 126)),
+          x: Math.max(8, e.clientX),
+          y: Math.max(8, e.clientY),
         };
         render();
+        window.requestAnimationFrame(() => adjustAccountContextMenuPosition());
       });
     }
   }
