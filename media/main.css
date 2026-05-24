@@ -1774,25 +1774,29 @@ button:focus-visible {
   line-height: 1.2;
 }
 .ac-copy-btn {
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   padding: 0;
+  box-sizing: border-box;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
+  line-height: 0;
   opacity: 0.72;
   transition: opacity var(--t-fast), color var(--t-fast), background var(--t-fast), border-color var(--t-fast);
 }
 .ac-copy-btn:hover {
   opacity: 1;
   color: var(--text);
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
   border-color: var(--border-glass-hover);
 }
 .ac-meta {
@@ -1952,11 +1956,11 @@ button:focus-visible {
 }
 /* Circular refresh button */
 .ac-btn-refresh {
-  width: 26px;
-  min-width: 26px;
-  height: 26px;
-  min-height: 26px;
-  border-radius: 50%;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  border-radius: var(--radius-sm);
   padding: 0;
   box-sizing: border-box;
   display: inline-flex;
@@ -1966,10 +1970,14 @@ button:focus-visible {
   position: relative;
   overflow: hidden;
   color: var(--muted);
+  border-color: transparent;
+  background: transparent;
+  line-height: 0;
 }
 .ac-btn-refresh:hover:not(:disabled) {
   color: var(--text);
-  background: var(--surface-active);
+  border-color: var(--border-glass-hover);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
 }
 .ac-refresh-ico {
   display: inline-flex;
@@ -2008,10 +2016,10 @@ button:focus-visible {
   opacity: 0.55;
 }
 .ac-btn-delete {
-  width: 22px;
-  min-width: 22px;
-  height: 22px;
-  min-height: 22px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
   padding: 0;
   border-radius: var(--radius-sm);
   display: inline-flex;
@@ -2019,11 +2027,13 @@ button:focus-visible {
   justify-content: center;
   color: var(--muted);
   border-color: transparent;
+  background: transparent;
+  line-height: 0;
 }
 .ac-btn-delete:hover {
   color: var(--danger-text);
-  border-color: color-mix(in srgb, var(--danger) 32%, transparent);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
 }
 .ac-delete-ico {
   display: inline-flex;
@@ -2038,7 +2048,7 @@ button:focus-visible {
 .ac-btn-del:hover {
   color: var(--danger-text);
   border-color: color-mix(in srgb, var(--danger) 30%, transparent);
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
 }
 
 /* Keep legacy .account-item for any leftover references */
