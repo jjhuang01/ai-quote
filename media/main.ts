@@ -1,17 +1,17 @@
 import {
-  compareAccountsByUiState,
-  deriveAccountUiState,
-  getAvailableAccountCount,
-  shouldRequestQuotaSelfHeal,
-  shouldShowExhaustedNoDataDash
+    compareAccountsByUiState,
+    deriveAccountUiState,
+    getAvailableAccountCount,
+    shouldRequestQuotaSelfHeal,
+    shouldShowExhaustedNoDataDash
 } from "./account-ui-state";
 import {
-  clampAccountScrollTop,
-  filterAccountsForQuery,
-  getFilteredAccountIds,
-  normalizeAccountSelection,
-  reconcileQuotaFetchingIds,
-  requestQuotaSelfHealOnce,
+    clampAccountScrollTop,
+    filterAccountsForQuery,
+    getFilteredAccountIds,
+    normalizeAccountSelection,
+    reconcileQuotaFetchingIds,
+    requestQuotaSelfHealOnce,
 } from "./account-webview-state";
 import "./main.css";
 
@@ -759,7 +759,7 @@ function renderAccountToolbar(accounts: WindsurfAccount[]): string {
         </select>
       </label>
       <div class="account-more-wrap">
-        <button class="btn-xs btn-icon account-more-btn" data-action="toggleAccountMore" type="button" title="更多操作" aria-expanded="${state.accountMoreOpen ? "true" : "false"}">${icon("moreHorizontal")} 更多</button>
+        <button class="btn-xs btn-icon account-more-btn" data-action="toggleAccountMore" type="button" title="更多操作" aria-label="更多操作" aria-expanded="${state.accountMoreOpen ? "true" : "false"}">${icon("moreHorizontal")} <span class="account-more-btn-text">更多</span></button>
         ${state.accountMoreOpen ? `
         <div class="account-more-menu">
           <button class="account-more-item" data-action="toggleSelectMode" type="button">${icon("checkSquare")} 选择删除</button>
