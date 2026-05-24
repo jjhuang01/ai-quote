@@ -2331,6 +2331,7 @@ export class WindsurfAccountManager {
     const merged: RealQuotaInfo = { ...next };
     if (next.overageBalanceMicros <= 0 && prev.overageBalanceMicros > 0) {
       merged.overageBalanceMicros = prev.overageBalanceMicros;
+      merged.overageBalanceSource = prev.overageBalanceSource ?? prev.source;
     }
     const nextPlanEnd = next.planEndTimestamp ?? 0;
     const prevPlanEnd = prev.planEndTimestamp ?? 0;
@@ -2365,6 +2366,7 @@ export class WindsurfAccountManager {
       usedFlowActions: info.usage?.usedFlowActions ?? 0,
       remainingFlowActions: info.usage?.remainingFlowActions ?? 0,
       overageBalanceMicros: info.quotaUsage?.overageBalanceMicros ?? 0,
+      overageBalanceSource: source,
       planEndTimestamp: info.endTimestamp ?? 0,
       fetchedAt,
       source,

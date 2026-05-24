@@ -172,7 +172,8 @@ describe('account-webview-state', () => {
     const formatter = source.match(/function formatOverageBalance[\s\S]*?\/\/ ---- History Tab ----/)?.[0] ?? '';
 
     expect(source).toContain('formatOverageBalance(rq)');
-    expect(formatter).toContain('overageBalance.source !== "api"');
+    expect(formatter).toContain('overageBalance.overageBalanceSource ?? overageBalance.source');
+    expect(formatter).toContain('balanceSource !== "api" && balanceSource !== "apikey"');
   });
 
   it('does not animate account quota fill width on repeated rerenders', () => {

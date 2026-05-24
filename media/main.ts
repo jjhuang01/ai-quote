@@ -78,6 +78,7 @@ interface RealQuotaInfo {
   usedFlowActions: number;
   remainingFlowActions: number;
   overageBalanceMicros: number;
+  overageBalanceSource?: "local" | "api" | "apikey" | "cache" | "proto" | "authstatus";
   planEndTimestamp?: number;
   fetchedAt: string;
   source: "local" | "api" | "apikey" | "cache" | "proto" | "authstatus";
@@ -1255,7 +1256,9 @@ function formatPlanExpiryCompact(planEndTimestamp: number | undefined): string {
  * 实测来自 GetPlanStatus.planStatus.overageBalanceMicros，例如 102_797_402 ≈ $102.80。
  */
 function formatOverageBalance(overageBalance: RealQuotaInfo | undefined): string {
-  if (!overageBalance || overageBalance.source !== "api") return "";
+  if (!overageBalance) return "";
+  const balanceSource = overageBalance.overageBalanceSource ?? overageBalance.source;
+  if (balanceSource !== "api" && balanceSource !== "apikey") return "";
   if (typeof overageBalance.overageBalanceMicros !== "number" || overageBalance.overageBalanceMicros <= 0) return "";
   const dollars = overageBalance.overageBalanceMicros / 1_000_000;
   return `$${dollars.toFixed(2)}`;

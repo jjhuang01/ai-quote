@@ -1235,6 +1235,8 @@ describe('WindsurfAccountManager', () => {
       expect(r2.success).toBe(true);
       const merged = manager.getById(a.id)?.realQuota;
       expect(merged?.overageBalanceMicros).toBe(102_797_402);
+      expect(merged?.overageBalanceSource).toBe('api');
+      expect(merged?.source).toBe('proto');
       expect(merged?.planEndTimestamp).toBe(1780669957000);
       expect(merged?.dailyRemainingPercent).toBe(0);
       expect(merged?.weeklyRemainingPercent).toBe(48);
