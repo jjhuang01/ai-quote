@@ -1525,11 +1525,67 @@ button:focus-visible {
 .account-more-btn {
   width: 24px;
   justify-content: center;
-  overflow: hidden;
+  position: relative;
+  overflow: visible;
   transition:
     background var(--t-fast),
     color var(--t-fast),
     border-color var(--t-fast);
+}
+
+.account-more-btn::after {
+  content: attr(aria-label);
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 7px);
+  z-index: 30;
+  padding: 4px 7px;
+  border: 1px solid var(--border-glass);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 96%, var(--bg));
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition:
+    opacity var(--t-fast),
+    transform var(--t-fast);
+}
+
+.account-more-btn::before {
+  content: "";
+  position: absolute;
+  right: 8px;
+  bottom: calc(100% + 3px);
+  z-index: 31;
+  width: 6px;
+  height: 6px;
+  border-right: 1px solid var(--border-glass);
+  border-bottom: 1px solid var(--border-glass);
+  background: color-mix(in srgb, var(--surface) 96%, var(--bg));
+  opacity: 0;
+  pointer-events: none;
+  transform: rotate(45deg) translateY(2px);
+  transition:
+    opacity var(--t-fast),
+    transform var(--t-fast);
+}
+
+.account-more-btn:hover::after,
+.account-more-btn:focus-visible::after,
+.account-more-btn:hover::before,
+.account-more-btn:focus-visible::before {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.account-more-btn:hover::before,
+.account-more-btn:focus-visible::before {
+  transform: rotate(45deg) translateY(0);
 }
 
 .account-more-menu {
