@@ -1650,6 +1650,17 @@ export class WindsurfAccountManager {
     if (!current) return false;
 
     // ── 判断当前账号是否需要切换 ──────────────────────────────────────────
+    if ((current.realQuota?.overageBalanceMicros ?? 0) > 0) {
+      this.lastAutoSwitchResult = {
+        triggeredAt: new Date().toISOString(),
+        triggered: false,
+        fromAccountId: current.id,
+        reason: "当前账号仍有可用余额",
+        success: true,
+      };
+      return false;
+    }
+
     const needSwitch = options?.forceCurrentExhausted || this._accountNeedsSwitch(current);
     if (!needSwitch) {
       this.lastAutoSwitchResult = {

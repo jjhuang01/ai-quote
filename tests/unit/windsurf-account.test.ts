@@ -1904,6 +1904,39 @@ describe('WindsurfAccountManager', () => {
       expect(manager.getCurrentAccountId()).toBe(a2.id);
     });
 
+    it('current account with positive overage balance is not auto-switched even when exhaustion is forced', async () => {
+      await manager.initialize();
+      const a1 = await manager.add('a1@test.com', 'p');
+      const a2 = await manager.add('a2@test.com', 'p');
+      await manager.setQuotaLimits(a2.id, 50, 200);
+      await manager.updateAutoSwitch({ enabled: true, switchOnDaily: true, switchOnWeekly: true, threshold: 10 });
+      const authStatus = vi.fn(async () => ({
+        success: true,
+        source: 'authstatus',
+        userEmail: 'a2@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      authStatus.mockImplementationOnce(async () => ({
+        success: true,
+        source: 'authstatus',
+        userEmail: 'a1@test.com',
+        fetchedAt: new Date().toISOString(),
+      }));
+      (manager as any).quotaFetcher.fetchCurrentRuntimeUserFromAuthStatus = authStatus;
+      a1.realQuota = makeRealQuota({
+        billingStrategy: 'BILLING_STRATEGY_QUOTA',
+        dailyRemainingPercent: 0,
+        weeklyRemainingPercent: 0,
+        remainingMessages: 0,
+        overageBalanceMicros: 102_797_402,
+      });
+
+      const switched = await manager.autoSwitchIfNeeded({ forceCurrentExhausted: true });
+
+      expect(switched).toBe(false);
+      expect(manager.getCurrentAccountId()).toBe(a1.id);
+    });
+
     it('uses configured percent threshold for real quota exhaustion checks', async () => {
       await manager.initialize();
       const a1 = await manager.add('a1@test.com', 'p');
