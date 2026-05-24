@@ -17,6 +17,8 @@ import "./main.css";
 
 declare function acquireVsCodeApi(): {
   postMessage(message: unknown): void;
+  getState?(): unknown;
+  setState?(state: unknown): void;
 };
 
 // ---- Types ----
@@ -103,6 +105,8 @@ type AccountSortMode =
   | "balanceAsc"
   | "daysDesc"
   | "daysAsc";
+
+const ACCOUNT_SORT_MODES: AccountSortMode[] = ["smart", "balanceDesc", "balanceAsc", "daysDesc", "daysAsc"];
 
 interface ShortcutItem {
   id: string;
@@ -289,6 +293,18 @@ type TabId = "status" | "account" | "history" | "tools" | "settings" | "debug";
 
 const vscode = acquireVsCodeApi();
 
+function getPersistedAccountSortMode(): AccountSortMode {
+  const persisted = vscode.getState?.() as { accountSortMode?: unknown } | undefined;
+  return ACCOUNT_SORT_MODES.includes(persisted?.accountSortMode as AccountSortMode)
+    ? (persisted?.accountSortMode as AccountSortMode)
+    : "smart";
+}
+
+function persistAccountSortMode(accountSortMode: AccountSortMode): void {
+  const persisted = (vscode.getState?.() as Record<string, unknown> | undefined) ?? {};
+  vscode.setState?.({ ...persisted, accountSortMode });
+}
+
 let state = {
   activeTab: "account" as TabId,
   historySearch: "",
@@ -306,7 +322,7 @@ let state = {
   addEmail: "",
   addPassword: "",
   accountSearchQuery: "",
-  accountSortMode: "smart" as AccountSortMode,
+  accountSortMode: getPersistedAccountSortMode(),
   accountMoreOpen: false,
   selectMode: false,
   selectedAccountIds: new Set<string>(),
@@ -730,6 +746,16 @@ function filterAccounts(accounts: WindsurfAccount[], query: string): WindsurfAcc
   return filterAccountsForQuery(accounts, query);
 }
 
+function renderAccountTitle(availableCount: number, totalCount: number): string {
+  return `
+    <span class="account-title-label">账号</span>
+    <span class="account-count-pill" aria-label="可用账号 ${availableCount} 个，总账号 ${totalCount} 个">
+      <span class="account-count-part account-count-available"><span class="account-count-text">可用</span><strong>${availableCount}</strong></span>
+      <span class="account-count-divider"></span>
+      <span class="account-count-part account-count-total"><span class="account-count-text">总数</span><strong>${totalCount}</strong></span>
+    </span>`;
+}
+
 function renderAccountSearchRow(): string {
   return `
     <div class="account-search-row">
@@ -829,7 +855,7 @@ function patchAccountTab(): void {
   const { availableCount } = getAccountTabData(bs);
   const title = document.getElementById("accountTabTitle");
   if (title) {
-    title.textContent = `账号 (${availableCount}/${bs.accounts.length})`;
+    title.innerHTML = renderAccountTitle(availableCount, bs.accounts.length);
   }
 
   const listViewport = document.getElementById("accountListViewport") as HTMLDivElement | null;
@@ -859,7 +885,7 @@ function renderAccountTab(bs: Bootstrap): string {
     <div class="tab-content">
       <section class="card">
         <div class="section-header account-section-header">
-          <h2 id="accountTabTitle">账号 (${availableCount}/${accounts.length})</h2>
+          <h2 id="accountTabTitle">${renderAccountTitle(availableCount, accounts.length)}</h2>
           ${renderAccountToolbar(accounts)}
           ${
             state.selectMode
@@ -1825,6 +1851,7 @@ function bindAccountTabEvents(): void {
     accountSortMode.dataset.bound = "true";
     accountSortMode.addEventListener("change", () => {
       state.accountSortMode = accountSortMode.value as AccountSortMode;
+      persistAccountSortMode(state.accountSortMode);
       state.accountScrollTop = 0;
       state.accountMoreOpen = false;
       patchAccountTab();

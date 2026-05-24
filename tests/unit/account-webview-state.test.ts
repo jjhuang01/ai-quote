@@ -143,7 +143,20 @@ describe('account-webview-state', () => {
 
     expect(tabData).toContain('const sorted = sortAccounts(');
     expect(sortEvents).toContain('state.accountSortMode = accountSortMode.value as AccountSortMode');
+    expect(source).toContain('getPersistedAccountSortMode()');
+    expect(source).toContain('persistAccountSortMode(state.accountSortMode)');
     expect(sortEvents).toContain('patchAccountTab();');
+  });
+
+  it('renders account counts as structured status pills', () => {
+    const source = readFileSync('media/main.ts', 'utf8');
+    const title = source.match(/function renderAccountTitle[\s\S]*?function renderAccountSearchRow/)?.[0] ?? '';
+
+    expect(title).toContain('account-count-pill');
+    expect(title).toContain('account-count-available');
+    expect(title).toContain('account-count-total');
+    expect(title).toContain('account-count-divider');
+    expect(source).toContain('title.innerHTML = renderAccountTitle');
   });
 
   it('keeps the current account first before applying manual account sorting metrics', () => {
