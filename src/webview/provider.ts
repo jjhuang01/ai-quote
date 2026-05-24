@@ -412,6 +412,10 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   public dispose(): void {
+    if (this.bootstrapTimer) {
+      clearTimeout(this.bootstrapTimer);
+      this.bootstrapTimer = undefined;
+    }
     this.stopSelfHealScheduler();
   }
 

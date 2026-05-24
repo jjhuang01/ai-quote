@@ -1912,19 +1912,6 @@ button:focus-visible {
 .ac-head:has(.ac-checkbox) {
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
-.ac-id {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.ac-id .ac-email {
-  min-width: 0;
-  flex: 0 1 auto;
-}
-.ac-id .badge-balance {
-  flex-shrink: 0;
-}
 .ac-email {
   min-width: 0;
   font-size: var(--fs-base);
@@ -1939,17 +1926,17 @@ button:focus-visible {
 .ac-meta {
   display: grid;
   align-items: center;
-  gap: 6px;
-  flex: 1 1 auto;
+  gap: 4px;
+  flex: 0 0 auto;
   min-width: 0;
-  width: 100%;
+  width: auto;
   justify-self: end;
 }
 .ac-tags {
   display: flex;
   align-items: center;
-  gap: 4px;
-  flex: 1 1 auto;
+  gap: 3px;
+  flex: 0 0 auto;
   min-width: 0;
   flex-wrap: nowrap;
   justify-content: flex-end;
@@ -2111,19 +2098,6 @@ button:focus-visible {
   box-shadow:
     0 8px 24px rgba(0, 0, 0, 0.32),
     0 2px 6px rgba(0, 0, 0, 0.22);
-  animation: account-context-in 0.12s ease-out;
-  transform-origin: top left;
-}
-
-@keyframes account-context-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(-2px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
 }
 
 .account-context-header {

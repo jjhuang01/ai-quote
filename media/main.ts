@@ -405,6 +405,8 @@ let state = {
   debugLoading: false,
 };
 
+let suppressAccountScrollContextClose = false;
+
 // ---- Render Root ----
 
 function render(): void {
@@ -812,7 +814,7 @@ function getAccountTabData(bs: Bootstrap) {
     itemHeight: ACCOUNT_ROW_HEIGHT,
     viewportHeight,
   });
-  const firstVisibleIndex = Math.max(0, Math.floor(clampedScrollTop / ACCOUNT_ROW_HEIGHT) - ACCOUNT_OVERSCAN);
+  const firstVisibleIndex = getAccountFirstVisibleIndex(clampedScrollTop);
   const visibleCount = Math.max(1, Math.ceil(viewportHeight / ACCOUNT_ROW_HEIGHT) + ACCOUNT_OVERSCAN * 2);
   const visibleAccounts = filtered.slice(firstVisibleIndex, firstVisibleIndex + visibleCount);
 
@@ -825,6 +827,10 @@ function getAccountTabData(bs: Bootstrap) {
     visibleAccounts,
     clampedScrollTop,
   };
+}
+
+function getAccountFirstVisibleIndex(scrollTop: number): number {
+  return Math.max(0, Math.floor(scrollTop / ACCOUNT_ROW_HEIGHT) - ACCOUNT_OVERSCAN);
 }
 
 function renderAccountListContent(bs: Bootstrap): string {
@@ -873,6 +879,8 @@ function adjustAccountContextMenuPosition(): void {
   const rect = menuEl.getBoundingClientRect();
   const margin = 8;
   let { x, y } = state.accountContextMenu;
+  if (x < margin) x = margin;
+  if (y < margin) y = margin;
   const overflowRight = rect.right - (window.innerWidth - margin);
   if (overflowRight > 0) x = Math.max(margin, x - overflowRight);
   const overflowBottom = rect.bottom - (window.innerHeight - margin);
@@ -897,8 +905,16 @@ function patchAccountTab(): void {
 
   const listViewport = document.getElementById("accountListViewport") as HTMLDivElement | null;
   if (listViewport) {
-    listViewport.innerHTML = renderAccountListContent(bs);
-    listViewport.scrollTop = state.accountScrollTop;
+    state.accountScrollTop = listViewport.scrollTop;
+    const nextListHtml = renderAccountListContent(bs);
+    if (listViewport.innerHTML !== nextListHtml) {
+      listViewport.innerHTML = nextListHtml;
+      suppressAccountScrollContextClose = true;
+      listViewport.scrollTop = state.accountScrollTop;
+      window.requestAnimationFrame(() => {
+        suppressAccountScrollContextClose = false;
+      });
+    }
     state.accountViewportHeight = listViewport.clientHeight;
   }
 
@@ -1138,18 +1154,15 @@ function renderAccountItem(
       <div class="ac-card ${ui.isCurrent ? "ac-active" : ""} ${ui.isExpired ? "ac-expired" : ui.isUnavailable ? "ac-unavailable" : ""} ${q?.warningLevel === "critical" && !isDisabled ? "ac-crit" : q?.warningLevel === "warn" && !isDisabled ? "ac-warn" : ""} ${isSelected ? "ac-selected" : ""} ${switching ? "ac-switching" : ""} ${refreshing ? "ac-refreshing" : ""}" data-id="${a.id}">
         <div class="ac-head">
           ${state.selectMode ? `<input type="checkbox" class="ac-checkbox" data-action="toggleSelect" data-id="${a.id}" ${isSelected ? "checked" : ""}>` : ""}
-          <div class="ac-id">
-            <span class="ac-email" title="${escapeHtml(a.email)}">${escapeHtml(a.email)}</span>
-            ${(() => {
-              if (!bs.settings.showAccountBalance) return "";
-              const balanceText = formatOverageBalance(rq);
-              return balanceText
-                ? `<span class="badge-balance" title="额外用量余额: ${balanceText}">${balanceText}</span>`
-                : "";
-            })()}
-          </div>
+          <span class="ac-email" title="${escapeHtml(a.email)}">${escapeHtml(a.email)}</span>
           <div class="ac-meta">
             <div class="ac-tags">
+              ${(() => {
+                const balanceText = formatOverageBalance(rq);
+                return balanceText
+                  ? `<span class="badge-balance" title="额外用量余额: ${balanceText}">${balanceText}</span>`
+                  : "";
+              })()}
               <span class="plan-badge plan-${a.plan.toLowerCase()}" style="--plan-color:${planColor}" title="${escapeHtml(`${a.plan}${planEndText ? ` · 剩余 ${planEndText}` : ""}`)}">${planIcon(a.plan)} ${a.plan}${planEndText ? ` · ${planEndText}` : ""}</span>
               ${ui.availabilityLabel === "已过期" ? `<span class="badge-icon badge-icon-expired" title="已过期" aria-label="已过期">${icon("alertCircle")}</span>` : ui.availabilityLabel === "不可用" ? `<span class="badge-icon badge-icon-unavailable" title="不可用" aria-label="不可用">${icon("alertCircle")}</span>` : ""}
             </div>
@@ -1868,19 +1881,30 @@ function bindAccountTabEvents(): void {
 
   const accountViewport = document.getElementById("accountListViewport") as HTMLDivElement | null;
   if (accountViewport) {
+    suppressAccountScrollContextClose = true;
     accountViewport.scrollTop = state.accountScrollTop;
+    window.requestAnimationFrame(() => {
+      suppressAccountScrollContextClose = false;
+    });
     state.accountViewportHeight = accountViewport.clientHeight;
 
     if (accountViewport.dataset.scrollBound !== "true") {
       accountViewport.dataset.scrollBound = "true";
       let rafId = 0;
       accountViewport.addEventListener("scroll", () => {
+        if (suppressAccountScrollContextClose) return;
         if (rafId) return;
         rafId = window.requestAnimationFrame(() => {
           rafId = 0;
-          state.accountContextMenu = undefined;
+          const previousFirstIndex = getAccountFirstVisibleIndex(state.accountScrollTop);
           state.accountScrollTop = accountViewport.scrollTop;
-          patchAccountTab();
+          const nextFirstIndex = getAccountFirstVisibleIndex(state.accountScrollTop);
+          if (nextFirstIndex !== previousFirstIndex) {
+            const bs = window.__QUOTE_BOOTSTRAP__;
+            if (bs) {
+              accountViewport.innerHTML = renderAccountListContent(bs);
+            }
+          }
         });
       });
     }
@@ -1945,28 +1969,16 @@ function bindAccountTabEvents(): void {
         e.preventDefault();
         e.stopPropagation();
         state.accountMoreOpen = false;
-        // 借鉴 Floating UI 的 reference-element-based positioning：
-        // 完全用卡片矩形做锚点，忽略光标位置（光标可能落在卡片任意位置，
-        // 用 e.clientY 会让菜单"漂"远离卡片视觉中心）。
-        //   • placement = "card-top-start"：菜单 top-left 对齐卡片 top-left + 内边距
-        //   • flip middleware：底部空间不足时改成卡片下方/上翻
-        //   • shift middleware：由 adjustAccountContextMenuPosition() 渲染后做边界裁剪
+        // Context menu should feel native: open near the exact pointer, then shift
+        // back into the viewport after real-size measurement. The account header
+        // inside the menu preserves target identity, so the menu can stay close to
+        // the user's click without losing account context.
         const cardRect = card.getBoundingClientRect();
-        const estMenuH = 160;
         const estMenuW = 200;
-        const spaceBelow = window.innerHeight - cardRect.top;
-        const spaceAbove = cardRect.bottom;
-        let menuY: number;
-        if (spaceBelow >= estMenuH + 16) {
-          menuY = cardRect.top + 4;
-        } else if (spaceAbove >= estMenuH + 16) {
-          menuY = Math.max(8, cardRect.bottom - estMenuH - 4);
-        } else {
-          menuY = Math.max(8, window.innerHeight - estMenuH - 8);
-        }
+        const menuY = Math.max(8, e.clientY + 6);
         const menuX = Math.max(
           8,
-          Math.min(cardRect.left + 12, window.innerWidth - estMenuW - 8),
+          Math.min(e.clientX + 6, Math.min(cardRect.right - 12, window.innerWidth - estMenuW - 8)),
         );
         state.accountContextMenu = { id, x: menuX, y: menuY };
         render();
