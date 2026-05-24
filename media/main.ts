@@ -272,7 +272,9 @@ const SVG_ICONS: Record<string, string> = {
     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
   copy: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>',
   moreHorizontal:
-    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>',
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 12h.01"/><path d="M12 12h.01"/><path d="M17 12h.01"/><rect x="3" y="6.5" width="18" height="11" rx="5.5"/></svg>',
+  sort:
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h11"/><path d="M4 12h8"/><path d="M4 17h5"/><path d="M18 5v14"/><path d="M15 16l3 3 3-3"/></svg>',
   key: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>',
   checkSquare:
     '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>',
@@ -779,13 +781,14 @@ function renderAccountToolbar(accounts: WindsurfAccount[]): string {
       <button class="btn-xs btn-icon account-add-btn" data-action="toggleImportAccount">${icon("upload")} 添加</button>
       ${hasAccounts ? `
       <label class="account-sort-control" title="账号排序">
-        <span>排序</span>
+        ${icon("sort", "account-sort-icon")}
+        <span class="account-sort-label">排序</span>
         <select id="accountSortMode" class="account-sort-select">
           <option value="smart" ${state.accountSortMode === "smart" ? "selected" : ""}>智能</option>
-          <option value="balanceDesc" ${state.accountSortMode === "balanceDesc" ? "selected" : ""}>金额 ↓</option>
-          <option value="balanceAsc" ${state.accountSortMode === "balanceAsc" ? "selected" : ""}>金额 ↑</option>
-          <option value="daysDesc" ${state.accountSortMode === "daysDesc" ? "selected" : ""}>天数 ↓</option>
-          <option value="daysAsc" ${state.accountSortMode === "daysAsc" ? "selected" : ""}>天数 ↑</option>
+          <option value="balanceDesc" ${state.accountSortMode === "balanceDesc" ? "selected" : ""}>余额最高</option>
+          <option value="balanceAsc" ${state.accountSortMode === "balanceAsc" ? "selected" : ""}>余额最低</option>
+          <option value="daysDesc" ${state.accountSortMode === "daysDesc" ? "selected" : ""}>到期最晚</option>
+          <option value="daysAsc" ${state.accountSortMode === "daysAsc" ? "selected" : ""}>到期最早</option>
         </select>
       </label>
       <div class="account-more-wrap">
@@ -2193,16 +2196,30 @@ function bindEvents(): void {
   if (document.body.dataset.accountContextMenuBound !== "true") {
     document.body.dataset.accountContextMenuBound = "true";
     document.addEventListener("click", (e) => {
-      if (!state.accountContextMenu) return;
+      let changed = false;
       const target = e.target as HTMLElement;
-      if (target.closest(".account-context-menu")) return;
-      state.accountContextMenu = undefined;
-      render();
+      if (state.accountContextMenu && !target.closest(".account-context-menu")) {
+        state.accountContextMenu = undefined;
+        changed = true;
+      }
+      if (state.accountMoreOpen && !target.closest(".account-more-wrap")) {
+        state.accountMoreOpen = false;
+        changed = true;
+      }
+      if (changed) render();
     });
     document.addEventListener("keydown", (e) => {
-      if (e.key !== "Escape" || !state.accountContextMenu) return;
-      state.accountContextMenu = undefined;
-      render();
+      if (e.key !== "Escape") return;
+      let changed = false;
+      if (state.accountContextMenu) {
+        state.accountContextMenu = undefined;
+        changed = true;
+      }
+      if (state.accountMoreOpen) {
+        state.accountMoreOpen = false;
+        changed = true;
+      }
+      if (changed) render();
     });
   }
 }

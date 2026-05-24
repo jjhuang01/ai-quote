@@ -114,8 +114,9 @@ describe('account-webview-state', () => {
     expect(toolbar).toContain('data-action="toggleImportAccount"');
     expect(toolbar).toContain('添加');
     expect(toolbar).toContain('id="accountSortMode"');
-    expect(toolbar).toContain('金额 ↓');
-    expect(toolbar).toContain('天数 ↑');
+    expect(toolbar).toContain('account-sort-icon');
+    expect(toolbar).toContain('余额最高');
+    expect(toolbar).toContain('到期最早');
     expect(toolbar).toContain('data-action="toggleAccountMore"');
     expect(toolbar).toContain('data-action="batchRefreshQuota"');
     expect(toolbar).toContain('刷新</button>');

@@ -1575,23 +1575,56 @@ button:focus-visible {
   align-items: center;
   gap: 5px;
   height: 28px;
-  padding: 0 7px;
+  padding: 0 22px 0 8px;
   border: 1px solid color-mix(in srgb, var(--border) 64%, transparent);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 86%, var(--bg)), color-mix(in srgb, var(--surface) 62%, var(--bg)));
   color: color-mix(in srgb, var(--muted) 82%, var(--text));
   font-size: 11px;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 4%, transparent);
+  position: relative;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 6%, transparent),
+    0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.account-sort-control::after {
+  content: "";
+  position: absolute;
+  right: 9px;
+  top: 10px;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid color-mix(in srgb, var(--muted) 72%, var(--text));
+  border-bottom: 1.5px solid color-mix(in srgb, var(--muted) 72%, var(--text));
+  pointer-events: none;
+  transform: rotate(45deg);
+}
+
+.account-sort-control:hover {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  background: color-mix(in srgb, var(--surface-hover) 72%, var(--bg));
+  color: var(--text);
+}
+
+.account-sort-icon {
+  color: color-mix(in srgb, var(--accent) 72%, var(--muted));
+}
+
+.account-sort-label {
+  color: color-mix(in srgb, var(--muted) 80%, var(--text));
 }
 
 .account-sort-select {
   height: 22px;
-  min-width: 72px;
+  min-width: 80px;
   border: none;
   background: transparent;
   color: var(--text);
   font-size: 11px;
   outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
 }
 
 .account-more-wrap {
@@ -1669,13 +1702,15 @@ button:focus-visible {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: 10;
+  z-index: 90;
   min-width: 124px;
   padding: 6px;
-  border: 1px solid var(--border-glass);
+  border: 1px solid color-mix(in srgb, var(--border) 90%, var(--accent) 10%);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface) 96%, var(--bg));
-  box-shadow: var(--shadow-card);
+  background: color-mix(in srgb, var(--surface) 98%, var(--bg));
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.28),
+    0 0 0 1px color-mix(in srgb, white 5%, transparent);
 }
 
 .account-more-item {
@@ -2092,12 +2127,16 @@ button:focus-visible {
   min-width: 168px;
   max-width: 240px;
   padding: 6px;
-  border: 1px solid color-mix(in srgb, var(--border) 96%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 72%, var(--accent) 28%);
   border-radius: var(--radius-lg);
-  background: var(--card);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--bg)), color-mix(in srgb, var(--card) 92%, var(--bg))),
+    var(--card);
   box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.32),
-    0 2px 6px rgba(0, 0, 0, 0.22);
+    0 18px 42px rgba(0, 0, 0, 0.44),
+    0 4px 12px rgba(0, 0, 0, 0.28),
+    0 0 0 1px color-mix(in srgb, white 6%, transparent);
+  backdrop-filter: blur(10px);
 }
 
 .account-context-header {
