@@ -125,15 +125,23 @@ describe('account-webview-state', () => {
     expect(toolbar).not.toContain('批量刷新');
   });
 
-  it('wires account email copy as an account action without switching cards', () => {
+  it('moves low-frequency account actions into the right-click context menu', () => {
     const source = readFileSync('media/main.ts', 'utf8');
     const accountItem = source.match(/function renderAccountItem[\s\S]*?function renderHistoryTab/)?.[0] ?? '';
+    const contextMenu = source.match(/function renderAccountContextMenu[\s\S]*?function patchAccountTab/)?.[0] ?? '';
     const copyCase = source.match(/case "accountCopyEmail": \{[\s\S]*?break;\n\s*\}/)?.[0] ?? '';
 
-    expect(accountItem).toContain('data-action="accountCopyEmail"');
-    expect(accountItem).toContain('class="ac-copy-btn"');
+    expect(accountItem).not.toContain('data-action="accountCopyEmail"');
+    expect(accountItem).not.toContain('data-action="fetchQuota"');
+    expect(accountItem).not.toContain('data-action="accountDelete"');
+    expect(contextMenu).toContain('class="account-context-menu"');
+    expect(contextMenu).toContain('data-action="accountCopyEmail"');
+    expect(contextMenu).toContain('data-action="fetchQuota"');
+    expect(contextMenu).toContain('data-action="accountDelete"');
     expect(copyCase).toContain('navigator.clipboard.writeText(email)');
     expect(copyCase).toContain('账号已复制');
+    expect(source).toContain('vscode.postMessage({ type: "fetchQuota", value: id })');
+    expect(source).toContain('vscode.postMessage({ type: "accountDelete", value: id })');
   });
 
   it('sorts account list through selected account sort mode before filtering', () => {
@@ -157,6 +165,21 @@ describe('account-webview-state', () => {
     expect(title).toContain('account-count-total');
     expect(title).toContain('account-count-divider');
     expect(source).toContain('title.innerHTML = renderAccountTitle');
+  });
+
+  it('only renders overage balance when the quota source is authoritative', () => {
+    const source = readFileSync('media/main.ts', 'utf8');
+    const formatter = source.match(/function formatOverageBalance[\s\S]*?\/\/ ---- History Tab ----/)?.[0] ?? '';
+
+    expect(source).toContain('formatOverageBalance(rq)');
+    expect(formatter).toContain('overageBalance.source !== "api"');
+  });
+
+  it('does not animate account quota fill width on repeated rerenders', () => {
+    const css = readFileSync('media/main.css', 'utf8');
+    const fillRule = css.match(/\.ac-fill \{[\s\S]*?\n\}/)?.[0] ?? '';
+
+    expect(fillRule).not.toContain('transition: width');
   });
 
   it('keeps the current account first before applying manual account sorting metrics', () => {

@@ -241,6 +241,7 @@ export interface PluginSettings {
   debugRawResponses: boolean;      // 调试模式下记录脱敏原始响应
   quotaAutoContinueEnabled: boolean;
   showAccountBalance: boolean;
+  accountSortMode?: string;
   // MCP 清理白名单：这些名称的 MCP 服务不会被清理工具移除
   mcpWhitelist: string[];
 }

@@ -213,7 +213,7 @@ body {
 .account-section-header #accountTabTitle {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   flex: 0 0 auto;
   margin-right: auto;
   white-space: nowrap;
@@ -221,46 +221,55 @@ body {
 
 .account-title-label {
   color: var(--text);
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
 .account-count-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 7px;
-  border: 1px solid color-mix(in srgb, var(--border-glass) 64%, transparent);
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--surface) 74%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 4%, transparent);
+  gap: 7px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--bg));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 5%, transparent),
+    0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
 .account-count-part {
   display: inline-flex;
-  align-items: baseline;
-  gap: 3px;
+  align-items: center;
+  gap: 4px;
   font-size: 10px;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.01em;
 }
 
 .account-count-part strong {
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 750;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.account-count-text {
+  color: color-mix(in srgb, var(--muted) 82%, var(--text));
 }
 
 .account-count-available {
-  color: var(--success-text);
+  color: color-mix(in srgb, var(--success-text) 86%, var(--text));
 }
 
 .account-count-total {
-  color: color-mix(in srgb, var(--muted) 82%, var(--text));
+  color: color-mix(in srgb, var(--text) 88%, var(--muted));
 }
 
 .account-count-divider {
   width: 1px;
-  height: 12px;
-  background: color-mix(in srgb, var(--border-glass) 52%, transparent);
+  height: 14px;
+  background: color-mix(in srgb, var(--border) 54%, transparent);
 }
 
 .account-section-header .account-toolbar {
@@ -1540,19 +1549,39 @@ button:focus-visible {
   position: relative;
   align-items: center;
   flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.account-toolbar .btn-xs {
+  border-color: color-mix(in srgb, var(--border) 64%, transparent);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  color: color-mix(in srgb, var(--text) 86%, var(--muted));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 4%, transparent);
+}
+
+.account-toolbar .btn-xs:hover {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--text);
+}
+
+.account-toolbar .account-add-btn {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--text);
 }
 
 .account-sort-control {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 26px;
-  padding: 0 6px;
-  border: 1px solid var(--border-glass);
+  gap: 5px;
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--border) 64%, transparent);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface) 82%, transparent);
-  color: var(--muted);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  color: color-mix(in srgb, var(--muted) 82%, var(--text));
   font-size: 11px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 4%, transparent);
 }
 
 .account-sort-select {
@@ -1571,6 +1600,7 @@ button:focus-visible {
 
 .account-more-btn {
   width: 24px;
+  height: 24px;
   justify-content: center;
   position: relative;
   overflow: visible;
@@ -1681,6 +1711,7 @@ button:focus-visible {
   margin-top: var(--sp-3);
   min-height: 320px;
   min-width: 0;
+  position: relative;
 }
 
 .account-list-viewport {
@@ -1737,9 +1768,11 @@ button:focus-visible {
 }
 .ac-card.ac-active {
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 11%, transparent), transparent 58%),
-    color-mix(in srgb, var(--surface) 48%, transparent);
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 78%, transparent);
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 46%),
+    color-mix(in srgb, var(--surface) 62%, var(--bg));
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--accent) 84%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 14%, transparent);
   cursor: default;
 }
 .ac-card.ac-warn:not(.ac-active) {
@@ -1869,11 +1902,15 @@ button:focus-visible {
 /* Head row: email + badges + actions */
 .ac-head {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
   min-width: 0;
   width: 100%;
+}
+
+.ac-head:has(.ac-checkbox) {
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 .ac-email {
   min-width: 0;
@@ -1886,35 +1923,8 @@ button:focus-visible {
   letter-spacing: -0.02em;
   line-height: 1.2;
 }
-.ac-copy-btn {
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
-  min-height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  padding: 0;
-  box-sizing: border-box;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  line-height: 0;
-  opacity: 0.72;
-  transition: opacity var(--t-fast), color var(--t-fast), background var(--t-fast), border-color var(--t-fast);
-}
-.ac-copy-btn:hover {
-  opacity: 1;
-  color: var(--text);
-  background: color-mix(in srgb, var(--accent) 9%, transparent);
-  border-color: var(--border-glass-hover);
-}
 .ac-meta {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
   flex: 1 1 auto;
@@ -1931,13 +1941,6 @@ button:focus-visible {
   flex-wrap: nowrap;
   justify-content: flex-end;
   overflow: hidden;
-}
-.ac-acts {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  flex-shrink: 0;
-  justify-self: end;
 }
 .ac-end {
   font-size: 10px;
@@ -1995,14 +1998,28 @@ button:focus-visible {
 .ac-track {
   flex: 1;
   height: 5px;
-  background: color-mix(in srgb, var(--border) 65%, transparent);
+  background: color-mix(in srgb, var(--surface) 46%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
   border-radius: 99px;
   overflow: hidden;
+  box-sizing: border-box;
 }
 .ac-fill {
   height: 100%;
   border-radius: 99px;
-  transition: width 0.4s ease;
+}
+
+.ac-card.ac-active .ac-track {
+  height: 6px;
+  background: color-mix(in srgb, var(--bg) 72%, var(--surface));
+  border-color: color-mix(in srgb, var(--text) 42%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--bg) 72%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--text) 16%, transparent);
+}
+
+.ac-card.ac-active .ac-fill {
+  filter: saturate(1.08) brightness(1.08);
 }
 .ac-pct {
   font-size: 11px;
@@ -2036,132 +2053,48 @@ button:focus-visible {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
-/* Action buttons */
-.ac-acts {
+.account-context-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 148px;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--card) 94%, var(--bg));
+  box-shadow: var(--shadow-pop);
+}
+
+.account-context-item {
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: 3px;
-  flex-shrink: 0;
-}
-.ac-btn {
-  font-size: 11px;
-  padding: 3px 7px;
-  border-radius: 5px;
-  border: 1px solid var(--border-glass);
+  gap: 7px;
+  min-height: 28px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
   background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  white-space: nowrap;
-  line-height: 1.5;
-  transition:
-    background 0.15s,
-    color 0.15s,
-    border-color 0.15s;
-}
-.ac-btn:hover {
-  background: var(--surface-hover);
   color: var(--text);
-  border-color: var(--border-glass-hover);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
 }
-.ac-btn:disabled {
-  opacity: 0.45;
+
+.account-context-item:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.account-context-item:disabled {
+  opacity: 0.48;
   cursor: default;
 }
-/* Circular refresh button */
-.ac-btn-refresh {
-  width: 24px;
-  min-width: 24px;
-  height: 24px;
-  min-height: 24px;
-  border-radius: var(--radius-sm);
-  padding: 0;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  position: relative;
-  overflow: hidden;
-  color: var(--muted);
-  border-color: transparent;
-  background: transparent;
-  line-height: 0;
-}
-.ac-btn-refresh:hover:not(:disabled) {
-  color: var(--text);
-  border-color: var(--border-glass-hover);
-  background: color-mix(in srgb, var(--accent) 9%, transparent);
-}
-.ac-refresh-ico {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 0;
-  transition:
-    transform 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 0.2s;
-}
-.ac-btn-refresh:hover:not(:disabled) .ac-refresh-ico {
-  transform: rotate(-180deg);
-}
-/* Apple-style thin ring spinner replaces icon when loading */
-.ac-btn-refresh.ac-loading .ac-refresh-ico {
-  opacity: 0;
-  transform: scale(0.6);
-}
-.ac-btn-refresh.ac-loading::after {
-  content: "";
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 1.5px solid currentColor;
-  border-top-color: transparent;
-  animation: ring-spin 0.65s linear infinite;
-  opacity: 0.7;
-}
-@keyframes ring-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-.ac-btn-loading {
-  opacity: 0.55;
-}
-.ac-btn-delete {
-  width: 24px;
-  min-width: 24px;
-  height: 24px;
-  min-height: 24px;
-  padding: 0;
-  border-radius: var(--radius-sm);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted);
-  border-color: transparent;
-  background: transparent;
-  line-height: 0;
-}
-.ac-btn-delete:hover {
+
+.account-context-danger {
   color: var(--danger-text);
-  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
-  background: color-mix(in srgb, var(--danger) 9%, transparent);
 }
-.ac-delete-ico {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 0;
-}
-.ac-btn-del {
-  color: var(--muted);
-  border-color: transparent;
-}
-.ac-btn-del:hover {
-  color: var(--danger-text);
-  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
-  background: color-mix(in srgb, var(--danger) 9%, transparent);
+
+.account-context-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 /* Keep legacy .account-item for any leftover references */

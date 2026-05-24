@@ -132,7 +132,8 @@ function createMockDataManager() {
       reset: vi.fn(async () => ({
         firebaseApiKey: '',
         debugRawResponses: false,
-      }))
+      })),
+      onDidChangeSettings: vi.fn((_listener: () => void) => ({ dispose: vi.fn() })),
     },
     usageStats: {
       get: vi.fn(() => ({})),

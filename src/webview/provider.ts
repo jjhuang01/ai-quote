@@ -44,6 +44,9 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     this.dataManager.windsurfAccounts.onDidChangeAccounts(() => {
       void this.postAccountsSync();
     });
+    this.dataManager.settings.onDidChangeSettings(() => {
+      void this.postAccountsSync();
+    });
     this.startSelfHealScheduler();
   }
 
@@ -546,7 +549,10 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
     if (!this.view) return;
     void this.view.webview.postMessage({
       type: 'accountsSync',
-      value: await this.buildAccountsPayload(options),
+      value: {
+        ...(await this.buildAccountsPayload(options)),
+        accountSortMode: this.dataManager.settings.get().accountSortMode,
+      },
     });
   }
 
@@ -710,6 +716,12 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
 
   private async handleAccount(action: string, value: unknown, payload: unknown): Promise<boolean> {
     switch (action) {
+      case 'sortModeChange':
+        if (typeof value === 'string') {
+          await this.dataManager.settings.update({ accountSortMode: value });
+          // onDidChangeSettings 会触发 postAccountsSync，广播到所有窗口
+        }
+        return true;
       case 'deleteHistory':
         if (typeof value === 'string') {
           await this.dataManager.history.delete(value);
