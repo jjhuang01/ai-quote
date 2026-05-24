@@ -2028,10 +2028,13 @@ export class WindsurfAccountManager {
             });
             return { success: false, error: quotaGuard.reason };
           }
-          target.realQuota = this.planInfoToRealQuota(
-            result.planInfo,
-            result.source,
-            result.fetchedAt,
+          target.realQuota = this.mergeRealQuota(
+            target.realQuota,
+            this.planInfoToRealQuota(
+              result.planInfo,
+              result.source,
+              result.fetchedAt,
+            ),
           );
           // cache/proto 数据属于当前 Windsurf 登录账号，不一定是被查询账号
           // 只有 api/apikey 来源才可信地更新 plan
@@ -2264,7 +2267,7 @@ export class WindsurfAccountManager {
         for (const account of this.accounts) {
           const update = quotaUpdateMap.get(account.id);
           if (update) {
-            account.realQuota = update.realQuota;
+            account.realQuota = this.mergeRealQuota(account.realQuota, update.realQuota);
             if (update.planUpdate !== undefined) {
               account.plan = update.planUpdate;
             }
@@ -2296,6 +2299,37 @@ export class WindsurfAccountManager {
     return WindsurfAccountManager.VALID_PLANS.has(apiPlanName)
       ? (apiPlanName as WindsurfAccount["plan"])
       : fallback;
+  }
+
+  /**
+   * 合并新拉到的 realQuota 与先前已确认的字段。
+   *
+   * 背景：后台 idleRefresh / batchRefresh / poller 会轮换 channel B/E/D/A，
+   * 只有 channel B (GetPlanStatus) 可靠地返回 `overageBalanceMicros` 和
+   * `planEndTimestamp`，其余通道这些字段恒为 0。若直接整体覆盖，
+   * 卡片会出现「时灰时亮」的视觉抖动。
+   *
+   * 策略：百分比/重置时间/messages 等高时效字段始终用最新值；
+   *      overage / planEnd / billingStrategy 仅在新值更可信时覆盖，否则保留旧值。
+   */
+  private mergeRealQuota(
+    prev: RealQuotaInfo | undefined,
+    next: RealQuotaInfo,
+  ): RealQuotaInfo {
+    if (!prev) return next;
+    const merged: RealQuotaInfo = { ...next };
+    if (next.overageBalanceMicros <= 0 && prev.overageBalanceMicros > 0) {
+      merged.overageBalanceMicros = prev.overageBalanceMicros;
+    }
+    const nextPlanEnd = next.planEndTimestamp ?? 0;
+    const prevPlanEnd = prev.planEndTimestamp ?? 0;
+    if (nextPlanEnd <= 0 && prevPlanEnd > 0) {
+      merged.planEndTimestamp = prev.planEndTimestamp;
+    }
+    if ((!next.billingStrategy || next.billingStrategy === "") && prev.billingStrategy) {
+      merged.billingStrategy = prev.billingStrategy;
+    }
+    return merged;
   }
 
   private planInfoToRealQuota(

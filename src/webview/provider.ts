@@ -145,18 +145,11 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async revalidateAccounts(): Promise<void> {
-    const changed = await this.dataManager.windsurfAccounts.reloadFromDisk();
-    if (changed) {
-      await this.postAccountsSync();
-    }
+    await this.dataManager.windsurfAccounts.reloadFromDisk();
+    await this.postAccountsSync();
   }
 
   private async buildAccountsPayload(options?: { preferFastCurrentId?: boolean }): Promise<Pick<WebviewBootstrap, 'accounts' | 'currentAccountId' | 'autoSwitch' | 'quotaSnapshots' | 'quotaFetching' | 'quotaFetchingAll' | 'quotaFetchingIds' | 'lastAutoSwitchResult'>> {
-    const accounts = this.dataManager.windsurfAccounts.getAll().map(a => ({
-      ...a,
-      password: '***'
-    }));
-
     const wa = this.dataManager.windsurfAccounts as unknown as {
       getDisplayCurrentAccountId?: () => Promise<string | undefined>;
       getImmediateCurrentAccountId?: () => string | undefined;
@@ -170,6 +163,11 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
         : wa.getRealCurrentAccountId
         ? await wa.getRealCurrentAccountId()
         : wa.getCurrentAccountId?.();
+
+    const accounts = this.dataManager.windsurfAccounts.getAll().map(a => ({
+      ...a,
+      password: '***'
+    }));
 
     const getRemain = (acc: typeof accounts[number]): number => {
       const rq = acc.realQuota;

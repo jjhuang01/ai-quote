@@ -414,6 +414,56 @@ describe('QuoteSidebarProvider - handleMessage', () => {
       );
     });
 
+    it('accountsSync reflects runtime current account back into account active flags', async () => {
+      let accounts = [
+        {
+          id: 'ws_old',
+          email: 'old@test.com',
+          password: '***',
+          plan: 'Pro',
+          creditsUsed: 0,
+          creditsTotal: 0,
+          quota: { dailyUsed: 0, dailyLimit: 0, dailyResetAt: '', weeklyUsed: 0, weeklyLimit: 0, weeklyResetAt: '' },
+          expiresAt: '',
+          isActive: true,
+          addedAt: '2026-04-14T00:00:00.000Z',
+        },
+        {
+          id: 'ws_browser',
+          email: 'browser@test.com',
+          password: '***',
+          plan: 'Pro',
+          creditsUsed: 0,
+          creditsTotal: 0,
+          quota: { dailyUsed: 0, dailyLimit: 0, dailyResetAt: '', weeklyUsed: 0, weeklyLimit: 0, weeklyResetAt: '' },
+          expiresAt: '',
+          isActive: false,
+          addedAt: '2026-04-15T00:00:00.000Z',
+        },
+      ];
+      ctx.dataManager.windsurfAccounts.getAll.mockImplementation(() => accounts);
+      ctx.dataManager.windsurfAccounts.getDisplayCurrentAccountId.mockImplementation(async () => {
+        accounts = accounts.map((account) => ({
+          ...account,
+          isActive: account.id === 'ws_browser',
+        }));
+        return 'ws_browser';
+      });
+
+      await (ctx.provider as any).postAccountsSync();
+
+      const syncMsg = ctx.postMessage.mock.calls
+        .map((c: any) => c[0])
+        .find((m: any) => m.type === 'accountsSync');
+      expect(syncMsg?.value?.currentAccountId).toBe('ws_browser');
+      expect(syncMsg?.value?.accounts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'ws_browser', isActive: true }),
+          expect.objectContaining({ id: 'ws_old', isActive: false }),
+        ]),
+      );
+    });
+
     it('visibility revalidate continues to use accountsSync instead of forcing bootstrap', async () => {
       ctx.dataManager.windsurfAccounts.reloadFromDisk.mockResolvedValueOnce(true);
       ctx.postMessage.mockClear();
@@ -425,6 +475,21 @@ describe('QuoteSidebarProvider - handleMessage', () => {
 
       const sentTypes = ctx.postMessage.mock.calls.map((call: any) => call[0]?.type);
       expect(sentTypes).toContain('selectTab');
+      expect(sentTypes).toContain('accountsSync');
+      expect(sentTypes).not.toContain('bootstrap');
+    });
+
+    it('视图重新可见时即使账号文件未变也同步运行时当前账号', async () => {
+      ctx.dataManager.windsurfAccounts.reloadFromDisk.mockResolvedValueOnce(false);
+      ctx.postMessage.mockClear();
+
+      await ctx.visibilityHandlers[0]?.();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(ctx.dataManager.windsurfAccounts.reloadFromDisk).toHaveBeenCalled();
+      expect(ctx.dataManager.windsurfAccounts.getDisplayCurrentAccountId).toHaveBeenCalled();
+      const sentTypes = ctx.postMessage.mock.calls.map((call: any) => call[0]?.type);
       expect(sentTypes).toContain('accountsSync');
       expect(sentTypes).not.toContain('bootstrap');
     });

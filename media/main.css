@@ -199,6 +199,29 @@ body {
   margin-bottom: var(--sp-3);
 }
 
+.account-section-header {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.account-section-header:has(.select-bar) {
+  flex-wrap: wrap;
+}
+
+.account-section-header #accountTabTitle {
+  flex: 0 0 auto;
+  margin-right: auto;
+  white-space: nowrap;
+}
+
+.account-section-header .account-toolbar {
+  flex: 0 0 auto;
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
 /* === Status Badge (原始: .status-badge / .status-pill) === */
 .status-badge {
   display: inline-flex;
@@ -431,6 +454,19 @@ button:focus-visible {
   .section-header .btn-group {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .account-section-header {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .account-section-header .account-toolbar {
+    width: auto;
+    margin-left: auto;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
   }
 
   .btn-group {
@@ -1453,6 +1489,81 @@ button:focus-visible {
   pointer-events: none;
 }
 
+.account-toolbar {
+  position: relative;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.account-sort-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.account-sort-select {
+  height: 22px;
+  min-width: 72px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  outline: none;
+}
+
+.account-more-wrap {
+  position: relative;
+}
+
+.account-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  min-width: 124px;
+  padding: 6px;
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 96%, var(--bg));
+  box-shadow: var(--shadow-card);
+}
+
+.account-more-item {
+  width: 100%;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.account-more-item:hover {
+  background: var(--surface-hover);
+}
+
+.account-more-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.account-more-danger {
+  color: var(--danger-text);
+}
+
 .account-list-shell {
   margin-top: var(--sp-3);
   min-height: 320px;
@@ -1477,7 +1588,7 @@ button:focus-visible {
   left: 0;
   width: 100%;
   height: 96px;
-  padding-bottom: 8px;
+  padding-bottom: 0;
   box-sizing: border-box;
 }
 
@@ -1488,55 +1599,49 @@ button:focus-visible {
   gap: 8px;
   min-width: 240px;
   padding: 10px 12px;
-  background: var(--surface);
-  border-radius: var(--radius-lg);
+  background: transparent;
+  border-radius: 0;
   margin-bottom: 0;
-  min-height: 88px;
-  border: 1px solid var(--border-glass);
+  min-height: 96px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-glass) 38%, transparent);
   cursor: pointer;
   position: relative;
   overflow: hidden;
   transition:
-    border-color var(--t-normal),
     background var(--t-normal),
     box-shadow var(--t-normal),
-    transform var(--t-fast),
     opacity var(--t-normal);
 }
 .ac-card:hover {
-  border-color: var(--border-glass-hover);
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 42%, transparent);
 }
 .ac-card:not(.ac-active):not(.ac-switching):hover {
-  transform: translateY(-1px);
-  box-shadow:
-    var(--shadow-card),
-    0 2px 12px rgba(0, 0, 0, 0.18);
+  box-shadow: none;
 }
 .ac-card:active:not(.ac-active):not(.ac-switching) {
-  transform: scale(0.99);
+  background: color-mix(in srgb, var(--surface-active) 48%, transparent);
 }
 .ac-card.ac-active {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-subtle));
-  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
-  box-shadow: inset 3px 0 0 var(--accent);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 11%, transparent), transparent 58%),
+    color-mix(in srgb, var(--surface) 48%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 78%, transparent);
   cursor: default;
 }
-.ac-card.ac-warn {
-  border-color: color-mix(in srgb, var(--warning) 55%, var(--border-subtle));
+.ac-card.ac-warn:not(.ac-active) {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--warning) 62%, transparent);
 }
-.ac-card.ac-crit {
-  border-color: color-mix(in srgb, var(--danger) 55%, var(--border-subtle));
+.ac-card.ac-crit:not(.ac-active) {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--danger) 62%, transparent);
 }
 /* Unavailable / quota low — 幽灵化：几乎融入背景，健康卡片自然突出 */
 .ac-card.ac-unavailable {
-  background: color-mix(in srgb, var(--surface) 22%, var(--bg));
-  border-color: color-mix(in srgb, var(--border-glass) 12%, transparent);
+  background: transparent;
   opacity: 0.36;
   filter: saturate(0.15) brightness(0.85);
   cursor: not-allowed;
   transition:
-    border-color var(--t-normal),
     background var(--t-normal),
     opacity var(--t-normal),
     filter var(--t-normal);
@@ -1544,8 +1649,7 @@ button:focus-visible {
 .ac-card.ac-unavailable:hover {
   opacity: 0.52;
   filter: saturate(0.3) brightness(0.92);
-  border-color: color-mix(in srgb, var(--border-glass) 25%, transparent);
-  background: color-mix(in srgb, var(--surface) 30%, var(--bg));
+  background: color-mix(in srgb, var(--surface-hover) 24%, transparent);
   transform: none;
   box-shadow: none;
 }
@@ -1553,7 +1657,6 @@ button:focus-visible {
 .ac-card.ac-unavailable.ac-active {
   opacity: 0.5;
   filter: saturate(0.25) brightness(0.88);
-  border-color: color-mix(in srgb, var(--accent) 20%, var(--border-glass));
   box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 30%, transparent);
 }
 /* Badge: 不可用 */
@@ -1571,25 +1674,21 @@ button:focus-visible {
 }
 /* Expired / plan ended state — 计划已到期账号（琥珀色调，区别于耗尽的灰色） */
 .ac-card.ac-expired {
-  background: color-mix(in srgb, #92400e 8%, var(--bg));
-  border-color: color-mix(in srgb, #b45309 25%, transparent);
+  background: color-mix(in srgb, #92400e 5%, transparent);
   opacity: 0.55;
   cursor: not-allowed;
   transition:
-    border-color var(--t-normal),
     background var(--t-normal),
     opacity var(--t-normal);
 }
 .ac-card.ac-expired:hover {
   opacity: 0.65;
-  border-color: color-mix(in srgb, #b45309 40%, transparent);
-  background: color-mix(in srgb, #92400e 10%, var(--bg));
+  background: color-mix(in srgb, #92400e 8%, transparent);
   transform: none;
   box-shadow: none;
 }
 .ac-card.ac-expired.ac-active {
   opacity: 0.68;
-  border-color: color-mix(in srgb, #b45309 45%, var(--border-glass));
   box-shadow: inset 3px 0 0 color-mix(in srgb, #b45309 40%, transparent);
 }
 /* Desaturate + warm-tint fill bars on expired cards */
@@ -1619,23 +1718,20 @@ button:focus-visible {
   flex-shrink: 0;
 }
 .ac-card.ac-selected {
-  border-color: color-mix(in srgb, var(--accent) 60%, var(--border-subtle));
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 70%, transparent);
 }
 .ac-card.ac-selected.ac-unavailable,
 .ac-card.ac-selected.ac-expired {
   opacity: 0.82;
   filter: saturate(0.55) brightness(0.96);
-  border-color: color-mix(in srgb, var(--accent) 72%, var(--border-subtle));
   background: linear-gradient(
       90deg,
       color-mix(in srgb, var(--accent) 18%, transparent),
       transparent 38%
     ),
     color-mix(in srgb, var(--surface) 58%, var(--bg));
-  box-shadow:
-    inset 3px 0 0 var(--accent),
-    0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 .ac-card.ac-selected.ac-expired {
   background: linear-gradient(
@@ -1660,7 +1756,7 @@ button:focus-visible {
 /* Head row: email + badges + actions */
 .ac-head {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 6px;
   min-width: 0;
@@ -1676,6 +1772,28 @@ button:focus-visible {
   white-space: nowrap;
   letter-spacing: -0.02em;
   line-height: 1.2;
+}
+.ac-copy-btn {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.72;
+  transition: opacity var(--t-fast), color var(--t-fast), background var(--t-fast), border-color var(--t-fast);
+}
+.ac-copy-btn:hover {
+  opacity: 1;
+  color: var(--text);
+  background: var(--surface-hover);
+  border-color: var(--border-glass-hover);
 }
 .ac-meta {
   display: grid;

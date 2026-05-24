@@ -1,17 +1,17 @@
 import {
-    compareAccountsByUiState,
-    deriveAccountUiState,
-    getAvailableAccountCount,
-    shouldRequestQuotaSelfHeal,
-    shouldShowExhaustedNoDataDash
+  compareAccountsByUiState,
+  deriveAccountUiState,
+  getAvailableAccountCount,
+  shouldRequestQuotaSelfHeal,
+  shouldShowExhaustedNoDataDash
 } from "./account-ui-state";
 import {
-    clampAccountScrollTop,
-    filterAccountsForQuery,
-    getFilteredAccountIds,
-    normalizeAccountSelection,
-    reconcileQuotaFetchingIds,
-    requestQuotaSelfHealOnce,
+  clampAccountScrollTop,
+  filterAccountsForQuery,
+  getFilteredAccountIds,
+  normalizeAccountSelection,
+  reconcileQuotaFetchingIds,
+  requestQuotaSelfHealOnce,
 } from "./account-webview-state";
 import "./main.css";
 
@@ -96,6 +96,13 @@ interface QuotaSnapshot {
   warningLevel: "ok" | "warn" | "critical";
   real?: RealQuotaInfo;
 }
+
+type AccountSortMode =
+  | "smart"
+  | "balanceDesc"
+  | "balanceAsc"
+  | "daysDesc"
+  | "daysAsc";
 
 interface ShortcutItem {
   id: string;
@@ -259,6 +266,8 @@ const SVG_ICONS: Record<string, string> = {
   xCircle:
     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
   copy: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>',
+  moreHorizontal:
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>',
   key: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>',
   checkSquare:
     '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>',
@@ -297,6 +306,8 @@ let state = {
   addEmail: "",
   addPassword: "",
   accountSearchQuery: "",
+  accountSortMode: "smart" as AccountSortMode,
+  accountMoreOpen: false,
   selectMode: false,
   selectedAccountIds: new Set<string>(),
   // Shortcut
@@ -669,6 +680,50 @@ function sortAccountsByUiState(
   return [...accounts].sort((a, b) => compareAccountsByUiState(a, b, currentAccountId, snapshotMap));
 }
 
+function getAccountBalanceMicros(account: WindsurfAccount, snapshotMap: Map<string, QuotaSnapshot>): number | undefined {
+  const value = snapshotMap.get(account.id)?.real?.overageBalanceMicros;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function getAccountPlanDaysLeft(account: WindsurfAccount, snapshotMap: Map<string, QuotaSnapshot>): number | undefined {
+  const timestamp = snapshotMap.get(account.id)?.real?.planEndTimestamp;
+  if (typeof timestamp !== "number" || !Number.isFinite(timestamp) || timestamp <= 0) return undefined;
+  return Math.max(0, Math.ceil((timestamp - Date.now()) / 86_400_000));
+}
+
+function compareOptionalNumber(a: number | undefined, b: number | undefined, direction: "asc" | "desc"): number {
+  const aMissing = a === undefined;
+  const bMissing = b === undefined;
+  if (aMissing && bMissing) return 0;
+  if (aMissing) return 1;
+  if (bMissing) return -1;
+  return direction === "desc" ? b - a : a - b;
+}
+
+function sortAccounts(
+  accounts: WindsurfAccount[],
+  currentAccountId: string | undefined,
+  snapshotMap: Map<string, QuotaSnapshot>,
+): WindsurfAccount[] {
+  if (state.accountSortMode === "smart") {
+    return sortAccountsByUiState(accounts, currentAccountId, snapshotMap);
+  }
+
+  const direction = state.accountSortMode.endsWith("Desc") ? "desc" : "asc";
+  const metric =
+    state.accountSortMode.startsWith("balance")
+      ? (account: WindsurfAccount) => getAccountBalanceMicros(account, snapshotMap)
+      : (account: WindsurfAccount) => getAccountPlanDaysLeft(account, snapshotMap);
+
+  return [...accounts].sort((a, b) => {
+    if (a.id === currentAccountId) return -1;
+    if (b.id === currentAccountId) return 1;
+    const metricDiff = compareOptionalNumber(metric(a), metric(b), direction);
+    if (metricDiff !== 0) return metricDiff;
+    return compareAccountsByUiState(a, b, currentAccountId, snapshotMap);
+  });
+}
+
 // ---- Account Tab ----
 
 function filterAccounts(accounts: WindsurfAccount[], query: string): WindsurfAccount[] {
@@ -686,10 +741,41 @@ function renderAccountSearchRow(): string {
     </div>`;
 }
 
+function renderAccountToolbar(accounts: WindsurfAccount[]): string {
+  const hasAccounts = accounts.length > 0;
+  return `
+    <div class="btn-group account-toolbar">
+      ${!state.selectMode && !state.showAddAccount && !state.showImportAccount ? `
+      <button class="btn-xs btn-icon" data-action="toggleImportAccount">${icon("upload")} 添加</button>
+      ${hasAccounts ? `
+      <label class="account-sort-control" title="账号排序">
+        <span>排序</span>
+        <select id="accountSortMode" class="account-sort-select">
+          <option value="smart" ${state.accountSortMode === "smart" ? "selected" : ""}>智能</option>
+          <option value="balanceDesc" ${state.accountSortMode === "balanceDesc" ? "selected" : ""}>金额 ↓</option>
+          <option value="balanceAsc" ${state.accountSortMode === "balanceAsc" ? "selected" : ""}>金额 ↑</option>
+          <option value="daysDesc" ${state.accountSortMode === "daysDesc" ? "selected" : ""}>天数 ↓</option>
+          <option value="daysAsc" ${state.accountSortMode === "daysAsc" ? "selected" : ""}>天数 ↑</option>
+        </select>
+      </label>
+      <div class="account-more-wrap">
+        <button class="btn-xs btn-icon account-more-btn" data-action="toggleAccountMore" type="button" title="更多操作" aria-expanded="${state.accountMoreOpen ? "true" : "false"}">${icon("moreHorizontal")} 更多</button>
+        ${state.accountMoreOpen ? `
+        <div class="account-more-menu">
+          <button class="account-more-item" data-action="toggleSelectMode" type="button">${icon("checkSquare")} 选择删除</button>
+          <button class="account-more-item account-more-danger" data-action="accountClear" type="button">${icon("trash")} 清空</button>
+          <button class="account-more-item" data-action="batchRefreshQuota" type="button" ${state.batchRefreshing ? "disabled" : ""}>${icon("refresh")} 刷新</button>
+          <button class="account-more-item" data-action="accountExport" type="button">${icon("download")} 导出</button>
+        </div>` : ""}
+      </div>` : ""}
+      ` : ""}
+    </div>`;
+}
+
 function getAccountTabData(bs: Bootstrap) {
   const snapshotMap = buildSnapshotMap(bs.quotaSnapshots);
   const availableCount = getAvailableAccountCount(bs.accounts, bs.currentAccountId, snapshotMap);
-  const sorted = sortAccountsByUiState(bs.accounts, bs.currentAccountId, snapshotMap);
+  const sorted = sortAccounts(bs.accounts, bs.currentAccountId, snapshotMap);
   const filtered = filterAccounts(sorted, state.accountSearchQuery);
   const viewportHeight = state.accountViewportHeight || ACCOUNT_ROW_HEIGHT * 6;
   const totalHeight = filtered.length * ACCOUNT_ROW_HEIGHT;
@@ -732,7 +818,7 @@ function renderAccountListContent(bs: Bootstrap): string {
             )
             .join("")}
         </div>`
-    : `<div class="empty-state">${icon("inbox", "empty-icon")} <p>${state.accountSearchQuery ? "未找到匹配账号" : "暂无账号，点击批量添加导入"}</p></div>`;
+    : `<div class="empty-state">${icon("inbox", "empty-icon")} <p>${state.accountSearchQuery ? "未找到匹配账号" : "暂无账号，点击添加导入"}</p></div>`;
 }
 
 function patchAccountTab(): void {
@@ -772,17 +858,9 @@ function renderAccountTab(bs: Bootstrap): string {
   return `
     <div class="tab-content">
       <section class="card">
-        <div class="section-header">
+        <div class="section-header account-section-header">
           <h2 id="accountTabTitle">账号 (${availableCount}/${accounts.length})</h2>
-          <div class="btn-group">
-            ${!state.selectMode && !state.showAddAccount && !state.showImportAccount ? `
-            <button class="btn-xs btn-icon" data-action="toggleImportAccount">${icon("upload")} 批量添加</button>
-            ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="toggleSelectMode" title="多选删除">${icon("checkSquare")} 选择</button>` : ""}
-            ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="accountClear" title="清空">${icon("trash")}</button>` : ""}
-            ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="batchRefreshQuota">${icon("refresh")} 批量刷新</button>` : ""}
-            ${accounts.length > 0 ? `<button class="btn-xs btn-icon" data-action="accountExport">${icon("download")} 导出</button>` : ""}
-            ` : ""}
-          </div>
+          ${renderAccountToolbar(accounts)}
           ${
             state.selectMode
               ? `
@@ -998,6 +1076,15 @@ function renderAccountItem(
         <div class="ac-head">
           ${state.selectMode ? `<input type="checkbox" class="ac-checkbox" data-action="toggleSelect" data-id="${a.id}" ${isSelected ? "checked" : ""}>` : ""}
           <span class="ac-email" title="${escapeHtml(a.email)}">${escapeHtml(a.email)}</span>
+          <button
+            class="ac-copy-btn"
+            data-action="accountCopyEmail"
+            data-id="${a.id}"
+            data-email="${escapeHtml(a.email)}"
+            type="button"
+            title="复制账号"
+            aria-label="复制账号 ${escapeHtml(a.email)}"
+          >${icon("copy")}</button>
           <div class="ac-meta">
             <div class="ac-tags">
               <span class="plan-badge plan-${a.plan.toLowerCase()}" style="--plan-color:${planColor}" title="${escapeHtml(`${a.plan}${planEndText ? ` · 剩余 ${planEndText}` : ""}`)}">${planIcon(a.plan)} ${a.plan}${planEndText ? ` · ${planEndText}` : ""}</span>
@@ -1733,6 +1820,17 @@ function bindAccountTabEvents(): void {
     });
   }
 
+  const accountSortMode = document.getElementById("accountSortMode") as HTMLSelectElement | null;
+  if (accountSortMode && accountSortMode.dataset.bound !== "true") {
+    accountSortMode.dataset.bound = "true";
+    accountSortMode.addEventListener("change", () => {
+      state.accountSortMode = accountSortMode.value as AccountSortMode;
+      state.accountScrollTop = 0;
+      state.accountMoreOpen = false;
+      patchAccountTab();
+    });
+  }
+
   const accountViewport = document.getElementById("accountListViewport") as HTMLDivElement | null;
   if (accountViewport) {
     accountViewport.scrollTop = state.accountScrollTop;
@@ -1800,6 +1898,24 @@ function bindAccountTabEvents(): void {
 // ---- Bind Events ----
 
 function bindEvents(): void {
+  // Settings toggles whose change must persist immediately (no "Save" button required)
+  const showBalanceToggle = document.getElementById(
+    "settingShowAccountBalance",
+  ) as HTMLInputElement | null;
+  if (showBalanceToggle && showBalanceToggle.dataset.bound !== "true") {
+    showBalanceToggle.dataset.bound = "true";
+    showBalanceToggle.addEventListener("change", () => {
+      const value = showBalanceToggle.checked;
+      const bs = window.__QUOTE_BOOTSTRAP__;
+      if (bs?.settings) bs.settings.showAccountBalance = value;
+      vscode.postMessage({
+        type: "settingsUpdate",
+        payload: { showAccountBalance: value },
+      });
+      if (state.activeTab === "account") patchAccountTab();
+    });
+  }
+
   // Tab navigation
   document.querySelectorAll<HTMLButtonElement>(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -2299,7 +2415,21 @@ function handleAction(el: HTMLElement): void {
       }
       break;
     case "accountClear":
+      state.accountMoreOpen = false;
       vscode.postMessage({ type: "accountClear" });
+      break;
+    case "accountCopyEmail": {
+      const email = el.dataset.email;
+      if (email) {
+        void navigator.clipboard.writeText(email).then(() => {
+          showToast("账号已复制", "success");
+        });
+      }
+      break;
+    }
+    case "toggleAccountMore":
+      state.accountMoreOpen = !state.accountMoreOpen;
+      render();
       break;
     case "accountSearchClear": {
       state.accountSearchQuery = "";
@@ -2311,6 +2441,7 @@ function handleAction(el: HTMLElement): void {
     }
     case "toggleSelectMode":
       state.selectMode = !state.selectMode;
+      state.accountMoreOpen = false;
       if (!state.selectMode) state.selectedAccountIds = new Set();
       render();
       break;
@@ -2622,6 +2753,7 @@ function handleAction(el: HTMLElement): void {
     case "batchRefreshQuota": {
       const bs = window.__QUOTE_BOOTSTRAP__;
       if (bs && bs.accounts.length > 0 && !state.batchRefreshing) {
+        state.accountMoreOpen = false;
         state.batchRefreshing = true;
         state.batchRefreshCurrent = 0;
         state.batchRefreshTotal = bs.accounts.length;
@@ -2633,6 +2765,7 @@ function handleAction(el: HTMLElement): void {
 
     // Export
     case "accountExport":
+      state.accountMoreOpen = false;
       vscode.postMessage({ type: "accountExport" });
       break;
 

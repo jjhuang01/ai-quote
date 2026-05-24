@@ -107,6 +107,56 @@ describe('account-webview-state', () => {
     expect(handlerSource).toContain("accountViewport.contains(actionEl)");
   });
 
+  it('keeps add and sorting visible while moving destructive account actions into more menu', () => {
+    const source = readFileSync('media/main.ts', 'utf8');
+    const toolbar = source.match(/function renderAccountToolbar[\s\S]*?function getAccountTabData/)?.[0] ?? '';
+
+    expect(toolbar).toContain('data-action="toggleImportAccount"');
+    expect(toolbar).toContain('添加');
+    expect(toolbar).toContain('id="accountSortMode"');
+    expect(toolbar).toContain('金额 ↓');
+    expect(toolbar).toContain('天数 ↑');
+    expect(toolbar).toContain('data-action="toggleAccountMore"');
+    expect(toolbar).toContain('data-action="batchRefreshQuota"');
+    expect(toolbar).toContain('刷新</button>');
+    expect(toolbar).toContain('data-action="accountExport"');
+    expect(toolbar).toContain('data-action="accountClear"');
+    expect(toolbar).not.toContain('批量添加');
+    expect(toolbar).not.toContain('批量刷新');
+  });
+
+  it('wires account email copy as an account action without switching cards', () => {
+    const source = readFileSync('media/main.ts', 'utf8');
+    const accountItem = source.match(/function renderAccountItem[\s\S]*?function renderHistoryTab/)?.[0] ?? '';
+    const copyCase = source.match(/case "accountCopyEmail": \{[\s\S]*?break;\n\s*\}/)?.[0] ?? '';
+
+    expect(accountItem).toContain('data-action="accountCopyEmail"');
+    expect(accountItem).toContain('class="ac-copy-btn"');
+    expect(copyCase).toContain('navigator.clipboard.writeText(email)');
+    expect(copyCase).toContain('账号已复制');
+  });
+
+  it('sorts account list through selected account sort mode before filtering', () => {
+    const source = readFileSync('media/main.ts', 'utf8');
+    const tabData = source.match(/function getAccountTabData[\s\S]*?function renderAccountListContent/)?.[0] ?? '';
+    const sortEvents = source.match(/const accountSortMode[\s\S]*?accountViewport/)?.[0] ?? '';
+
+    expect(tabData).toContain('const sorted = sortAccounts(');
+    expect(sortEvents).toContain('state.accountSortMode = accountSortMode.value as AccountSortMode');
+    expect(sortEvents).toContain('patchAccountTab();');
+  });
+
+  it('keeps the current account first before applying manual account sorting metrics', () => {
+    const source = readFileSync('media/main.ts', 'utf8');
+    const sortAccounts = source.match(/function sortAccounts\([\s\S]*?function filterAccounts/)?.[0] ?? '';
+    const currentFirstIndex = sortAccounts.indexOf('if (a.id === currentAccountId) return -1;');
+    const metricDiffIndex = sortAccounts.indexOf('const metricDiff = compareOptionalNumber');
+
+    expect(currentFirstIndex).toBeGreaterThan(-1);
+    expect(sortAccounts).toContain('if (b.id === currentAccountId) return 1;');
+    expect(metricDiffIndex).toBeGreaterThan(currentFirstIndex);
+  });
+
   it('places reset machine id action in settings instead of account tab', () => {
     const source = readFileSync('media/main.ts', 'utf8');
     const accountTab = source.match(/function renderAccountTab[\s\S]*?function renderAccountItem/)?.[0] ?? '';
