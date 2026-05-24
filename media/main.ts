@@ -1128,10 +1128,14 @@ function renderAccountItem(
   };
 
   const switching = state.switchLoadingId === a.id;
+  const refreshing =
+    !switching &&
+    (state.quotaFetchingIds.has(a.id) ||
+      (bs.quotaFetchingIds ?? []).includes(a.id));
   const isSelected = state.selectedAccountIds.has(a.id);
   return `
     <div class="ac-virtual-row" data-index="${index}" data-id="${a.id}" style="top:${index * ACCOUNT_ROW_HEIGHT}px">
-      <div class="ac-card ${ui.isCurrent ? "ac-active" : ""} ${ui.isExpired ? "ac-expired" : ui.isUnavailable ? "ac-unavailable" : ""} ${q?.warningLevel === "critical" && !isDisabled ? "ac-crit" : q?.warningLevel === "warn" && !isDisabled ? "ac-warn" : ""} ${isSelected ? "ac-selected" : ""} ${switching ? "ac-switching" : ""}" data-id="${a.id}">
+      <div class="ac-card ${ui.isCurrent ? "ac-active" : ""} ${ui.isExpired ? "ac-expired" : ui.isUnavailable ? "ac-unavailable" : ""} ${q?.warningLevel === "critical" && !isDisabled ? "ac-crit" : q?.warningLevel === "warn" && !isDisabled ? "ac-warn" : ""} ${isSelected ? "ac-selected" : ""} ${switching ? "ac-switching" : ""} ${refreshing ? "ac-refreshing" : ""}" data-id="${a.id}">
         <div class="ac-head">
           ${state.selectMode ? `<input type="checkbox" class="ac-checkbox" data-action="toggleSelect" data-id="${a.id}" ${isSelected ? "checked" : ""}>` : ""}
           <div class="ac-id">
@@ -1166,6 +1170,7 @@ function renderAccountItem(
           </div>
         </div>
         ${switching ? '<div class="ac-switching-bar"></div>' : ""}
+        ${refreshing ? '<div class="ac-refreshing-bar"></div>' : ""}
       </div>
     </div>`;
 }
@@ -1940,20 +1945,30 @@ function bindAccountTabEvents(): void {
         e.preventDefault();
         e.stopPropagation();
         state.accountMoreOpen = false;
-        // 锚定到卡片：X 取卡片左边缘 + 内边距（视觉上"从卡片里弹出"，
-        // 不受光标横向位置抖动影响）；Y 默认在光标下方，靠近视口底部时
-        // 自动翻转到光标上方，避免遮挡下方账号卡片。
+        // 借鉴 Floating UI 的 reference-element-based positioning：
+        // 完全用卡片矩形做锚点，忽略光标位置（光标可能落在卡片任意位置，
+        // 用 e.clientY 会让菜单"漂"远离卡片视觉中心）。
+        //   • placement = "card-top-start"：菜单 top-left 对齐卡片 top-left + 内边距
+        //   • flip middleware：底部空间不足时改成卡片下方/上翻
+        //   • shift middleware：由 adjustAccountContextMenuPosition() 渲染后做边界裁剪
         const cardRect = card.getBoundingClientRect();
         const estMenuH = 160;
-        const spaceBelow = window.innerHeight - e.clientY;
-        const flipUp = spaceBelow < estMenuH + 16;
-        state.accountContextMenu = {
-          id,
-          x: Math.max(8, cardRect.left + 12),
-          y: flipUp
-            ? Math.max(8, e.clientY - estMenuH - 4)
-            : e.clientY + 4,
-        };
+        const estMenuW = 200;
+        const spaceBelow = window.innerHeight - cardRect.top;
+        const spaceAbove = cardRect.bottom;
+        let menuY: number;
+        if (spaceBelow >= estMenuH + 16) {
+          menuY = cardRect.top + 4;
+        } else if (spaceAbove >= estMenuH + 16) {
+          menuY = Math.max(8, cardRect.bottom - estMenuH - 4);
+        } else {
+          menuY = Math.max(8, window.innerHeight - estMenuH - 8);
+        }
+        const menuX = Math.max(
+          8,
+          Math.min(cardRect.left + 12, window.innerWidth - estMenuW - 8),
+        );
+        state.accountContextMenu = { id, x: menuX, y: menuY };
         render();
         window.requestAnimationFrame(() => adjustAccountContextMenuPosition());
       });

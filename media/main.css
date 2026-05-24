@@ -1987,6 +1987,39 @@ button:focus-visible {
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
   animation: ac-slide 0.9s ease-in-out infinite;
 }
+/* Refreshing loading: 顶部进度条 + 轻微背景脉冲，不锁定交互 */
+.ac-card.ac-refreshing {
+  position: relative;
+}
+.ac-card.ac-refreshing::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  pointer-events: none;
+  animation: ac-refresh-pulse 1.4s ease-in-out infinite;
+}
+.ac-refreshing-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 35%;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--accent) 75%, #4fc3f7),
+    transparent
+  );
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  animation: ac-slide 1.1s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes ac-refresh-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
 @keyframes ac-slide {
   0% {
     transform: translateX(-100%);
