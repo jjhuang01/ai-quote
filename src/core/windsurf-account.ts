@@ -2341,6 +2341,20 @@ export class WindsurfAccountManager {
     if ((!next.billingStrategy || next.billingStrategy === "") && prev.billingStrategy) {
       merged.billingStrategy = prev.billingStrategy;
     }
+    // 百分比 -1 = 当前来源未提供该字段；保留旧值避免视觉抖动（0% 是合法耗尽，需保留覆盖）
+    if (next.dailyRemainingPercent < 0 && prev.dailyRemainingPercent >= 0) {
+      merged.dailyRemainingPercent = prev.dailyRemainingPercent;
+    }
+    if (next.weeklyRemainingPercent < 0 && prev.weeklyRemainingPercent >= 0) {
+      merged.weeklyRemainingPercent = prev.weeklyRemainingPercent;
+    }
+    // resetAt 0 = 当前来源未提供；保留旧值
+    if ((next.dailyResetAtUnix ?? 0) <= 0 && (prev.dailyResetAtUnix ?? 0) > 0) {
+      merged.dailyResetAtUnix = prev.dailyResetAtUnix;
+    }
+    if ((next.weeklyResetAtUnix ?? 0) <= 0 && (prev.weeklyResetAtUnix ?? 0) > 0) {
+      merged.weeklyResetAtUnix = prev.weeklyResetAtUnix;
+    }
     return merged;
   }
 

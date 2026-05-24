@@ -1242,6 +1242,80 @@ describe('WindsurfAccountManager', () => {
       expect(merged?.weeklyRemainingPercent).toBe(48);
     });
 
+    it('后续刷新若来源未带百分比/重置时间, 应保留先前已确认的百分比避免抖动', async () => {
+      await manager.initialize();
+      const a = await manager.add('flick@test.com', 'p');
+      Reflect.set(manager, 'currentAccountId', a.id);
+      a.isActive = true;
+      const quotaFetcher = Reflect.get(manager, 'quotaFetcher') as unknown as TestQuotaFetcher;
+
+      quotaFetcher.fetchQuota = vi.fn(async (_id: string, email: string) => ({
+        success: true,
+        source: 'api',
+        userEmail: email,
+        fetchedAt: new Date().toISOString(),
+        planInfo: {
+          planName: 'Trial',
+          billingStrategy: 'BILLING_STRATEGY_QUOTA',
+          startTimestamp: 0,
+          endTimestamp: 1780669957000,
+          usage: {
+            duration: 0,
+            messages: 0, flowActions: 0, flexCredits: 0,
+            usedMessages: 0, usedFlowActions: 0, usedFlexCredits: 0,
+            remainingMessages: 0, remainingFlowActions: 0, remainingFlexCredits: 0,
+          },
+          hasBillingWritePermissions: false,
+          gracePeriodStatus: 0,
+          quotaUsage: {
+            dailyRemainingPercent: 52,
+            weeklyRemainingPercent: 26,
+            overageBalanceMicros: 0,
+            dailyResetAtUnix: 1779523200,
+            weeklyResetAtUnix: 1779609600,
+          },
+        },
+      }));
+      const r1 = await manager.fetchRealQuota(a.id, { mode: 'manual' });
+      expect(r1.success).toBe(true);
+      expect(manager.getById(a.id)?.realQuota?.dailyRemainingPercent).toBe(52);
+      expect(manager.getById(a.id)?.realQuota?.weeklyRemainingPercent).toBe(26);
+
+      // 模拟后续刷新走的通道未返回百分比（undefined → -1） / reset 时间也缺失
+      quotaFetcher.fetchQuota = vi.fn(async (_id: string, email: string) => ({
+        success: true,
+        source: 'proto',
+        userEmail: email,
+        fetchedAt: new Date(Date.now() + 1000).toISOString(),
+        planInfo: {
+          planName: 'Trial',
+          billingStrategy: 'quota',
+          startTimestamp: 0,
+          endTimestamp: 0,
+          usage: {
+            duration: 0,
+            messages: 0, flowActions: 0, flexCredits: 0,
+            usedMessages: 0, usedFlowActions: 0, usedFlexCredits: 0,
+            remainingMessages: 0, remainingFlowActions: 0, remainingFlexCredits: 0,
+          },
+          hasBillingWritePermissions: false,
+          gracePeriodStatus: 0,
+          quotaUsage: {
+            // dailyRemainingPercent / weeklyRemainingPercent / resetAt 全部缺失
+            overageBalanceMicros: 0,
+          },
+        },
+      }));
+      const r2 = await manager.fetchRealQuota(a.id, { mode: 'auto' });
+      expect(r2.success).toBe(true);
+      const merged = manager.getById(a.id)?.realQuota;
+      expect(merged?.dailyRemainingPercent).toBe(52);
+      expect(merged?.weeklyRemainingPercent).toBe(26);
+      expect(merged?.dailyResetAtUnix).toBe(1779523200);
+      expect(merged?.weeklyResetAtUnix).toBe(1779609600);
+      expect(merged?.source).toBe('proto');
+    });
+
     it('批量刷新遇到登录限流时停止后续账号请求', async () => {
       await manager.initialize();
       await manager.add('a1@test.com', 'p1');
