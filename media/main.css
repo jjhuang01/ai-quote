@@ -1527,33 +1527,9 @@ button:focus-visible {
   justify-content: center;
   overflow: hidden;
   transition:
-    width var(--t-fast),
     background var(--t-fast),
     color var(--t-fast),
     border-color var(--t-fast);
-}
-
-.account-more-btn-text {
-  max-width: 0;
-  opacity: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  transition:
-    max-width var(--t-fast),
-    opacity var(--t-fast);
-}
-
-.account-more-btn:hover,
-.account-more-btn:focus-visible,
-.account-more-btn[aria-expanded="true"] {
-  width: 48px;
-}
-
-.account-more-btn:hover .account-more-btn-text,
-.account-more-btn:focus-visible .account-more-btn-text,
-.account-more-btn[aria-expanded="true"] .account-more-btn-text {
-  max-width: 28px;
-  opacity: 1;
 }
 
 .account-more-menu {
