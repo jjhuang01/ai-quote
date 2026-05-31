@@ -1046,7 +1046,7 @@ export class WindsurfQuotaFetcher {
                 const raw = ps.overageBalanceMicros;
                 if (raw === undefined || raw === null) return 0;
                 const num = typeof raw === 'number' ? raw : Number(raw);
-                return Number.isFinite(num) && num > 0 ? num : 0;
+                return Number.isFinite(num) ? num : 0;
               })();
               if (!isCreditsAccount) {
                 if (dailyRemainingPercent === undefined && dailyResetAtUnix > 0) {

@@ -9,14 +9,14 @@ import { WindsurfAuth } from "../adapters/windsurf-auth";
 import { WindsurfPatchService } from "../adapters/windsurf-patch";
 import { safeReadJson, safeWriteJson } from "../utils/safe-json";
 import type {
-    AutoSwitchConfig,
-    AutoSwitchResult,
-    ImportBatchResult,
-    ImportSkipReasons,
-    ImportTokenResult,
-    QuotaSnapshot,
-    RealQuotaInfo,
-    WindsurfAccount,
+  AutoSwitchConfig,
+  AutoSwitchResult,
+  ImportBatchResult,
+  ImportSkipReasons,
+  ImportTokenResult,
+  QuotaSnapshot,
+  RealQuotaInfo,
+  WindsurfAccount,
 } from "./contracts";
 import { DEFAULT_AUTO_SWITCH, DEFAULT_QUOTA } from "./contracts";
 import type { LoggerLike } from "./logger";
@@ -2329,7 +2329,7 @@ export class WindsurfAccountManager {
   ): RealQuotaInfo {
     if (!prev) return next;
     const merged: RealQuotaInfo = { ...next };
-    if (next.overageBalanceMicros <= 0 && prev.overageBalanceMicros > 0) {
+    if (next.overageBalanceMicros === 0 && prev.overageBalanceMicros !== 0) {
       merged.overageBalanceMicros = prev.overageBalanceMicros;
       merged.overageBalanceSource = prev.overageBalanceSource ?? prev.source;
     }

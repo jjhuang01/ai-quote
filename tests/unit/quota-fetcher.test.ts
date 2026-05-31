@@ -327,6 +327,30 @@ describe('WindsurfQuotaFetcher', () => {
     expect(planInfo?.billingStrategy).toBe('quota');
   });
 
+  it('GetPlanStatus parser 正确解析负数 overageBalanceMicros', async () => {
+    const fetcher = new WindsurfQuotaFetcher(
+      { signIn: vi.fn() } as unknown as ConstructorParameters<typeof WindsurfQuotaFetcher>[0],
+      mockLogger,
+    );
+    mockGetPlanStatusResponse({
+      planStatus: {
+        planInfo: {
+          planName: 'Pro',
+          billingStrategy: 'quota',
+          monthlyPromptCredits: 500,
+          monthlyFlowCredits: 100,
+        },
+        availablePromptCredits: 500,
+        availableFlowCredits: 100,
+        overageBalanceMicros: '-310000',
+      },
+    });
+
+    const planInfo = await callGetPlanStatusForTest(fetcher, 'test-id-token');
+
+    expect(planInfo?.quotaUsage.overageBalanceMicros).toBe(-310000);
+  });
+
   it('GetPlanStatus parser 不把缺失 daily 百分比默认成满额，也不制造无效 reset 时间', async () => {
     const fetcher = new WindsurfQuotaFetcher(
       { signIn: vi.fn() } as unknown as ConstructorParameters<typeof WindsurfQuotaFetcher>[0],

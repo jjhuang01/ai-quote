@@ -175,6 +175,8 @@ describe('account-webview-state', () => {
     expect(source).toContain('formatOverageBalance(rq)');
     expect(formatter).toContain('overageBalance.overageBalanceSource ?? overageBalance.source');
     expect(formatter).toContain('balanceSource !== "api" && balanceSource !== "apikey"');
+    expect(formatter).not.toContain('overageBalanceMicros <= 0');
+    expect(formatter).toContain('overageBalanceMicros === 0');
   });
 
   it('does not animate account quota fill width on repeated rerenders', () => {

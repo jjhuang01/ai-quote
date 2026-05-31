@@ -1242,6 +1242,80 @@ describe('WindsurfAccountManager', () => {
       expect(merged?.weeklyRemainingPercent).toBe(48);
     });
 
+    it('后续刷新返回负数 overageBalance 时应覆盖旧正数余额', async () => {
+      await manager.initialize();
+      const a = await manager.add('neg@test.com', 'p');
+      Reflect.set(manager, 'currentAccountId', a.id);
+      a.isActive = true;
+      const quotaFetcher = Reflect.get(manager, 'quotaFetcher') as unknown as TestQuotaFetcher;
+
+      // 第一次刷新：正数余额 $202.11
+      quotaFetcher.fetchQuota = vi.fn(async (_id: string, email: string) => ({
+        success: true,
+        source: 'api',
+        userEmail: email,
+        fetchedAt: new Date().toISOString(),
+        planInfo: {
+          planName: 'Trial',
+          billingStrategy: 'quota',
+          startTimestamp: 0,
+          endTimestamp: 0,
+          usage: {
+            duration: 0,
+            messages: 0, flowActions: 0, flexCredits: 0,
+            usedMessages: 0, usedFlowActions: 0, usedFlexCredits: 0,
+            remainingMessages: 0, remainingFlowActions: 0, remainingFlexCredits: 0,
+          },
+          hasBillingWritePermissions: false,
+          gracePeriodStatus: 0,
+          quotaUsage: {
+            dailyRemainingPercent: 0,
+            weeklyRemainingPercent: 48,
+            overageBalanceMicros: 202_110_000,
+            dailyResetAtUnix: 1779523200,
+            weeklyResetAtUnix: 1779609600,
+          },
+        },
+      }));
+      const r1 = await manager.fetchRealQuota(a.id, { mode: 'manual' });
+      expect(r1.success).toBe(true);
+      expect(manager.getById(a.id)?.realQuota?.overageBalanceMicros).toBe(202_110_000);
+
+      // 第二次刷新：负数余额 -$0.31，应覆盖旧正数
+      quotaFetcher.fetchQuota = vi.fn(async (_id: string, email: string) => ({
+        success: true,
+        source: 'api',
+        userEmail: email,
+        fetchedAt: new Date(Date.now() + 1000).toISOString(),
+        planInfo: {
+          planName: 'Trial',
+          billingStrategy: 'quota',
+          startTimestamp: 0,
+          endTimestamp: 0,
+          usage: {
+            duration: 0,
+            messages: 0, flowActions: 0, flexCredits: 0,
+            usedMessages: 0, usedFlowActions: 0, usedFlexCredits: 0,
+            remainingMessages: 0, remainingFlowActions: 0, remainingFlexCredits: 0,
+          },
+          hasBillingWritePermissions: false,
+          gracePeriodStatus: 0,
+          quotaUsage: {
+            dailyRemainingPercent: 0,
+            weeklyRemainingPercent: 48,
+            overageBalanceMicros: -310_000,
+            dailyResetAtUnix: 1779523200,
+            weeklyResetAtUnix: 1779609600,
+          },
+        },
+      }));
+      const r2 = await manager.fetchRealQuota(a.id, { mode: 'auto' });
+      expect(r2.success).toBe(true);
+      const merged = manager.getById(a.id)?.realQuota;
+      expect(merged?.overageBalanceMicros).toBe(-310_000);
+      expect(merged?.overageBalanceSource).toBe('api');
+    });
+
     it('后续刷新若来源未带百分比/重置时间, 应保留先前已确认的百分比避免抖动', async () => {
       await manager.initialize();
       const a = await manager.add('flick@test.com', 'p');

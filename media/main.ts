@@ -1,17 +1,17 @@
 import {
-  compareAccountsByUiState,
-  deriveAccountUiState,
-  getAvailableAccountCount,
-  shouldRequestQuotaSelfHeal,
-  shouldShowExhaustedNoDataDash
+    compareAccountsByUiState,
+    deriveAccountUiState,
+    getAvailableAccountCount,
+    shouldRequestQuotaSelfHeal,
+    shouldShowExhaustedNoDataDash
 } from "./account-ui-state";
 import {
-  clampAccountScrollTop,
-  filterAccountsForQuery,
-  getFilteredAccountIds,
-  normalizeAccountSelection,
-  reconcileQuotaFetchingIds,
-  requestQuotaSelfHealOnce,
+    clampAccountScrollTop,
+    filterAccountsForQuery,
+    getFilteredAccountIds,
+    normalizeAccountSelection,
+    reconcileQuotaFetchingIds,
+    requestQuotaSelfHealOnce,
 } from "./account-webview-state";
 import "./main.css";
 
@@ -1262,7 +1262,7 @@ function formatOverageBalance(overageBalance: RealQuotaInfo | undefined): string
   if (!overageBalance) return "";
   const balanceSource = overageBalance.overageBalanceSource ?? overageBalance.source;
   if (balanceSource !== "api" && balanceSource !== "apikey") return "";
-  if (typeof overageBalance.overageBalanceMicros !== "number" || overageBalance.overageBalanceMicros <= 0) return "";
+  if (typeof overageBalance.overageBalanceMicros !== "number" || overageBalance.overageBalanceMicros === 0) return "";
   const dollars = overageBalance.overageBalanceMicros / 1_000_000;
   return `$${dollars.toFixed(2)}`;
 }
