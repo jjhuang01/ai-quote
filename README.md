@@ -12,6 +12,10 @@ Windsurf 账号管理 VS Code 扩展。支持多账号切换、配额统计、�
 | ------------------------------------------------------------------- | ----------------------------------------------------- |
 | ![Dialog Overview](docs/screenshots/screenshot-dialog-overview.png) | ![Settings](docs/screenshots/screenshot-settings.png) |
 
+| 完整侧边栏视图                                                        |
+| --------------------------------------------------------------------- |
+| ![Full View](docs/screenshots/screenshot-full-view.png)               |
+
 ---
 
 ## 安装 / Install
