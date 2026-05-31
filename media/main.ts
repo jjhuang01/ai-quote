@@ -1012,11 +1012,12 @@ function renderAccountTab(bs: Bootstrap): string {
           <div class="account-list-viewport" id="accountListViewport">
             ${renderAccountListContent(bs)}
           </div>
-          ${renderAccountContextMenu(bs)}
         </div>
       </section>
 
       ${state.editingQuotaAccountId ? renderQuotaEditor(bs) : ""}
+
+      ${renderAccountContextMenu(bs)}
 
       <section class="card">
         <div class="section-header"><h2>自动切换</h2></div>
