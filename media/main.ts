@@ -872,6 +872,7 @@ function renderAccountContextMenu(bs: Bootstrap): string {
       <div class="account-context-header" title="${email}"><span class="account-context-email">${email}</span></div>
       <div class="account-context-divider" role="separator"></div>
       <button class="account-context-item" data-action="accountCopyEmail" data-id="${account.id}" data-email="${email}" type="button" role="menuitem">${icon("copy")} 复制账号</button>
+      <button class="account-context-item" data-action="accountCopyPassword" data-id="${account.id}" type="button" role="menuitem">${icon("key")} 复制密码</button>
       <button class="account-context-item" data-action="fetchQuota" data-id="${account.id}" type="button" role="menuitem" ${quotaRefreshing ? "disabled" : ""}>${icon("refresh")} ${quotaRefreshing ? "刷新中" : "刷新额度"}</button>
       <button class="account-context-item account-context-danger" data-action="accountDelete" data-id="${account.id}" type="button" role="menuitem">${icon("trash")} 删除账号</button>
     </div>`;
@@ -2555,6 +2556,14 @@ function handleAction(el: HTMLElement): void {
         void navigator.clipboard.writeText(email).then(() => {
           showToast("账号已复制", "success");
         });
+      }
+      break;
+    }
+    case "accountCopyPassword": {
+      const accountId = el.dataset.id;
+      if (accountId) {
+        state.accountContextMenu = undefined;
+        vscode.postMessage({ type: "accountCopyPassword", value: accountId });
       }
       break;
     }

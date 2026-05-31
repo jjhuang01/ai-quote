@@ -814,6 +814,25 @@ export class QuoteSidebarProvider implements vscode.WebviewViewProvider {
           });
         }
         return true;
+      case 'accountCopyPassword': {
+        const id = typeof value === 'string' ? value : undefined;
+        if (id) {
+          const account = this.dataManager.windsurfAccounts.getById(id);
+          if (account && account.password) {
+            await vscode.env.clipboard.writeText(account.password);
+            void this.view?.webview.postMessage({
+              type: 'opResult',
+              value: { message: `密码已复制 (${account.email})` },
+            });
+          } else {
+            void this.view?.webview.postMessage({
+              type: 'opResult',
+              value: { message: '该账号无密码' },
+            });
+          }
+        }
+        return true;
+      }
       case 'accountDelete':
         if (typeof value === 'string') {
           const account = this.dataManager.windsurfAccounts.getById(value);
