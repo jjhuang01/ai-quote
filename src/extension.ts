@@ -499,11 +499,7 @@ export async function activate(
   try {
     const hookResult = await WindsurfHooksManager.injectHook(runningPort, logger);
     logger?.info('Windsurf hook injection result', hookResult);
-    if (hookResult.success && hookResult.message === 'Hook injected successfully') {
-      void vscode.window.showInformationMessage(
-        `Windsurf Hook 已注入，路径: ${WindsurfHooksManager.getHooksFilePath()}`
-      );
-    } else if (!hookResult.success) {
+    if (!hookResult.success) {
       void vscode.window.showWarningMessage(`Windsurf Hook 注入失败: ${hookResult.message}`);
     }
   } catch (error) {
@@ -725,11 +721,7 @@ export async function activate(
       if (!bridge) {
         return;
       }
-      const status = bridge.getStatus();
       await updateStatusBar();
-      void vscode.window.showInformationMessage(
-        `Windsurf Quote bridge ${status.running ? "running" : "stopped"} · port ${status.port} · IDE ${status.currentIde}`,
-      );
     }),
     vscode.commands.registerCommand("quote.copyPort", () => {
       if (!bridge) return;
