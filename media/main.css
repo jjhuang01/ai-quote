@@ -2140,7 +2140,11 @@ button:focus-visible {
 }
 
 .account-context-header {
-  padding: 4px 8px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 6px 6px 8px;
   color: var(--muted);
   font-size: 10px;
   letter-spacing: 0.02em;
@@ -2155,6 +2159,32 @@ button:focus-visible {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.account-context-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+
+.account-context-close:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text);
+}
+
+.account-context-close:active {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
 }
 
 .account-context-divider {
