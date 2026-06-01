@@ -2167,14 +2167,18 @@ button:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
+  flex-shrink: 0;
+  margin-left: auto;
+  line-height: 1;
   transition: background var(--t-fast), color var(--t-fast);
 }
 
